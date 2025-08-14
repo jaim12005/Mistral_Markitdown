@@ -1,0 +1,16 @@
+# Core Requirements
+markitdown[all]>=0.1.0
+mistralai>=1.0.0
+
+# Document Processing
+pdfplumber>=0.10.0
+pandas>=2.0.0
+tabulate>=0.9.0
+camelot-py[cv]>=0.11.0
+
+# Image Processing
+pdf2image>=1.16.0
+Pillow>=10.0.0
+
+# Development / Optional
+python-dotenv>=1.0.0
