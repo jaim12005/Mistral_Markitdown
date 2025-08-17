@@ -97,6 +97,58 @@ This launches a menu where you can choose a mode:
 -   Plain text versions of the output will be in the `output_txt/` directory.
 -   Images extracted during OCR will be in the `output_images/` directory.
 
+## Output Files by Mode
+
+Below is a quick reference of the files produced in each mode and where they are written. File names are shown as patterns using `<name>` for the original file stem.
+
+### MarkItDown Only
+
+- `output_md/<name>.md`
+  - Enhanced Markdown with YAML frontmatter and standardized image links.
+- `output_txt/<name>.txt`
+  - Plain-text export of the Markdown for search/indexing.
+
+### PDF Table Extraction (part of MarkItDown/Hybrid for PDFs)
+
+- `output_md/<name>_tables_all.md`
+  - Contains all detected/reshaped tables, each under "### Table N".
+- `output_md/<name>_tables_wide.md`
+  - The single "widest" table (most columns). Useful for month-wide financial statements.
+- `output_md/<name>_tables.md`
+  - A compact subset (commonly Account + key summary columns like Current Balance) for quick review.
+  - Note: If reshaping fails, raw tables may be kept; quality depends on the PDF and detectors.
+
+### Mistral OCR Only
+
+- `output_md/<name>_mistral_ocr.md`
+  - Page-by-page OCR Markdown. If `MISTRAL_INCLUDE_IMAGES=true`, images are embedded and linked.
+- `output_md/<name>_ocr_metadata.json`
+  - Structured JSON with page text blocks, image metadata (bbox, description), and summary.
+- `output_txt/<name>_mistral_ocr.txt`
+  - Plain-text export of the OCR Markdown.
+- `output_images/<name>_ocr/`
+  - Extracted images from OCR. Each image may have a corresponding `.metadata.json` sidecar with details.
+
+### Hybrid Mode (Recommended for PDFs)
+
+- `output_md/<name>_combined.md`
+  - Aggregated report combining MarkItDown content, local table extraction, and OCR analysis.
+- `output_txt/<name>_combined.txt`
+  - Plain-text export of the combined Markdown.
+- Also produced alongside (when applicable): the three table files above and OCR outputs listed under Mistral OCR.
+
+### PDF → Images (Utility)
+
+- `output_images/<pdfname>_pages/`
+  - All pages rendered to PNG (requires Poppler). Useful for visual review and OCR fallback.
+
+### Caches and Logs
+
+- `cache/`
+  - OCR cache entries to avoid reprocessing (duration configurable via `CACHE_DURATION_HOURS`).
+- `logs/`
+  - Session metadata and optional raw OCR JSON dumps (`SAVE_MISTRAL_JSON=true`). Safe to delete anytime.
+
 ## How it Works
 
 ### Hybrid Pipeline

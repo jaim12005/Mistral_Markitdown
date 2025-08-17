@@ -21,7 +21,16 @@
   - Weak pages are re‑OCRed via `pages=[index]`; if Poppler is available we render the page to PNG and re‑OCR as an image.
 - Hybrid (Option 1):
   - MarkItDown primary + PDF table extraction; OCR adds page‑by‑page analysis; a `_combined.md` is produced.
-- Outputs: Markdown to `output_md/`, text to `output_txt/`, OCR images and PDF→image pages to `output_images/`.
+- Outputs:
+  - Markdown (`output_md/`):
+    - MarkItDown: `<name>.md`
+    - PDF tables: `<name>_tables_all.md`, `<name>_tables_wide.md`, `<name>_tables.md`
+    - Mistral OCR: `<name>_mistral_ocr.md`, plus `<name>_ocr_metadata.json`
+    - Hybrid (PDFs): `<name>_combined.md`
+  - Text (`output_txt/`): plain‑text exports matching the above Markdown files
+  - Images (`output_images/`):
+    - OCR‑extracted images under `<name>_ocr/` (with optional `.metadata.json` sidecars)
+    - PDF→Images pages under `<pdfname>_pages/`
 
 ## Coding Style & Practices
 - Python 3.10+, PEP8, 4 spaces, type hints where helpful. Use `pathlib.Path`.

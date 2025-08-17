@@ -37,6 +37,14 @@ if errorlevel 1 (
     python -m pip install -U --upgrade-strategy eager -r requirements.txt
 )
 
+REM Ensure .env exists (create from template if available)
+if not exist ".env" (
+  if exist ".env.example" (
+    copy /Y ".env.example" ".env" >nul
+    echo Created .env from .env.example. Edit .env to add API keys (e.g., MISTRAL_API_KEY).
+  )
+)
+
 echo Setup complete.
 echo.
 
