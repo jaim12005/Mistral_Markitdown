@@ -14,6 +14,11 @@
 - Configure: `cp .env.example .env`; set `MISTRAL_API_KEY`; set `POPPLER_PATH` (Windows) for PDF→image and re‑OCR fallback.
 - Run: `python main.py` (or use `run_converter.bat` / `bash quick_start.sh`).
 
+### Windows installer behavior (`run_converter.bat`)
+- Shows a dot progress indicator during installation steps.
+- Upgrades `pip`, `setuptools`, and `wheel`; installs/updates deps with `--upgrade-strategy eager`.
+- Logs installer output to `logs/pip_install.log` and writes installed versions to `logs/installed_versions.txt`.
+
 ## Architecture Notes
 - OCR (Option 4):
   - PDFs and large images are uploaded via `files.upload(..., purpose="ocr")` and processed with `document={"type":"file","file_id":...}`.

@@ -5,7 +5,7 @@ This project provides a practical, cross‑platform document conversion tool tha
 ## Quick Start
 
 - Windows (recommended):
-  - Run `run_converter.bat` (creates `env`, installs deps, launches app)
+  - Run `run_converter.bat` (creates `env`, upgrades pip/setuptools/wheel, installs/updates deps with eager strategy, shows a dot progress indicator during install, logs to `logs/pip_install.log`, then launches the app)
 - macOS/Linux:
   - Run `bash quick_start.sh` (creates `env`, installs deps, runs smoke test)
 - Manual:
@@ -185,6 +185,21 @@ This approach uses each engine where it excels and produces clear, reusable Mark
 
 - Windows: run `run_converter.bat` to create `env`, install dependencies, and start the app.
 - macOS/Linux: run `bash quick_start.sh` to set up and run a smoke test.
+
+## Installer behavior and progress (Windows)
+
+When you run `run_converter.bat`, the script ensures a clean, up‑to‑date environment and provides a simple visual progress indicator during installation steps:
+
+- Upgrades core build tools: `pip`, `setuptools`, and `wheel`.
+- Installs or upgrades all project dependencies using:
+  - `pip install -U --upgrade-strategy eager -r requirements.txt`
+- Shows a dot progress indicator while each step runs. The console prints dots until the step completes.
+- Performs a post‑install check: `pip check`.
+- Writes a full snapshot of installed versions to `logs/installed_versions.txt`.
+- Writes detailed installer logs to `logs/pip_install.log`.
+- Runs entirely with the local venv interpreter (`env\Scripts\python.exe`) without activating the venv, preventing PATH contamination.
+
+If an installation step appears to stall, open `logs/pip_install.log` in your editor for real‑time details.
 
 ## Requirements and Notes
 
