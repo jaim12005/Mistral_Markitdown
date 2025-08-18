@@ -354,7 +354,8 @@ def reshape_financial_table(df: "pd.DataFrame") -> "pd.DataFrame":
         left_cols = list(df.columns)[:3]
         acct_col = None
         for c in left_cols:
-            sample = " ".join(df[c].astype(str).head(20).values.tolist())
+            items = df[c].head(20).tolist()
+            sample = " ".join(map(str, items))
             if re.search(r"\b\d{4,7}\b", sample):
                 acct_col = c
                 break
