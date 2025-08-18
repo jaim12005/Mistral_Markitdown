@@ -116,6 +116,31 @@ def get_enhanced_file_strategy(file_path: Path) -> ProcessingStrategy:
     except ImportError:
         MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY", "")
 
+    # New: Handle YouTube URLs from .url files
+    if ext == '.url':
+        try:
+            content = file_path.read_text(encoding='utf-8').strip()
+            if 'youtube.com' in content or 'youtu.be' in content:
+                return ProcessingStrategy(
+                    use_markitdown=True,
+                    use_ocr=False,
+                    priority=1,
+                    description="YouTube URL for transcription",
+                    benefits=["Video transcription", "Metadata extraction"]
+                )
+        except Exception:
+            pass  # Fall through to default unknown file handling
+
+    # New: Handle audio/video files for transcription
+    if ext in {'.mp3', '.wav', '.m4a', '.flac', '.mp4', '.avi', '.mov', '.mkv'}:
+        return ProcessingStrategy(
+            use_markitdown=True,
+            use_ocr=False,
+            priority=1,
+            description="Audio/Video file for transcription",
+            benefits=["Speech-to-text transcription", "Metadata extraction"]
+        )
+
     if ext in {'.docx', '.pptx', '.xlsx', '.xls'}:
         return ProcessingStrategy(
             use_markitdown=True,

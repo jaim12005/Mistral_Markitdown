@@ -105,7 +105,7 @@ def convert_local_only():
 
 def convert_mistral_only():
     print("\n=== OCR conversion (Mistral only) ===")
-    supported_exts = (".pdf", ".jpg", ".jpeg", ".png", ".tiff", ".tif")
+    supported_exts = (".pdf", ".jpg", ".jpeg", ".png", ".tiff", ".tif", ".docx", ".pptx")
     files = [p for p in sorted(INPUT_DIR.iterdir()) if p.is_file() and p.suffix.lower() in supported_exts]
     if not files:
         print("No suitable files found in input.")
@@ -157,128 +157,217 @@ def convert_mistral_only():
     print(f"Successfully processed files: {ok_count}")
 
 
+def convert_transcription_only():
+    """New mode for audio/video transcription."""
+    print("\n=== Transcription Mode (Markitdown) ===")
+    supported_exts = {'.mp3', '.wav', '.m4a', '.flac', '.mp4', '.avi', '.mov', '.mkv', '.url'}
+    files = [p for p in sorted(INPUT_DIR.iterdir()) if p.is_file() and p.suffix.lower() in supported_exts]
+
+    if not files:
+        print("No suitable audio, video, or .url files found for transcription.")
+        return
+
+    metadata_tracker = get_metadata_tracker()
+    ok_count = 0
+    for f in files:
+        # For .url files, check if they are YouTube links
+        if f.suffix.lower() == '.url':
+            try:
+                content = f.read_text(encoding='utf-8').strip()
+                if not ('youtube.com' in content or 'youtu.be' in content):
+                    print(f"Skipping non-YouTube .url file: {f.name}")
+                    continue
+            except Exception as e:
+                print(f"Skipping unreadable .url file: {f.name} ({e})")
+                continue
+
+        base = f.stem
+        print(f"Processing for transcription: {f.name}")
+        start_time = time.time()
+        produced: list[Path] = []
+        strategy_desc = "Markitdown Transcription"
+        error_msg = ""
+        try:
+            md_main = OUT_MD / f"{base}_transcription.md"
+            ok_md = run_markitdown_enhanced(f, md_main)
+            if ok_md:
+                produced.append(md_main)
+                print(f"  -> Transcription successful: {md_main.name}")
+
+            for md in produced[:]:
+                txt = OUT_TXT / (md.stem + ".txt")
+                md_to_txt(md, txt)
+                if txt.exists():
+                    produced.append(txt)
+            if produced:
+                ok_count += 1
+        except Exception as e:
+            error_msg = f"Processing error: {e}"
+            print(f"  -> Processing error: {e}")
+            traceback.print_exc()
+
+        processing_time = time.time() - start_time
+        result = ProcessingResult(
+            file_path=f,
+            success=len(produced) > 0,
+            output_files=produced,
+            processing_time=processing_time,
+            strategy_used=strategy_desc,
+            error_message=error_msg.strip()
+        )
+        metadata_tracker.track_file_processing(f, result)
+
+    metadata_tracker.finalize_session()
+    print("\n=== Summary ===")
+    print(f"Successfully transcribed files: {ok_count}")
+
+
+def _run_hybrid_markitdown(f: Path, base: str, md_main: Path) -> tuple[bool, list[Path], list[Path]]:
+    produced = []
+    table_files = []
+    print(f"   🔄 Running Markitdown...")
+    ok_md = run_markitdown_enhanced(f, md_main)
+    if ok_md:
+        produced.append(md_main)
+        print(f"   ✅ Markitdown successful")
+        img_dir = OUT_IMG / f"{base}_markitdown"
+        if img_dir.exists() and any(img_dir.iterdir()):
+            print(f"   🖼️ Extracted images (Markitdown)")
+        if f.suffix.lower() == '.pdf':
+            try:
+                table_files = extract_tables_to_markdown(f, base)
+                produced += table_files
+                if table_files:
+                    print(f"   📊 Extracted {len(table_files)} table file(s)")
+            except Exception as e:
+                logline(f"   ⚠️  Table extraction error: {e}")
+    return ok_md, produced, table_files
+
+def _run_hybrid_ocr(f: Path, base: str) -> tuple[Path | None, list[Path]]:
+    produced = []
+    ocr_md_path = None
+    print(f"   🔄 Running Mistral OCR...")
+    resp = mistral_ocr_file_enhanced(f, base, use_cache=True)
+    if resp:
+        ocr_md_path = process_mistral_response_enhanced(resp, base, f)
+        if ocr_md_path:
+            produced.append(ocr_md_path)
+            print(f"   ✅ OCR successful")
+        else:
+            print(f"   ⚠️  OCR response processing failed")
+    else:
+        print(f"   ❌ OCR failed")
+    return ocr_md_path, produced
+
+def _combine_hybrid_results(base: str, md_main: Path, table_files: list[Path], ocr_md: Path | None, strategy, complexity) -> Path | None:
+    combined_path = OUT_MD / f"{base}_combined.md"
+    print(f"   🔧 Creating enhanced combined output...")
+    try:
+        markitdown_content = md_main.read_text(encoding="utf-8")
+        combined = f"# Enhanced Processing Results: {base}\n\n"
+        combined += f"**Processing Strategy**: {strategy.description}\n"
+        combined += f"**File Size**: {complexity['size_mb']:.1f}MB\n"
+        combined += f"**Processed**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        combined += f"**Methods Used**: {'Markitdown' if strategy.use_markitdown else ''}{'+ OCR' if strategy.use_ocr else ''}\n"
+        combined += f"**Benefits**: {', '.join(strategy.benefits)}\n\n"
+        combined += "---\n\n"
+
+        def strip_headers(content: str) -> str:
+            lines = content.strip().split('\n')
+            if not lines: return ""
+            if lines[0] == '---':
+                try:
+                    end_yaml = lines.index('---', 1)
+                    lines = lines[end_yaml+1:]
+                except ValueError: pass
+            lines = [line for line in lines if line.strip()]
+            if lines and lines[0].startswith('# '):
+                return '\n'.join(lines[1:]).strip()
+            return '\n'.join(lines).strip()
+
+        combined += "## 📝 Primary Content (Markitdown)\n\n"
+        combined += strip_headers(markitdown_content)
+
+        if table_files:
+            combined += "\n\n---\n\n## 📊 Extracted Tables (Local Analysis)\n\n"
+            for i, table_file in enumerate(table_files):
+                combined += f"### Table {i+1}: {table_file.name}\n\n"
+                try:
+                    combined += table_file.read_text(encoding="utf-8") + "\n\n"
+                except Exception as e:
+                    combined += f"*Error loading table: {e}*\n\n"
+        if ocr_md:
+            combined += "\n\n---\n\n## 🔍 Enhanced OCR Analysis (Mistral)\n\n"
+            combined += strip_headers(ocr_md.read_text(encoding="utf-8"))
+
+        write_text(combined_path, combined)
+        print(f"   ✅ Combined output created")
+        return combined_path
+    except Exception as e:
+        print(f"   ❌ Failed to create combined output: {e}")
+        return None
+
 def convert_hybrid_pipeline():
     print("\n=== Enhanced Hybrid Processing (Markitdown + Mistral OCR) ===")
     files = [p for p in sorted(INPUT_DIR.iterdir()) if p.is_file()]
     if not files:
         print("No input files found.")
         return
-    from utils import get_enhanced_file_strategy, analyze_file_complexity
+
     metadata_tracker = get_metadata_tracker()
     ok_count = 0
     total_processing_time = 0
     print(f"\nAnalyzing {len(files)} files for optimal processing...")
+
     for f in files:
         strategy = get_enhanced_file_strategy(f)
         complexity = analyze_file_complexity(f)
         base = f.stem
+
         print(f"\n📄 Processing: {f.name}")
         print(f"   📊 Size: {complexity['size_mb']:.1f}MB ({complexity['size_category']})")
         print(f"   🎯 Strategy: {strategy.description}")
         print(f"   ⏱️  Estimated time: {complexity['estimated_processing_time']}")
         print(f"   Methods: {'Markitdown' if strategy.use_markitdown else ''}{'+ OCR' if strategy.use_ocr else ''}")
-        produced: list[Path] = []
+
         start_time = time.time()
-        ok_md = False
-        table_files = []
+        produced: list[Path] = []
         error_msg = ""
-        md_main = OUT_MD / f"{base}.md"
+
         try:
+            md_main_path = OUT_MD / f"{base}.md"
+            ok_md, md_produced, table_files = False, [], []
             if strategy.use_markitdown:
-                print(f"   🔄 Running Markitdown...")
-                ok_md = run_markitdown_enhanced(f, md_main)
-                if ok_md:
-                    produced.append(md_main)
-                    print(f"   ✅ Markitdown successful")
-                    img_dir = OUT_IMG / f"{base}_markitdown"
-                    if img_dir.exists() and any(img_dir.iterdir()):
-                        print(f"   🖼️ Extracted images (Markitdown)")
-                    if f.suffix.lower() == '.pdf':
-                        try:
-                            table_files = extract_tables_to_markdown(f, base)
-                            produced += table_files
-                            if table_files:
-                                print(f"   📊 Extracted {len(table_files)} table file(s)")
-                        except Exception as e:
-                            logline(f"   ⚠️  Table extraction error: {e}")
-            ocr_md = None
+                ok_md, md_produced, table_files = _run_hybrid_markitdown(f, base, md_main_path)
+                produced.extend(md_produced)
+
+            ocr_md_path, ocr_produced = None, []
             if strategy.use_ocr and MISTRAL_API_KEY:
-                print(f"   🔄 Running Mistral OCR...")
-                resp = mistral_ocr_file_enhanced(f, base, use_cache=True)
-                if resp:
-                    ocr_md_path = process_mistral_response_enhanced(resp, base, f)
-                    if ocr_md_path:
-                        produced.append(ocr_md_path)
-                        ocr_md = ocr_md_path
-                        print(f"   ✅ OCR successful")
-                    else:
-                        print(f"   ⚠️  OCR response processing failed")
-                else:
-                    print(f"   ❌ OCR failed")
-            elif strategy.use_ocr and not MISTRAL_API_KEY:
+                ocr_md_path, ocr_produced = _run_hybrid_ocr(f, base)
+                produced.extend(ocr_produced)
+            elif strategy.use_ocr:
                 print(f"   ⚠️  OCR recommended but MISTRAL_API_KEY not configured")
-            if ok_md and (ocr_md or table_files):
-                combined_path = OUT_MD / f"{base}_combined.md"
-                print(f"   🔧 Creating enhanced combined output...")
-                try:
-                    markitdown_content = md_main.read_text(encoding="utf-8")
-                    combined = f"# Enhanced Processing Results: {base}\n\n"
-                    combined += f"**Processing Strategy**: {strategy.description}\n"
-                    combined += f"**File Size**: {complexity['size_mb']:.1f}MB\n"
-                    combined += f"**Processed**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-                    combined += f"**Methods Used**: {'Markitdown' if strategy.use_markitdown else ''}{'+ OCR' if strategy.use_ocr else ''}\n"
-                    combined += f"**Benefits**: {', '.join(strategy.benefits)}\n\n"
-                    combined += "---\n\n"
 
-                    def strip_headers(content: str) -> str:
-                        lines = content.strip().split('\n')
-                        if not lines:
-                            return ""
-                        if lines[0] == '---':
-                            try:
-                                end_yaml = lines.index('---', 1)
-                                lines = lines[end_yaml+1:]
-                            except ValueError:
-                                pass
-                        lines = [line for line in lines if line.strip()]
-                        if lines and lines[0].startswith('# '):
-                            return '\n'.join(lines[1:]).strip()
-                        return '\n'.join(lines).strip()
-
-                    combined += "## 📝 Primary Content (Markitdown)\n\n"
-                    combined += strip_headers(markitdown_content)
-
-                    if table_files:
-                        combined += "\n\n---\n\n"
-                        combined += "## 📊 Extracted Tables (Local Analysis)\n\n"
-                        for i, table_file in enumerate(table_files):
-                            combined += f"### Table {i+1}: {table_file.name}\n\n"
-                            try:
-                                table_content = table_file.read_text(encoding="utf-8")
-                                combined += table_content + "\n\n"
-                            except Exception as e:
-                                combined += f"*Error loading table: {e}*\n\n"
-                    if ocr_md:
-                        combined += "\n\n---\n\n"
-                        combined += "## 🔍 Enhanced OCR Analysis (Mistral)\n\n"
-                        ocr_content = ocr_md.read_text(encoding="utf-8")
-                        combined += strip_headers(ocr_content)
-                    write_text(combined_path, combined)
+            if ok_md and (ocr_md_path or table_files):
+                combined_path = _combine_hybrid_results(base, md_main_path, table_files, ocr_md_path, strategy, complexity)
+                if combined_path:
                     produced.append(combined_path)
-                    print(f"   ✅ Combined output created")
-                except Exception as e:
-                    print(f"   ❌ Failed to create combined output: {e}")
+
             for md_file in produced[:]:
-                txt = OUT_TXT / (md_file.stem + ".txt")
-                md_to_txt(md_file, txt)
-                if txt.exists():
-                    produced.append(txt)
+                if md_file.suffix == '.md':
+                    txt_path = OUT_TXT / f"{md_file.stem}.txt"
+                    md_to_txt(md_file, txt_path)
+                    if txt_path.exists():
+                        produced.append(txt_path)
+
         except Exception as e:
             print(f"   ❌ Exception during processing: {e}")
             error_msg = str(e)
             traceback.print_exc()
+
         processing_time = time.time() - start_time
         total_processing_time += processing_time
+
         result = ProcessingResult(
             file_path=f,
             success=len(produced) > 0,
@@ -288,18 +377,21 @@ def convert_hybrid_pipeline():
             error_message=error_msg
         )
         metadata_tracker.track_file_processing(f, result)
+
         if produced:
             ok_count += 1
             print(f"   ✅ Generated {len(produced)} output file(s) in {processing_time:.1f}s")
         else:
             print(f"   ❌ No output generated")
+
     metadata_tracker.finalize_session()
     print("\n" + "="*60)
     print("📈 PROCESSING SUMMARY")
     print("="*60)
     print(f"✅ Successfully processed: {ok_count}/{len(files)} files")
     print(f"⏱️  Total processing time: {total_processing_time:.1f}s")
-    print(f"⚡ Average time per file: {total_processing_time/len(files):.1f}s")
+    if files:
+        print(f"⚡ Average time per file: {total_processing_time/len(files):.1f}s")
     print(f"📁 Output locations:")
     print(f"   • Markdown: {OUT_MD}/")
     print(f"   • Text: {OUT_TXT}/")
@@ -405,7 +497,7 @@ def print_env_summary():
 def menu_loop():
     while True:
         print("\n" + "="*60)
-        print("    ENHANCED DOCUMENT CONVERTER v2.0")
+        print("    ENHANCED DOCUMENT CONVERTER v2.1")
         print("    Powered by Microsoft Markitdown & Mistral OCR")
         print("="*60)
         print("Choose conversion mode:")
@@ -422,13 +514,16 @@ def menu_loop():
         print("  4) Mistral OCR Only (High Accuracy)")
         print("     -> Best for images, scanned PDFs, complex layouts")
         print()
-        print("  5) Standard Batch Process")
+        print("  5) Transcription Only (Audio/Video)")
+        print("     -> Transcribe audio, video, and YouTube URLs")
+        print()
+        print("  6) Standard Batch Process")
         print("     -> Process all files with basic settings")
         print()
-        print("  6) Convert PDFs to Images")
+        print("  7) Convert PDFs to Images")
         print("     -> Extract pages as PNG files")
         print()
-        print("  7) Show System Status")
+        print("  8) Show System Status")
         print("     -> Cache stats, performance metrics, recommendations")
         print()
         print("  Q) Quit")
@@ -447,13 +542,15 @@ def menu_loop():
         elif choice == "4":
             convert_mistral_only()
         elif choice == "5":
-            batch_process_directory()
+            convert_transcription_only()
         elif choice == "6":
-            pdfs_to_images()
+            batch_process_directory()
         elif choice == "7":
+            pdfs_to_images()
+        elif choice == "8":
             show_system_status()
         elif choice in ("q", "quit", "exit"):
-            print("\nThank you for using Enhanced Document Converter v2.0!")
+            print("\nThank you for using Enhanced Document Converter v2.1!")
             break
         else:
             print("Invalid choice. Please try again.")
@@ -463,7 +560,7 @@ def print_banner():
     from datetime import datetime
     from config import APP_ROOT
     print("=" * 60)
-    print("   ENHANCED DOCUMENT CONVERTER v2.0")
+    print("   ENHANCED DOCUMENT CONVERTER v2.1")
     print("   Powered by Microsoft Markitdown & Mistral OCR")
     print("=" * 60)
     print(f"\nStarted: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -683,9 +780,10 @@ def show_system_status():
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="Enhanced Document Converter v2.0")
+    parser = argparse.ArgumentParser(description="Enhanced Document Converter v2.1")
+    parser.add_argument("--version", action="version", version="2.1")
     parser.add_argument("--test", action="store_true", help="Run in test mode")
-    parser.add_argument("--mode", choices=["hybrid", "markitdown", "ocr", "batch", "enhanced"], help="Conversion mode")
+    parser.add_argument("--mode", choices=["hybrid", "markitdown", "ocr", "batch", "enhanced", "transcription"], help="Conversion mode")
     parser.add_argument("--no-interactive", action="store_true", help="Exit after processing")
     args = parser.parse_args()
     try:
@@ -702,6 +800,8 @@ if __name__ == "__main__":
                 convert_local_only()
             elif args.mode == "ocr":
                 convert_mistral_only()
+            elif args.mode == "transcription":
+                convert_transcription_only()
             elif args.mode == "batch":
                 batch_process_directory()
             elif args.mode == "enhanced":

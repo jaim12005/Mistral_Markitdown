@@ -1,4 +1,4 @@
-# Enhanced Document Converter
+# Enhanced Document Converter v2.1
 
 This project provides a practical, cross‑platform document conversion tool that leverages **Microsoft MarkItDown** for fast, local conversion of various document types and **Mistral Document AI OCR** for high‑accuracy text extraction from images and complex PDFs. It is designed for quality results and an easy, predictable workflow on Windows and macOS.
 
@@ -19,7 +19,8 @@ This project provides a practical, cross‑platform document conversion tool tha
 - **Multiple Conversion Modes**:
   - **Hybrid Mode**: Intelligently combines the strengths of Markitdown and Mistral OCR for the highest quality output.
   - **Markitdown Only**: For fast, local conversion of formats like `.docx`, `.pptx`, `.html`, etc.
-  - **Mistral OCR Only**: For high-accuracy OCR on images and scanned or complex PDFs.
+  - **Mistral OCR Only**: For high-accuracy OCR on images, scanned PDFs, and now `.docx` and `.pptx` files.
+  - **Transcription Mode**: Uses Markitdown's powerful transcription features to process audio files (`.mp3`, `.wav`) and YouTube URLs.
 - **Advanced Table Extraction**: Uses `pdfplumber` and `camelot` to find and extract tables from PDFs, and reshapes them into a clean, usable format.
 - **Modular and Extensible**: The codebase is organized into logical modules for configuration, utilities, and converters, making it easy to maintain and extend.
 - **Robust and Performant**:
@@ -73,7 +74,8 @@ This launches a menu where you can choose a mode:
 
 - **Hybrid Mode**: Best default. Uses the optimal engine per file; for PDFs, it produces `<name>_combined.md` with MarkItDown content + tables + OCR analysis.
 - **MarkItDown Only**: Fast local conversion (no API usage).
-- **Mistral OCR Only**: OCR for PDFs and images (uses Files API with `purpose="ocr"` and per‑page improvements where needed).
+- **Mistral OCR Only**: OCR for PDFs, images, and Office documents (uses Files API with `purpose="ocr"` and per‑page improvements where needed).
+- **Transcription Only**: Transcribes audio, video, and YouTube URLs to Markdown.
 - **Batch Process Directory**: Simple batch by type.
 - **Enhanced Batch**: Advanced concurrent processing with caching/metadata.
 - **Convert PDFs to Images**: Renders each page to PNG under `output_images/<pdfname>_pages/`.
@@ -85,10 +87,11 @@ This launches a menu where you can choose a mode:
 | Hybrid (1)              | `--mode hybrid`     | Best default; PDFs with tables/OCR | `output_md/<name>_combined.md`, `output_txt/` |
 | Enhanced Batch (2)      | `--mode enhanced`   | Many files; concurrency + caching  | `output_md/`, `output_txt/`, `output_images/`, `logs/metadata/` |
 | MarkItDown Only (3)     | `--mode markitdown` | Office/web/text files (local only) | `output_md/<name>.md`, `output_txt/<name>.txt` |
-| Mistral OCR Only (4)    | `--mode ocr`        | Images and scanned PDFs            | `output_md/<name>_mistral_ocr.md`, `output_images/<name>_ocr/` (if images) + txt |
-| Batch Process (5)       | `--mode batch`      | Simple batch by type               | `output_md/`, `output_txt/` |
-| PDF → Images (6)        | n/a                 | Export pages as PNG                | `output_images/<pdfname>_pages/` |
-| System Status (7)       | n/a                 | Environment and cache overview     | console only      |
+| Mistral OCR Only (4)    | `--mode ocr`        | Images, scanned PDFs, .docx, .pptx | `output_md/<name>_mistral_ocr.md`, `output_images/<name>_ocr/` (if images) + txt |
+| Transcription Only (5)  | `--mode transcription` | Audio, video, and YouTube URLs    | `output_md/<name>_transcription.md`, `output_txt/<name>_transcription.txt` |
+| Batch Process (6)       | `--mode batch`      | Simple batch by type               | `output_md/`, `output_txt/` |
+| PDF → Images (7)        | n/a                 | Export pages as PNG                | `output_images/<pdfname>_pages/` |
+| System Status (8)       | n/a                 | Environment and cache overview     | console only      |
 
 ### Input and Output
 
@@ -128,6 +131,13 @@ Below is a quick reference of the files produced in each mode and where they are
   - Plain-text export of the OCR Markdown.
 - `output_images/<name>_ocr/`
   - Extracted images from OCR. Each image may have a corresponding `.metadata.json` sidecar with details.
+
+### Transcription Mode
+
+- `output_md/<name>_transcription.md`
+  - Markdown file containing the transcribed text from an audio or video file.
+- `output_txt/<name>_transcription.txt`
+  - Plain-text export of the transcription.
 
 ### Hybrid Mode (Recommended for PDFs)
 
@@ -217,7 +227,7 @@ If an installation step appears to stall, open `logs/pip_install.log` in your ed
 - `MISTRAL_INCLUDE_IMAGES` (true/false): Include base64 images in OCR response and embed in Markdown.
 - `SAVE_MISTRAL_JSON` (true/false): Save raw OCR JSONs under `logs/` for troubleshooting.
 - `POPPLER_PATH` (Windows only): Path to Poppler `bin` for PDF→image and per‑page OCR fallback.
-- Optional (MarkItDown extras): `MARKITDOWN_USE_LLM`, `MARKITDOWN_LLM_MODEL`, `OPENAI_API_KEY`, `AZURE_DOC_INTEL_ENDPOINT`, `AZURE_DOC_INTEL_KEY`.
+- Optional (MarkItDown extras): `MARKITDOWN_USE_LLM`, `MARKITDOWN_LLM_MODEL`, `OPENAI_API_KEY`, `AZURE_DOC_INTEL_ENDPOINT`, `AZURE_DOC_INTEL_KEY`, `MARKITDOWN_ENABLE_PLUGINS`.
 
 Note: All output folders (`input/`, `output_md/`, `output_txt/`, `output_images/`, `logs/`, `cache/`) are auto‑created and safe to delete. They regenerate on the next run.
 
