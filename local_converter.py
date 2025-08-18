@@ -64,7 +64,13 @@ def run_markitdown_enhanced(inp: Path, out_md: Path) -> bool:
                 kwargs['docintel_key'] = AZURE_DOC_INTEL_KEY
                 logline(f"    -> Azure Document Intelligence enabled")
 
-            md = MarkItDown(**kwargs)
+            # Enable MarkItDown plugins if configured
+            try:
+                from config import MARKITDOWN_ENABLE_PLUGINS
+            except Exception:
+                MARKITDOWN_ENABLE_PLUGINS = False
+
+            md = MarkItDown(enable_plugins=MARKITDOWN_ENABLE_PLUGINS, **kwargs)
 
             file_ext = inp.suffix.lower()
             file_size_mb = inp.stat().st_size / (1024 * 1024)
@@ -235,6 +241,14 @@ def run_markitdown_cli_enhanced(inp: Path, out_md: Path) -> bool:
 
     args.extend(["--table-strategy", MARKITDOWN_TABLE_STRATEGY])
     args.extend(["--image-strategy", MARKITDOWN_IMAGE_STRATEGY])
+
+    # If plugins enabled, pass the flag to CLI
+    try:
+        from config import MARKITDOWN_ENABLE_PLUGINS
+    except Exception:
+        MARKITDOWN_ENABLE_PLUGINS = False
+    if MARKITDOWN_ENABLE_PLUGINS:
+        args.append("--use-plugins")
 
     file_ext = inp.suffix.lower()
     if file_ext == '.pdf':

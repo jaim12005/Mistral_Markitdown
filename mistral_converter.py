@@ -101,11 +101,15 @@ def mistral_ocr_file_enhanced(file_path: Path, base_name: str, use_cache: bool =
     try:
         file_size_mb = file_path.stat().st_size / (1024 * 1024)
         suffix = file_path.suffix.lower()
-        is_image = suffix in {".jpg", ".jpeg", ".png", ".tif", ".tiff"}
-        doc_type = "image_url" if is_image else "document_url"
+        is_image = suffix in {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".gif", ".webp"}
+        is_office_doc = suffix in {".docx", ".pptx"}
         doc_url = ""
 
-        # Prefer file upload for PDFs and large images; otherwise inline image via data URL
+        # Strategy:
+        # - PDFs: always upload via Files API (purpose="ocr")
+        # - Large files (> threshold): upload regardless of type
+        # - Images (small): send as type=image_url with data URL
+        # - Office docs (small): send as type=document_url with data URL
         uploaded_file = None
         if (suffix == ".pdf") or (file_size_mb > LARGE_FILE_THRESHOLD_MB):
             logline(f"  -> Uploading file for OCR ({file_size_mb:.1f} MB)...")
@@ -138,13 +142,22 @@ def mistral_ocr_file_enhanced(file_path: Path, base_name: str, use_cache: bool =
                 "file_id": uploaded_file.id,
             }
         else:
-            payload = {
-                "type": "image_url",
-                "image_url": {"url": doc_url},
-            }
+            # Choose image_url for images, document_url for non-images (docx/pptx/etc.)
+            if is_image:
+                payload = {
+                    "type": "image_url",
+                    "image_url": {"url": doc_url},
+                }
+            else:
+                payload = {
+                    "type": "document_url",
+                    "document_url": doc_url,
+                }
 
         # Call OCR endpoint with compatibility for include_image_annotation
+        # Call OCR endpoint with compatibility fallbacks
         try:
+            # Try with include_image_annotation first (if supported by SDK)
             ocr_response = mistral_client.ocr.process(
                 model=MISTRAL_MODEL,
                 document=payload,
@@ -152,12 +165,23 @@ def mistral_ocr_file_enhanced(file_path: Path, base_name: str, use_cache: bool =
                 include_image_annotation=MISTRAL_INCLUDE_IMAGE_ANNOTATIONS,
             )
         except TypeError:
-            # Older SDKs may not support include_image_annotation
+            # Older/newer SDKs may not support include_image_annotation – retry without it
             ocr_response = mistral_client.ocr.process(
                 model=MISTRAL_MODEL,
                 document=payload,
                 include_image_base64=MISTRAL_INCLUDE_IMAGES,
             )
+        except Exception:
+            # If validation errors occur (e.g., pydantic), retry without the optional arg
+            try:
+                ocr_response = mistral_client.ocr.process(
+                    model=MISTRAL_MODEL,
+                    document=payload,
+                    include_image_base64=MISTRAL_INCLUDE_IMAGES,
+                )
+            except Exception as e:
+                logline(f"  -> ERROR: OCR request failed: {e}")
+                return None
 
         response_json = ocr_response.model_dump()
         response_json['_source'] = {

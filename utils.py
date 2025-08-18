@@ -94,6 +94,10 @@ def get_mime_type(file_path: Path) -> str:
         ".png": "image/png",
         ".tif": "image/tiff",
         ".tiff": "image/tiff",
+        ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        ".webp": "image/webp",
+        ".bmp": "image/bmp",
     }
     return mime_types.get(suffix, "application/octet-stream")
 
