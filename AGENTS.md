@@ -1,12 +1,12 @@
 # Repository Guidelines
 
 ## Project Structure
-- `main.py`: Interactive CLI (modes: Hybrid, Enhanced Batch, MarkItDown only, OCR only, Batch, PDF→Images, Status). CLI flags: `--mode`, `--no-interactive`, `--test`.
-- `local_converter.py`: MarkItDown integration; PDF table extraction (pdfplumber/camelot); PDF→image utility.
+- `main.py`: Interactive CLI (modes: Hybrid, Enhanced Batch, MarkItDown only, OCR only, Transcription, Batch, PDF→Images, Status). CLI flags: `--mode`, `--no-interactive`, `--test`.
+- `local_converter.py`: MarkItDown integration (including transcription); PDF table extraction (pdfplumber/camelot); PDF→image utility.
 - `mistral_converter.py`: Mistral OCR integration using SDK v1 (Files API with `purpose="ocr"`, page targeting, image fallbacks).
-- `utils.py`: Logging, helpers (md tables, md→txt), concurrency, caching/metadata tracking.
+- `utils.py`: Logging, helpers (md tables, md→txt), file strategy logic, concurrency, caching/metadata tracking.
 - `config.py`: Env/dir setup. Creates `input/`, `output_md/`, `output_txt/`, `output_images/`, `logs/`, `cache/`.
-- `.env.example`: Copy to `.env` and set keys.
+- `.env.example`: Copy to `.env` and set keys. Now includes `MARKITDOWN_ENABLE_PLUGINS`.
 
 ## Developer Setup
 - Create venv: `python -m venv env && source env/bin/activate` (Windows: `env\Scripts\activate`).
@@ -21,9 +21,13 @@
 
 ## Architecture Notes
 - OCR (Option 4):
-  - PDFs and large images are uploaded via `files.upload(..., purpose="ocr")` and processed with `document={"type":"file","file_id":...}`.
+  - Now supports `.docx` and `.pptx` files in addition to PDFs and images.
+  - PDFs and large files are uploaded via `files.upload(..., purpose="ocr")` and processed with `document={"type":"file","file_id":...}`.
   - Small images are sent as `image_url` data URLs.
   - Weak pages are re‑OCRed via `pages=[index]`; if Poppler is available we render the page to PNG and re‑OCR as an image.
+- Transcription (New Mode):
+  - Handles audio files (`.mp3`, `.wav`, etc.), video files (`.mp4`, `.mov`, etc.), and `.url` files containing YouTube links.
+  - Uses Markitdown's transcription capabilities to generate a Markdown file with the transcribed text.
 - Hybrid (Option 1):
   - MarkItDown primary + PDF table extraction; OCR adds page‑by‑page analysis; a `_combined.md` is produced.
 - Outputs:

@@ -53,36 +53,57 @@ def get_env_int(key: str, default: int) -> int:
         return default
 
 
-# Load configuration from environment variables
+# --- System Path Configuration ---
+# Path to Poppler binary installation, required for PDF-to-image conversion features.
 POPPLER_PATH = os.environ.get("POPPLER_PATH", "")
 
-# Mistral Configuration
+# --- Mistral AI API Configuration ---
+# Your main API key for authenticating with the Mistral platform.
 MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY", "").strip()
+# The specific OCR model to use for document processing.
 MISTRAL_MODEL = os.environ.get("MISTRAL_OCR_MODEL", "mistral-ocr-latest")
+# If True, includes base64-encoded images in the OCR response.
 MISTRAL_INCLUDE_IMAGES = get_env_bool("MISTRAL_INCLUDE_IMAGES", True)
+# If True, requests AI-generated descriptions for images found in the document.
 MISTRAL_INCLUDE_IMAGE_ANNOTATIONS = get_env_bool("MISTRAL_INCLUDE_IMAGE_ANNOTATIONS", True)
+# If True, saves the full JSON response from Mistral to the 'logs' directory for debugging.
 SAVE_MISTRAL_JSON = get_env_bool("SAVE_MISTRAL_JSON", False)
+# Files larger than this (in MB) are uploaded via the Files API rather than sent inline.
 LARGE_FILE_THRESHOLD_MB = get_env_int("LARGE_FILE_THRESHOLD_MB", 45)
+# Timeout in seconds for individual HTTP requests to the Mistral API.
 MISTRAL_TIMEOUT = get_env_int("MISTRAL_HTTP_TIMEOUT", 300)
 
-# Enhanced Markitdown configuration
+# --- Markitdown Engine Configuration ---
+# If True, uses an OpenAI-compatible model to generate image descriptions.
 MARKITDOWN_USE_LLM = get_env_bool("MARKITDOWN_USE_LLM", False)
+# The model name to use for LLM-based image descriptions (e.g., 'gpt-4o-mini').
 MARKITDOWN_LLM_MODEL = os.environ.get("MARKITDOWN_LLM_MODEL", "gpt-4o-mini")
+# The API key for the LLM service (e.g., OpenAI).
 MARKITDOWN_LLM_KEY = os.environ.get("OPENAI_API_KEY", "")
+# Endpoint for using Azure Document Intelligence as the backend for Markitdown.
 AZURE_DOC_INTEL_ENDPOINT = os.environ.get("AZURE_DOC_INTEL_ENDPOINT", "")
 AZURE_DOC_INTEL_KEY = os.environ.get("AZURE_DOC_INTEL_KEY", "")
 
-# Markitdown Advanced Settings
+# --- Markitdown Advanced Settings ---
+# Strategy for table extraction: 'ocr_only', 'text_only', or 'auto'.
 MARKITDOWN_TABLE_STRATEGY = os.environ.get("MARKITDOWN_TABLE_STRATEGY", "auto")
+# Strategy for image extraction: 'extract', 'ignore', or 'auto'.
 MARKITDOWN_IMAGE_STRATEGY = os.environ.get("MARKITDOWN_IMAGE_STRATEGY", "auto")
+# PDF processing mode if Azure is not used: 'auto', 'text', or 'ocr'.
 MARKITDOWN_PDF_MODE = os.environ.get("MARKITDOWN_PDF_MODE", "auto")
+# If True, enables Markitdown's third-party plugin system.
+MARKITDOWN_ENABLE_PLUGINS = get_env_bool("MARKITDOWN_ENABLE_PLUGINS", False)
 
-# Batch processing configuration
+# --- Performance & Batch Processing ---
+# Number of files to process concurrently in standard batch mode.
 BATCH_SIZE = get_env_int("BATCH_SIZE", 5)
+# Maximum number of retries for failed network requests (e.g., API calls).
 MAX_RETRIES = get_env_int("MAX_RETRIES", 3)
+# Base delay in seconds for exponential backoff between retries.
 RETRY_DELAY = get_env_int("RETRY_DELAY", 5)
 
-# Caching Configuration
+# --- Caching Configuration ---
+# Duration in hours to retain cached OCR results.
 CACHE_DURATION_HOURS = get_env_int("CACHE_DURATION_HOURS", 24)
 
 # Constants
