@@ -341,68 +341,78 @@ def is_month_header(s: str) -> bool:
 
 
 def reshape_financial_table(df: "pd.DataFrame") -> "pd.DataFrame":
-    if pd is None or df is None or df.empty:
+    if pd is None or not isinstance(df, pd.DataFrame) or df.empty:
         return df
-    df = df.copy()
-    df.columns = [str(c) for c in df.columns]
-    head_row = df.iloc[0].astype(str).str.strip().tolist() if len(df) > 0 else []
-    if sum(is_month_header(x) for x in head_row) >= 4:
-        df.columns = [c if c else f"col{i}" for i, c in enumerate(head_row)]
-        df = df.iloc[1:].reset_index(drop=True)
-    left_cols = list(df.columns)[:3]
-    acct_col = None
-    for c in left_cols:
-        sample = " ".join(df[c].astype(str).head(20).tolist())
-        if re.search(r"\b\d{4,7}\b", sample):
-            acct_col = c
-            break
-    if acct_col is None:
-        acct_col = left_cols[0] if left_cols else (df.columns[0] if len(df.columns) > 0 else None)
-    if acct_col is None:
-        return df
-    title_col_idx = 1 if len(left_cols) > 1 else (1 if len(df.columns) > 1 else 0)
-    title_col = df.columns[title_col_idx]
+
     try:
-        ser = df[acct_col].astype(str)
-        split = ser.str.extract(r"^\s*(?P<_code>\d{4,7})[ \-]+(?P<_title>.+)$")
-        if split["_title"].notna().mean() >= 0.6:
-            df.insert(0, "Acct", split["_code"].str.strip().fillna(""))
-            df.insert(1, "Account Title", split["_title"].str.strip().fillna(""))
-            acct_col, title_col = "Acct", "Account Title"
-
-            def _mostly_zero(s):
-                s = s.astype(str).str.strip()
-                return ((s == "") | (s == "0") | (s == "0.0") | s.isna()).mean() > 0.8
-
-            original_title_col = left_cols[1] if len(left_cols) > 1 else None
-            if original_title_col and original_title_col in df.columns and _mostly_zero(df[original_title_col]):
-                df.drop(columns=[original_title_col], inplace=True, errors="ignore")
-    except Exception:
-        pass
-    colmap = {}
-    for col in df.columns:
-        cl = str(col).strip()
-        for m in MONTHS + M_SHORT:
-            if cl.lower().startswith(m.lower()[:3]):
-                colmap[col] = m
+        df = df.copy()
+        df.columns = [str(c) for c in df.columns]
+        head_row = df.iloc[0].astype(str).str.strip().values.tolist() if len(df) > 0 else []
+        if sum(is_month_header(x) for x in head_row) >= 4:
+            df.columns = [c if c else f"col{i}" for i, c in enumerate(head_row)]
+            df = df.iloc[1:].reset_index(drop=True)
+        left_cols = list(df.columns)[:3]
+        acct_col = None
+        for c in left_cols:
+            sample = " ".join(df[c].astype(str).head(20).values.tolist())
+            if re.search(r"\b\d{4,7}\b", sample):
+                acct_col = c
                 break
-    out_cols = [("Acct", acct_col), ("Account Title", title_col)]
-    for m in MONTHS:
-        src = next((k for k, v in colmap.items() if v == m), None)
-        if src is None:
-            src = next((k for k in df.columns if str(k).strip().lower().startswith(m.split()[0].lower()[:3])), None)
-        out_cols.append((m, src))
-    data = {}
-    for out_name, src in out_cols:
-        if src in df.columns:
-            data[out_name] = df[src].astype(str)
-        else:
-            data[out_name] = [""] * len(df)
-    out_df = pd.DataFrame(data)
-    keep = out_df["Account Title"].astype(str).str.strip() != ""
-    if keep.any():
-        out_df = out_df[keep]
-    return out_df
+        if acct_col is None:
+            acct_col = left_cols[0] if left_cols else (df.columns[0] if len(df.columns) > 0 else None)
+        if acct_col is None:
+            return df
+        title_col_idx = 1 if len(left_cols) > 1 else (1 if len(df.columns) > 1 else 0)
+        title_col = df.columns[title_col_idx]
+        try:
+            ser = df[acct_col].astype(str)
+            split = ser.str.extract(r"^\s*(?P<_code>\d{4,7})[ \-]+(?P<_title>.+)$")
+            if split["_title"].notna().mean() >= 0.6:
+                df.insert(0, "Acct", split["_code"].str.strip().fillna(""))
+                df.insert(1, "Account Title", split["_title"].str.strip().fillna(""))
+                acct_col, title_col = "Acct", "Account Title"
+
+                def _mostly_zero(s):
+                    s = s.astype(str).str.strip()
+                    return ((s == "") | (s == "0") | (s == "0.0") | s.isna()).mean() > 0.8
+
+                original_title_col = left_cols[1] if len(left_cols) > 1 else None
+                if original_title_col and original_title_col in df.columns and _mostly_zero(df[original_title_col]):
+                    df.drop(columns=[original_title_col], inplace=True, errors="ignore")
+        except Exception:
+            pass
+        colmap = {}
+        for col in df.columns:
+            cl = str(col).strip()
+            for m in MONTHS + M_SHORT:
+                if cl.lower().startswith(m.lower()[:3]):
+                    colmap[col] = m
+                    break
+        out_cols = [("Acct", acct_col), ("Account Title", title_col)]
+        for m in MONTHS:
+            src = next((k for k, v in colmap.items() if v == m), None)
+            if src is None:
+                src = next((k for k in df.columns if str(k).strip().lower().startswith(m.split()[0].lower()[:3])), None)
+            out_cols.append((m, src))
+        data = {}
+        for out_name, src in out_cols:
+            if src in df.columns:
+                data[out_name] = df[src].astype(str)
+            else:
+                data[out_name] = [""] * len(df)
+        out_df = pd.DataFrame(data)
+        keep = out_df["Account Title"].astype(str).str.strip() != ""
+        if keep.any():
+            out_df = out_df[keep]
+        return out_df
+    except AttributeError as e:
+        if 'tolist' in str(e):
+            logline(f"  -> WARN: Reshape failed due to '.tolist' call on a non-Series object. Type was {type(df)}.")
+            return df
+        raise e
+    except Exception as e:
+        logline(f"  -> WARN: Unexpected exception in reshape_financial_table: {e}")
+        return df
 
 
 def extract_tables_to_markdown(pdf_path: Path, base_name: str) -> list[Path]:
