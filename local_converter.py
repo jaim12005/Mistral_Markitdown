@@ -340,6 +340,16 @@ def is_month_header(s: str) -> bool:
     return s in [m.lower() for m in MONTHS] or s in [m.lower() for m in M_SHORT]
 
 
+def _get_series_from_df(df: "pd.DataFrame", col: str) -> "pd.Series":
+    """Safely retrieve a column as a Series, even with duplicate column names."""
+    if pd is None:
+        return None
+    s = df[col]
+    if isinstance(s, pd.DataFrame):
+        return s.iloc[:, 0]
+    return s
+
+
 def reshape_financial_table(df: "pd.DataFrame") -> "pd.DataFrame":
     if pd is None or not isinstance(df, pd.DataFrame) or df.empty:
         return df
@@ -354,7 +364,7 @@ def reshape_financial_table(df: "pd.DataFrame") -> "pd.DataFrame":
         left_cols = list(df.columns)[:3]
         acct_col = None
         for c in left_cols:
-            items = df[c].head(20).tolist()
+            items = _get_series_from_df(df, c).head(20).tolist()
             sample = " ".join(map(str, items))
             if re.search(r"\b\d{4,7}\b", sample):
                 acct_col = c
@@ -366,7 +376,7 @@ def reshape_financial_table(df: "pd.DataFrame") -> "pd.DataFrame":
         title_col_idx = 1 if len(left_cols) > 1 else (1 if len(df.columns) > 1 else 0)
         title_col = df.columns[title_col_idx]
         try:
-            ser = df[acct_col].astype(str)
+            ser = _get_series_from_df(df, acct_col).astype(str)
             split = ser.str.extract(r"^\s*(?P<_code>\d{4,7})[ \-]+(?P<_title>.+)$")
             if split["_title"].notna().mean() >= 0.6:
                 df.insert(0, "Acct", split["_code"].str.strip().fillna(""))
@@ -378,7 +388,7 @@ def reshape_financial_table(df: "pd.DataFrame") -> "pd.DataFrame":
                     return ((s == "") | (s == "0") | (s == "0.0") | s.isna()).mean() > 0.8
 
                 original_title_col = left_cols[1] if len(left_cols) > 1 else None
-                if original_title_col and original_title_col in df.columns and _mostly_zero(df[original_title_col]):
+                if original_title_col and original_title_col in df.columns and _mostly_zero(_get_series_from_df(df, original_title_col)):
                     df.drop(columns=[original_title_col], inplace=True, errors="ignore")
         except Exception:
             pass
@@ -398,11 +408,11 @@ def reshape_financial_table(df: "pd.DataFrame") -> "pd.DataFrame":
         data = {}
         for out_name, src in out_cols:
             if src in df.columns:
-                data[out_name] = df[src].astype(str)
+                data[out_name] = _get_series_from_df(df, src).astype(str)
             else:
                 data[out_name] = [""] * len(df)
         out_df = pd.DataFrame(data)
-        keep = out_df["Account Title"].astype(str).str.strip() != ""
+        keep = _get_series_from_df(out_df, "Account Title").astype(str).str.strip() != ""
         if keep.any():
             out_df = out_df[keep]
         return out_df
