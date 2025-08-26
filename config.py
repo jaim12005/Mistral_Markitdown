@@ -21,7 +21,7 @@ def load_env_like_files() -> None:
     """Load key=value from ./.env and ./env if present (prefers .env)."""
     for fname in (".env", "env"):
         p = (APP_ROOT / fname)
-        if not p.exists():
+        if not (p.exists() and p.is_file()):  # Ensure it's a file, not a directory
             continue
         try:
             for raw in p.read_text(encoding="utf-8").splitlines():
@@ -62,12 +62,18 @@ POPPLER_PATH = os.environ.get("POPPLER_PATH", "")
 MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY", "").strip()
 # The specific OCR model to use for document processing.
 MISTRAL_MODEL = os.environ.get("MISTRAL_OCR_MODEL", "mistral-ocr-latest")
+# Alternative models for different use cases:
+# - "mistral-medium" for multimodal documents with images/text
+# - "pixtral-large" for advanced image understanding
+# - "codestral" for code-heavy documents
 # If True, includes base64-encoded images in the OCR response.
 MISTRAL_INCLUDE_IMAGES = get_env_bool("MISTRAL_INCLUDE_IMAGES", True)
 # If True, requests AI-generated descriptions for images found in the document.
 MISTRAL_INCLUDE_IMAGE_ANNOTATIONS = get_env_bool("MISTRAL_INCLUDE_IMAGE_ANNOTATIONS", True)
 # If True, saves the full JSON response from Mistral to the 'logs' directory for debugging.
 SAVE_MISTRAL_JSON = get_env_bool("SAVE_MISTRAL_JSON", False)
+# If True, collapses MarkItDown sections when OCR tables are high quality. Set to False to always show full content.
+GATE_MARKITDOWN_WHEN_OCR_GOOD = get_env_bool("GATE_MARKITDOWN_WHEN_OCR_GOOD", True)
 # Files larger than this (in MB) are uploaded via the Files API rather than sent inline.
 LARGE_FILE_THRESHOLD_MB = get_env_int("LARGE_FILE_THRESHOLD_MB", 45)
 # Timeout in seconds for individual HTTP requests to the Mistral API.
@@ -105,6 +111,8 @@ RETRY_DELAY = get_env_int("RETRY_DELAY", 5)
 # --- Caching Configuration ---
 # Duration in hours to retain cached OCR results.
 CACHE_DURATION_HOURS = get_env_int("CACHE_DURATION_HOURS", 24)
+# Enable PDF table extraction during batch/enhanced modes
+BATCH_EXTRACT_TABLES = get_env_bool("BATCH_EXTRACT_TABLES", False)
 
 # Constants
 MONTHS = [

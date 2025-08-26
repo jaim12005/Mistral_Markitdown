@@ -8,6 +8,7 @@ import os
 import random
 import uuid
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 from typing import Callable, Any, Dict, Optional
 
 # Optional libs
@@ -51,15 +52,67 @@ def write_text(path: Path, content: str) -> None:
 def md_table(df: "pd.DataFrame") -> str:
     if df is None or df.empty:
         return ""
-    if tabulate is None:
-        headers = list(df.columns)
-        lines = []
-        lines.append("| " + " | ".join(map(str, headers)) + " |")
-        lines.append("| " + " | ".join(["---"]*len(headers)) + " |")
-        for _, row in df.iterrows():
-            lines.append("| " + " | ".join("" if x is None else str(x) for x in row.tolist()) + " |")
-        return "\n".join(lines)
-    return tabulate(df.fillna(""), headers="keys", tablefmt="github", showindex=False)
+
+    def _fmt_amount(v):
+        s = "" if v is None else str(v).strip()
+        import re as _re
+        from decimal import Decimal
+        # bare numbers -> 2dp
+        if _re.fullmatch(r"-?\d+(\.\d+)?", s):
+            try:
+                return f"{Decimal(s):,.2f}"
+            except Exception:
+                return s
+        # accounting-ish
+        if _re.fullmatch(r"^\s*\$?\(?-?[\d,]+(\.\d{1,2})?\)?\s*$", s):
+            try:
+                t = s.replace("$", "").replace(",", "")
+                neg = t.startswith("(") and t.endswith(")")
+                t = t.strip("()")
+                d = Decimal(t)
+                if neg:
+                    d = -d
+                # keep plain digits (no thousands separators) to make TSV export predictable
+                return f"{d:,.2f}".replace(",", "")
+            except Exception:
+                return s
+        return s
+
+    df_disp = df.copy()
+
+    # Preserve id-like columns as strings
+    import re as _re
+    id_like = [c for c in df_disp.columns
+               if _re.search(r"^(acct(\.|$)|account(\s*id)?$|account\s*title$)", str(c), _re.I)]
+    for c in id_like:
+        df_disp[c] = df_disp[c].astype(str)
+
+    # Detect numeric columns and format amounts
+    def looks_amount_col(col):
+        s = df_disp[col].astype(str)
+        mask = s.str.match(r"^\s*\$?\(?-?[\d,]+(\.\d{1,2})?\)?\s*$", na=False)
+        return mask.mean() >= 0.7
+
+    for c in df_disp.columns:
+        if c not in id_like:
+            if looks_amount_col(c):
+                df_disp[c] = df_disp[c].map(_fmt_amount)
+            else:
+                df_disp[c] = df_disp[c].astype(str)
+
+    # Always use manual renderer to prevent ellipses
+    def _sanitize_cell(x):
+        s = "" if x is None else str(x)
+        return s.replace("|", r"\|")
+
+    headers = [str(c) for c in df_disp.columns]
+    lines = []
+    lines.append("| " + " | ".join(headers) + " |")
+    lines.append("| " + " | ".join(["---"] * len(headers)) + " |")
+    for _, row in df_disp.iterrows():
+        vals = [_sanitize_cell(v) for v in row.tolist()]
+        lines.append("| " + " | ".join(vals) + " |")
+    return "\n".join(lines)
 
 
 def md_to_txt(md_path: Path, txt_path: Path) -> None:
@@ -71,7 +124,7 @@ def md_to_txt(md_path: Path, txt_path: Path) -> None:
         for line in md.splitlines():
             if line.strip().startswith("|") and "|" in line:
                 row = [c.strip() for c in line.strip().strip("|").split("|")]
-                if all(re.fullmatch(r":?-{3,}:?", c) for c in row):
+                if all(re.fullmatch(r"\s*:?-{3,}:?\s*", c) for c in row):
                     continue
                 out_lines.append("\t".join(row))
             else:
@@ -100,6 +153,61 @@ def get_mime_type(file_path: Path) -> str:
         ".bmp": "image/bmp",
     }
     return mime_types.get(suffix, "application/octet-stream")
+
+def normalize_amount(s: str) -> str:
+    """
+    Normalize accounting numbers for OCR and tables.
+    Handles common OCR artifacts and accounting formats.
+    """
+    if s is None:
+        return ""
+    t = str(s).strip()
+    if not t:
+        return ""
+    
+    # Unify thousands/decimals, remove $ and spaces
+    t = t.replace("$", "").replace(" ", "")
+    
+    # Handle accounting parentheses
+    neg = False
+    if t.startswith("(") and t.endswith(")"):
+        neg = True
+        t = t[1:-1]
+    
+    # Remove grouping commas
+    t = t.replace(",", "")
+
+    # If decimals present with >2 digits, round to 2
+    import re
+    m = re.match(r"^-?\d+\.(\d{2,})$", t)
+    if m and len(m.group(1)) != 2:
+        try:
+            val = Decimal(t).quantize(Decimal("0.00"))
+            t = str(val)
+        except InvalidOperation:
+            return s
+
+    # Ensure two decimals for plain integers or 1-2 decimal inputs
+    try:
+        val = Decimal(t)
+        if neg:
+            val = -val
+        return f"{val:,.2f}".replace(",", "")  # keep no thousands here; you can add later if desired
+    except (InvalidOperation, ValueError):
+        return s  # if not a number, return original  # if not a number, return original
+
+def _normalize_amount_column(series: "pd.Series") -> "pd.Series":
+    """
+    Column-aware amount normalization that applies the '1.031' → '1031.00' heuristic
+    only when the majority of values in the column match this pattern.
+    """
+    import re
+    s = series.astype(str).str.strip()
+    dot_thousands_ratio = s.str.match(r"^-?\d{1,3}\.\d{3}$", na=False).mean()
+    if dot_thousands_ratio >= 0.7:
+        # only then apply the '1.031' → '1031.00' transform column-wide
+        s = s.str.replace(r"^(-?\d{1,3})\.(\d{3})$", r"\1\2.00", regex=True)
+    return s.map(normalize_amount)
 
 
 class ProcessingStrategy:
@@ -135,7 +243,7 @@ def get_enhanced_file_strategy(file_path: Path) -> ProcessingStrategy:
         except Exception:
             pass  # Fall through to default unknown file handling
 
-    # New: Handle audio/video files for transcription
+    # Handle audio/video files for transcription
     if ext in {'.mp3', '.wav', '.m4a', '.flac', '.mp4', '.avi', '.mov', '.mkv'}:
         return ProcessingStrategy(
             use_markitdown=True,
@@ -211,14 +319,8 @@ def get_enhanced_file_strategy(file_path: Path) -> ProcessingStrategy:
             description="Archive format with nested content",
             benefits=["Content extraction", "Structure preservation"]
         )
-    if ext in {'.mp3', '.wav', '.m4a', '.flac', '.mp4', '.avi', '.mov'}:
-        return ProcessingStrategy(
-            use_markitdown=True,
-            use_ocr=False,
-            priority=2,
-            description="Media file with potential transcription",
-            benefits=["Metadata extraction", "Transcription capability"]
-        )
+    
+    # Unknown format handling
     if MISTRAL_API_KEY:
         return ProcessingStrategy(
             use_markitdown=True,
@@ -348,18 +450,11 @@ class ConcurrentProcessor:
         except ImportError:
             MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY", "")
 
-        api_files = []
-        local_files = []
+        api_files, local_files = [], []
         for file_path in files:
-            ext = file_path.suffix.lower()
-            if ext in {'.jpg', '.jpeg', '.png', '.tiff', '.tif', '.bmp', '.gif'} and MISTRAL_API_KEY:
-                api_files.append(file_path)
-            elif ext == '.pdf' and MISTRAL_API_KEY:
-                file_size_mb = file_path.stat().st_size / (1024 * 1024)
-                if file_size_mb > 5:
-                    api_files.append(file_path)
-                else:
-                    local_files.append(file_path)
+            strategy = get_enhanced_file_strategy(file_path)
+            if strategy.use_ocr and MISTRAL_API_KEY:
+                api_files.append(file_path)   # always serialize OCR-bound work
             else:
                 local_files.append(file_path)
         return api_files, local_files
@@ -494,9 +589,9 @@ class ErrorRecoveryManager:
         if not self.error_history:
             return {'total_errors': 0}
         error_types = {}
-        for error in self.error_history:
-            error_type = type(error['error']).__name__
-            error_types[error_type] = error_types.get(error_type, 0) + 1
+        for e in self.error_history:
+            et = e.get('error_type') or type(e.get('error')).__name__
+            error_types[et] = error_types.get(et, 0) + 1
         return {
             'total_errors': len(self.error_history),
             'error_types': error_types,
@@ -507,7 +602,9 @@ class ErrorRecoveryManager:
 def create_file_processor_function(use_enhanced_strategy: bool = True) -> Callable[[Path], ProcessingResult]:
     from local_converter import run_markitdown_enhanced
     from mistral_converter import mistral_ocr_file_enhanced, process_mistral_response_enhanced
+    from local_converter import extract_tables_to_markdown
     from config import OUT_MD, OUT_TXT, MISTRAL_API_KEY
+    from config import BATCH_EXTRACT_TABLES
 
     def process_single_file(file_path: Path) -> ProcessingResult:
         base_name = file_path.stem
@@ -521,6 +618,10 @@ def create_file_processor_function(use_enhanced_strategy: bool = True) -> Callab
                     success = run_markitdown_enhanced(file_path, md_path)
                     if success and md_path.exists():
                         output_files.append(md_path)
+                        # Optional table extraction for PDFs in batch modes
+                        if BATCH_EXTRACT_TABLES and file_path.suffix.lower() == ".pdf":
+                            for p in extract_tables_to_markdown(file_path, base_name):
+                                output_files.append(p)
                 if strategy.use_ocr:
                     if MISTRAL_API_KEY:
                         resp = mistral_ocr_file_enhanced(file_path, base_name, use_cache=True)
@@ -533,6 +634,10 @@ def create_file_processor_function(use_enhanced_strategy: bool = True) -> Callab
                 success = run_markitdown_enhanced(file_path, md_path)
                 if success and md_path.exists():
                     output_files.append(md_path)
+                    # Optional table extraction for PDFs in standard batch mode too
+                    if BATCH_EXTRACT_TABLES and file_path.suffix.lower() == ".pdf":
+                        for p in extract_tables_to_markdown(file_path, base_name):
+                            output_files.append(p)
                 strategy_description = "Simple Markitdown processing"
             from utils import md_to_txt
             for md_file in output_files[:]:

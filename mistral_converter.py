@@ -31,12 +31,10 @@ def _ensure_mistral_client() -> bool:
     global mistral_client, MistralException
     if mistral_client is not None:
         return True
-
     api_key = (MISTRAL_API_KEY or os.environ.get("MISTRAL_API_KEY", "")).strip()
     if not api_key:
         logline("  -> ERROR: Mistral client not initialized. Check MISTRAL_API_KEY.")
         return False
-
     # Best effort import of the exception type (optional)
     try:
         from mistralai.exceptions import MistralAPIException as _Exc  # SDKs where exceptions module exists
@@ -56,7 +54,7 @@ def _ensure_mistral_client() -> bool:
         except TypeError:
             mistral_client = _SDK(api_key=api_key)
         return True
-    except Exception as e_top:
+    except Exception:
         pass
 
     # Try client class path (alternate layouts)
@@ -88,7 +86,6 @@ def mistral_ocr_file_enhanced(file_path: Path, base_name: str, use_cache: bool =
         "sdk_version": "v1+"
     }
     cache_key = cache.get_cache_key(file_path, "mistral_ocr", cache_params)
-
     if use_cache:
         cached_result = cache.get_cached_result(cache_key)
         if cached_result:
@@ -116,7 +113,6 @@ def mistral_ocr_file_enhanced(file_path: Path, base_name: str, use_cache: bool =
             for attempt in range(MAX_RETRIES):
                 try:
                     with open(file_path, "rb") as f:
-                        # Use dict-style payload (expected by mistralai SDK)
                         uploaded_file = mistral_client.files.upload(
                             file={"file_name": file_path.name, "content": f},
                             purpose="ocr",
@@ -142,7 +138,6 @@ def mistral_ocr_file_enhanced(file_path: Path, base_name: str, use_cache: bool =
                 "file_id": uploaded_file.id,
             }
         else:
-            # Choose image_url for images, document_url for non-images (docx/pptx/etc.)
             if is_image:
                 payload = {
                     "type": "image_url",
@@ -152,12 +147,11 @@ def mistral_ocr_file_enhanced(file_path: Path, base_name: str, use_cache: bool =
                 payload = {
                     "type": "document_url",
                     "document_url": doc_url,
+                    "document_name": file_path.name,
                 }
 
-        # Call OCR endpoint with compatibility for include_image_annotation
-        # Call OCR endpoint with compatibility fallbacks
+        # OCR call (handle SDK variants)
         try:
-            # Try with include_image_annotation first (if supported by SDK)
             ocr_response = mistral_client.ocr.process(
                 model=MISTRAL_MODEL,
                 document=payload,
@@ -165,14 +159,12 @@ def mistral_ocr_file_enhanced(file_path: Path, base_name: str, use_cache: bool =
                 include_image_annotation=MISTRAL_INCLUDE_IMAGE_ANNOTATIONS,
             )
         except TypeError:
-            # Older/newer SDKs may not support include_image_annotation – retry without it
             ocr_response = mistral_client.ocr.process(
                 model=MISTRAL_MODEL,
                 document=payload,
                 include_image_base64=MISTRAL_INCLUDE_IMAGES,
             )
         except Exception:
-            # If validation errors occur (e.g., pydantic), retry without the optional arg
             try:
                 ocr_response = mistral_client.ocr.process(
                     model=MISTRAL_MODEL,
@@ -183,9 +175,10 @@ def mistral_ocr_file_enhanced(file_path: Path, base_name: str, use_cache: bool =
                 logline(f"  -> ERROR: OCR request failed: {e}")
                 return None
 
+        src_doc_type = "file" if uploaded_file is not None else ("image_url" if is_image else "document_url")
         response_json = ocr_response.model_dump()
         response_json['_source'] = {
-            'doc_type': 'file' if (uploaded_file is not None) else doc_type,
+            'doc_type': src_doc_type,
             'doc_url': doc_url if uploaded_file is None else None,
             'file_id': getattr(uploaded_file, 'id', None),
             'file_path': str(file_path),
@@ -210,7 +203,9 @@ def mistral_ocr_file_enhanced(file_path: Path, base_name: str, use_cache: bool =
                 logline(f"  -> Saved debug JSON to logs/")
             except Exception as e:
                 logline(f"  -> WARN: Failed to save debug JSON: {e}")
+
         return response_json
+
     except MistralException as e:
         status_code = getattr(e, 'status_code', 'N/A')
         message = getattr(e, 'message', str(e))
@@ -237,9 +232,11 @@ def process_mistral_response(resp: dict, base_name: str) -> Path | None:
         if not pages:
             logline("  -> Mistral OCR returned no pages.")
             return None
+
         img_dir = OUT_IMG / f"{base_name}_ocr"
         img_dir.mkdir(parents=True, exist_ok=True)
         img_dir_rel = f"../output_images/{img_dir.name}"
+
         parts = [f"# OCR (Mistral): {base_name}"]
         pages_sorted = sorted(pages, key=lambda p: p.get("index", 0))
         for p in pages_sorted:
@@ -257,6 +254,7 @@ def process_mistral_response(resp: dict, base_name: str) -> Path | None:
                         saved_imgs.append(fname)
                     except Exception:
                         continue
+
             md = (p.get("markdown") or "").strip()
             txt = (p.get("text") or "").strip()
             is_md_poor = False
@@ -268,6 +266,7 @@ def process_mistral_response(resp: dict, base_name: str) -> Path | None:
                         most_common_line, count = counts.most_common(1)[0]
                         if count > len(lines) * 0.5:
                             is_md_poor = True
+
             if md and not is_md_poor:
                 content = re.sub(r"\]\(([^)]+\.(jpe?g|png|tiff?))\)",
                                  lambda m: f"]({img_dir_rel}/{Path(m.group(1)).name})", md, flags=re.IGNORECASE)
@@ -280,13 +279,36 @@ def process_mistral_response(resp: dict, base_name: str) -> Path | None:
                 parts.append(f"*(Image Fallback)*\n\n![Page {idx}]({img_dir_rel}/{saved_imgs[0]})")
             else:
                 parts.append("*(No content extracted)*")
+
         out_md = OUT_MD / f"{base_name}_ocr.md"
         write_text(out_md, "\n".join(parts).rstrip() + "\n")
         return out_md
+
     except Exception as e:
         logline(f"  -> Failed to process Mistral response: {e}")
         traceback.print_exc()
         return None
+
+
+def _extract_md_tables(md: str):
+    """Extract markdown tables as structured data."""
+    tables = []
+    lines = md.splitlines()
+    i = 0
+    while i < len(lines):
+        if lines[i].lstrip().startswith("|") and i+1 < len(lines) and set(lines[i+1].strip()) <= {"|","-"," ",":"}:
+            header = [c.strip() for c in lines[i].strip().strip("|").split("|")]
+            i += 2
+            rows = []
+            while i < len(lines) and lines[i].lstrip().startswith("|"):
+                row = [c.strip() for c in lines[i].strip().strip("|").split("|")]
+                if len(row) == len(header):
+                    rows.append(row)
+                i += 1
+            tables.append({"columns": header, "rows": rows})
+        else:
+            i += 1
+    return tables
 
 
 def extract_structured_content(response_json: dict) -> dict:
@@ -298,7 +320,7 @@ def extract_structured_content(response_json: dict) -> dict:
             'total_pages': len(response_json.get('pages', [])),
             'processing_model': response_json.get('model', 'unknown'),
             'total_text_length': 0,
-            'detected_languages': set(),
+            'detected_languages': [],
             'document_structure': {
                 'has_headers': False,
                 'has_tables': False,
@@ -309,14 +331,33 @@ def extract_structured_content(response_json: dict) -> dict:
     }
     try:
         for page_idx, page in enumerate(response_json.get('pages', [])):
-            page_text = page.get('markdown', '')
+            # Prefer best available text per page (markdown vs raw text)
+            page_md = (page.get('markdown') or '').strip()
+            page_txt = (page.get('text') or '').strip()
+
+            # Use the better signal per page
+            if _is_page_md_poor(page_md) and page_txt and len(page_txt) > len(page_md) * 0.5:
+                page_text = page_txt
+                logline(f"  -> Using raw text for page {page_idx + 1} (markdown quality poor)")
+            else:
+                page_text = page_md
+
             structured['metadata']['total_text_length'] += len(page_text)
-            if any(line.startswith('#') for line in page_text.split('\n')):
+            lines = [l.strip() for l in page_text.split('\n') if l.strip()]
+
+            # Detect structure
+            has_md_headers = any(l.startswith('#') for l in lines)
+            has_text_headers = any(
+                len(l) <= 60 and l.isupper() and not re.search(r'[.,;:]', l)
+                for l in lines
+            )
+            if has_md_headers or has_text_headers:
                 structured['metadata']['document_structure']['has_headers'] = True
             if '|' in page_text and '-' in page_text:
                 structured['metadata']['document_structure']['has_tables'] = True
             if any(line.strip().startswith(('-', '*', '1.')) for line in page_text.split('\n')):
                 structured['metadata']['document_structure']['has_lists'] = True
+
             text_block = {
                 'page': page_idx + 1,
                 'content': page_text,
@@ -324,6 +365,12 @@ def extract_structured_content(response_json: dict) -> dict:
                 'line_count': len(page_text.split('\n'))
             }
             structured['text_blocks'].append(text_block)
+
+            # Extract structured table data from this page
+            page_tables = _extract_md_tables(page_text)
+            if page_tables:
+                structured['tables'].extend([{"page": page_idx+1, **t} for t in page_tables])
+
             if page.get('images'):
                 structured['metadata']['document_structure']['has_images'] = True
                 for img_idx, image in enumerate(page.get('images', [])):
@@ -343,6 +390,7 @@ def extract_structured_content(response_json: dict) -> dict:
                     if not Path(image_info['filename']).suffix:
                         image_info['filename'] += ".png"
                     structured['images'].append(image_info)
+
         all_text = '\n'.join(block['content'] for block in structured['text_blocks'])
         table_indicators = all_text.count('|') + all_text.count('---')
         if table_indicators > 10:
@@ -358,19 +406,23 @@ def create_enhanced_markdown_output(response_json: dict, base_name: str, img_dir
     img_dir_rel: Relative path to saved images for link rewriting.
     """
     structured = extract_structured_content(response_json)
+
     output = f"# OCR Results: {base_name}\n\n"
     output += f"**Processing Model**: {structured['metadata']['processing_model']}\n"
     output += f"**Total Pages**: {structured['metadata']['total_pages']}\n"
     output += f"**Text Length**: {structured['metadata']['total_text_length']:,} characters\n"
     output += f"**Processing Time**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+
     structure = structured['metadata']['document_structure']
     output += "**Document Analysis**:\n"
     output += f"- Headers detected: {'✓' if structure['has_headers'] else '✗'}\n"
     output += f"- Tables detected: {'✓' if structure['has_tables'] else '✗'}\n"
     output += f"- Lists detected: {'✓' if structure['has_lists'] else '✗'}\n"
     output += f"- Images detected: {'✓' if structure['has_images'] else '✗'}\n\n"
+
     if structured['images']:
         output += f"**Images Found**: {len(structured['images'])} images across {structured['metadata']['total_pages']} pages\n\n"
+
     output += "---\n\n"
 
     image_map = {img['filename']: img for img in structured['images']}
@@ -393,6 +445,7 @@ def create_enhanced_markdown_output(response_json: dict, base_name: str, img_dir
                         annotation = image_map[img_name]['description']
                         return f"]({rel_path})\n\n*Caption (AI): {annotation}*\n\n"
                     return f"]({rel_path})"
+
                 content = re.sub(r"\]\(([^)]+\.(jpe?g|png|tiff?|webp))\)",
                                  rewrite_image_link, content, flags=re.IGNORECASE)
             output += content + "\n\n"
@@ -408,7 +461,143 @@ def create_enhanced_markdown_output(response_json: dict, base_name: str, img_dir
             if img['description']:
                 output += f"- **Description**: {img['description']}\n"
             output += "\n"
+
     return output
+
+
+def write_tables_from_ocr(response_json: dict, base_name: str) -> list[Path]:
+    """
+    Build canonical tables (md + csv) from OCR 'tables' payload.
+
+    Improvements:
+    - Score tables by Trial Balance signals (acct/account title + months + rows).
+    - Prefer ~15 columns; penalize far-from-15 widths.
+    - If 'Acct' is missing but the first text column contains codes, split it.
+    - Skip writing if no usable rows (avoid 25-byte empty file).
+    """
+    from utils import write_text, md_table, normalize_amount
+    import pandas as pd
+
+    written: list[Path] = []
+    try:
+        structured = extract_structured_content(response_json)
+        candidates = structured.get('tables') or []
+        if not candidates:
+            return written
+
+        def _norm(s: str) -> str:
+            return re.sub(r'[^a-z]', '', (s or '').lower())
+
+        canon_cols = [
+            "Acct", "Account Title", "Beginning Balance", "January", "February", "March",
+            "April", "May", "June", "July", "August", "September", "October", "November",
+            "December", "Current Balance",
+        ]
+        canon_norm = [_norm(c) for c in canon_cols]
+
+        month_norms = set(_norm(c) for c in canon_cols if c not in {"Acct", "Account Title"})
+
+        def score_table(t: dict) -> float:
+            cols = [c.strip() for c in (t.get('columns') or [])]
+            rows = t.get('rows') or []
+            ncols = len(cols)
+            cols_norm = [_norm(c) for c in cols]
+
+            has_acctish = any(n.startswith('acct') or ('account' in n and 'title' in n) for n in cols_norm)
+            month_hits = sum(1 for n in cols_norm if n in month_norms)
+            row_bonus = min(len(rows), 200) / 200.0
+            width_penalty = abs(ncols - 15) * 0.25  # prefer ~15 columns
+
+            # Extra boost if both beginning+current balance present
+            bc_boost = 1.0 if ('beginningbalance' in cols_norm and 'currentbalance' in cols_norm) else 0.0
+
+            return (2.0 * has_acctish) + (2.0 * bc_boost) + (1.5 * month_hits) + row_bonus - width_penalty
+
+        # Pick the best-scoring table (not just "widest").
+        tb = max(candidates, key=score_table)
+
+        cols = [c.strip() for c in tb.get('columns', [])]
+        rows = [[c.strip() for c in r] for r in tb.get('rows', [])]
+        if not cols or not rows:
+            return written
+
+        df = pd.DataFrame(rows, columns=cols)
+
+        # Map columns to canonical names
+        remap: dict[str, str] = {}
+        for c in df.columns:
+            n = _norm(str(c))
+            if n.startswith('acct'):
+                remap[c] = "Acct"
+            elif 'account' in n and 'title' in n:
+                remap[c] = "Account Title"
+            elif 'beginning' in n and 'balance' in n:
+                remap[c] = "Beginning Balance"
+            elif 'current' in n and 'balance' in n:
+                remap[c] = "Current Balance"
+            else:
+                for m in canon_cols:
+                    if _norm(m) in n:
+                        remap[c] = m
+                        break
+
+        if remap:
+            df = df.rename(columns=remap)
+
+        # Ensure we at least have one text column to split from if Acct is missing
+        text_like_cols = [c for c in df.columns if c not in {"Beginning Balance", "Current Balance"} and c not in canon_cols[2:]]
+
+        if "Acct" not in df.columns and "Account Title" not in df.columns and text_like_cols:
+            # Try to split the first text-like column into Acct + Account Title
+            src = text_like_cols[0]
+            ser = df[src].astype(str)
+            split = ser.str.extract(r"^\s*\(?(?P<_code>\d{3,10})\)?(?:\s*[-–—]?\s+|\s+)(?P<_title>.+?)\s*$")
+            if "_code" in split and "_title" in split:
+                df.insert(0, "Acct", split["_code"].fillna("").astype(str).str.strip())
+                df.insert(1, "Account Title", split["_title"].fillna("").astype(str).str.strip())
+                # If we split from a combined column, drop it if it isn't a month or amount
+                if src not in {"Beginning Balance", "Current Balance"} and src not in canon_cols[2:]:
+                    try:
+                        df.drop(columns=[src], inplace=True)
+                    except Exception:
+                        pass
+
+        # Add missing canonical columns and order them
+        for m in canon_cols:
+            if m not in df.columns:
+                df[m] = ""
+        df = df[canon_cols]
+
+        # Normalize amounts (month columns only)
+        month_cols = [c for c in canon_cols if c not in ("Acct", "Account Title")]
+        for c in month_cols:
+            df[c] = df[c].map(normalize_amount)
+
+        # Drop junk rows: empty titles or fully empty month values
+        keep = df["Account Title"].astype(str).str.strip().ne("")
+        df = df[keep]
+        if month_cols:
+            empty_row = df[month_cols].astype(str).apply(lambda s: s.str.strip().eq("")).all(axis=1)
+            df = df[~empty_row]
+
+        if df.empty:
+            # Avoid writing a useless file
+            logline("  -> OCR-derived table normalization produced no rows; skipping write.")
+            return written
+
+        md_path = OUT_MD / f"{base_name}_tables_from_ocr.md"
+        csv_path = OUT_MD / f"{base_name}_tables_from_ocr.csv"
+        write_text(md_path, "# Tables (from OCR)\n\n" + md_table(df) + "\n")
+        try:
+            df.to_csv(csv_path, index=False)
+            written += [md_path, csv_path]
+        except Exception:
+            written += [md_path]
+        return written
+
+    except Exception as e:
+        logline(f"  -> WARN: write_tables_from_ocr failed: {e}")
+        return []
 
 
 def process_mistral_response_enhanced(response_json: dict, base_name: str, original_file: Path | None = None) -> Path | None:
@@ -437,7 +626,6 @@ def process_mistral_response_enhanced(response_json: dict, base_name: str, origi
 
         img_dir = OUT_IMG / f"{base_name}_ocr"
         img_dir_rel = f"../output_images/{img_dir.name}"
-
         saved_images = []
         if MISTRAL_INCLUDE_IMAGES:
             saved_images = save_extracted_images(response_json, base_name, img_dir)
@@ -447,7 +635,6 @@ def process_mistral_response_enhanced(response_json: dict, base_name: str, origi
             base_name,
             img_dir_rel=img_dir_rel if saved_images else None
         )
-
         ocr_md_path = OUT_MD / f"{base_name}_mistral_ocr.md"
         write_text(ocr_md_path, enhanced_md)
 
@@ -456,8 +643,19 @@ def process_mistral_response_enhanced(response_json: dict, base_name: str, origi
             metadata_path = OUT_MD / f"{base_name}_ocr_metadata.json"
             write_text(metadata_path, json.dumps(structured, indent=2, default=str))
             logline(f"  -> Saved structured metadata: {metadata_path.name}")
+
         logline(f"  -> Enhanced OCR output: {ocr_md_path.name}")
+
+        # New: write canonical tables from OCR (robust selector)
+        try:
+            written = write_tables_from_ocr(response_json, base_name)
+            if written:
+                logline(f"  -> Wrote OCR-derived tables: {[p.name for p in written]}")
+        except Exception as e:
+            logline(f"  -> WARN: Could not write OCR-derived tables: {e}")
+
         return ocr_md_path
+
     except Exception as e:
         logline(f"  -> ERROR: Failed to process enhanced OCR response: {e}")
         return None
@@ -578,15 +776,16 @@ def save_extracted_images(response_json: dict, base_name: str, output_dir: Path)
                     if image.get('image_base64'):
                         try:
                             img_data = base64.b64decode(image['image_base64'])
-                            img_filename = image.get('id')
-                            if not img_filename:
-                                img_filename = f"{base_name}_page{page_idx+1}_img{img_idx+1}.png"
-                            if not Path(img_filename).suffix:
-                                img_filename += ".png"
-                            img_path = output_dir / img_filename
+                            # Sanitize OCR image filenames
+                            raw_name = image.get("id") or f"{base_name}_page{page_idx+1}_img{img_idx+1}.png"
+                            safe_name = Path(raw_name).name
+                            if not Path(safe_name).suffix:
+                                safe_name += ".png"
+                            img_path = output_dir / safe_name
                             with open(img_path, 'wb') as f:
                                 f.write(img_data)
                             saved_images.append(img_path)
+
                             img_metadata = {
                                 'source_page': page_idx + 1,
                                 'image_index': img_idx + 1,
@@ -600,12 +799,13 @@ def save_extracted_images(response_json: dict, base_name: str, output_dir: Path)
                                 'extracted_at': datetime.now().isoformat(),
                                 'file_size_bytes': len(img_data)
                             }
-                            metadata_path = output_dir / f"{img_filename}.metadata.json"
+                            metadata_path = output_dir / f"{safe_name}.metadata.json"
                             write_text(metadata_path, json.dumps(img_metadata, indent=2, default=str))
                         except Exception as e:
                             logline(f"  -> Warning: Failed to save image {img_idx+1} from page {page_idx+1}: {e}")
     except Exception as e:
         logline(f"  -> Warning: Error saving extracted images: {e}")
+
     if saved_images:
         logline(f"  -> Saved {len(saved_images)} extracted images to output_images/{output_dir.name}/")
     return saved_images

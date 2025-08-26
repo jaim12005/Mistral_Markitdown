@@ -2,10 +2,10 @@ import os
 import sys
 import traceback
 import time
+import re
 from pathlib import Path
 import shutil
 from datetime import datetime
-
 try:
     import pandas as pd
 except Exception:
@@ -30,7 +30,7 @@ except Exception:
 from config import (
     INPUT_DIR, OUT_MD, OUT_TXT, OUT_IMG, CACHE_DIR, LOG_DIR, BATCH_SIZE,
     MISTRAL_API_KEY, MISTRAL_MODEL, MISTRAL_INCLUDE_IMAGES, MISTRAL_INCLUDE_IMAGE_ANNOTATIONS,
-    POPPLER_PATH,
+    POPPLER_PATH, GATE_MARKITDOWN_WHEN_OCR_GOOD,
     MARKITDOWN_USE_LLM, MARKITDOWN_LLM_MODEL, MARKITDOWN_LLM_KEY,
     AZURE_DOC_INTEL_ENDPOINT, AZURE_DOC_INTEL_KEY, MAX_RETRIES, CACHE_DURATION_HOURS
 )
@@ -53,6 +53,7 @@ def convert_local_only():
 
     metadata_tracker = get_metadata_tracker()
     ok_count = 0
+
     for f in files:
         base = f.stem
         print(f"Processing: {f.name}")
@@ -68,6 +69,7 @@ def convert_local_only():
                 img_dir = OUT_IMG / f"{base}_markitdown"
                 if img_dir.exists() and any(img_dir.iterdir()):
                     print(f"  -> Extracted images to output_images/{img_dir.name}/")
+
             if f.suffix.lower() == ".pdf":
                 try:
                     extracted_tables = extract_tables_to_markdown(f, base)
@@ -77,17 +79,23 @@ def convert_local_only():
                 except Exception as e:
                     print(f"  -> Local table extraction error: {e}")
                     traceback.print_exc()
-            for md in produced[:]:
-                txt = OUT_TXT / (md.stem + ".txt")
-                md_to_txt(md, txt)
-                if txt.exists():
-                    produced.append(txt)
+
+            # Only convert .md files to .txt (not CSVs)
+            for p in produced[:]:
+                if p.suffix == ".md":
+                    txt = OUT_TXT / (p.stem + ".txt")
+                    md_to_txt(p, txt)
+                    if txt.exists():
+                        produced.append(txt)
+
             if produced:
                 ok_count += 1
+
         except Exception as e:
             error_msg = f"Processing error: {e}"
             print(f"  -> Processing error: {e}")
             traceback.print_exc()
+
         processing_time = time.time() - start_time
         result = ProcessingResult(
             file_path=f,
@@ -98,6 +106,7 @@ def convert_local_only():
             error_message=error_msg.strip()
         )
         metadata_tracker.track_file_processing(f, result)
+
     metadata_tracker.finalize_session()
     print("\n=== Summary ===")
     print(f"Successfully processed files: {ok_count}")
@@ -115,6 +124,7 @@ def convert_mistral_only():
 
     metadata_tracker = get_metadata_tracker()
     ok_count = 0
+
     for doc in files:
         base = doc.stem
         print(f"Processing: {doc.name}")
@@ -142,6 +152,7 @@ def convert_mistral_only():
             error_msg = f"Processing error: {e}"
             print(f"  -> Processing error: {e}")
             traceback.print_exc()
+
         processing_time = time.time() - start_time
         result = ProcessingResult(
             file_path=doc,
@@ -152,23 +163,34 @@ def convert_mistral_only():
             error_message=error_msg
         )
         metadata_tracker.track_file_processing(doc, result)
+
     metadata_tracker.finalize_session()
     print("\n=== Summary ===")
     print(f"Successfully processed files: {ok_count}")
 
 
 def convert_transcription_only():
-    """New mode for audio/video transcription."""
-    print("\n=== Transcription Mode (Markitdown) ===")
+    """Experimental mode for audio/video transcription via MarkitDown plugins."""
+    from config import MARKITDOWN_ENABLE_PLUGINS
+    if not MARKITDOWN_ENABLE_PLUGINS:
+        print("\n=== Transcription Mode ===\n")
+        print("❌ Transcription requires MarkitDown plugins to be enabled.")
+        print("\nTo enable:")
+        print("1. Set MARKITDOWN_ENABLE_PLUGINS=true in your .env file")
+        print("2. Install and configure appropriate transcription plugins")
+        print("3. Ensure ffmpeg is available on your PATH for audio/video processing")
+        return
+
+    print("\n=== Transcription Mode (Plugin-Based) ===")
     supported_exts = {'.mp3', '.wav', '.m4a', '.flac', '.mp4', '.avi', '.mov', '.mkv', '.url'}
     files = [p for p in sorted(INPUT_DIR.iterdir()) if p.is_file() and p.suffix.lower() in supported_exts]
-
     if not files:
         print("No suitable audio, video, or .url files found for transcription.")
         return
 
     metadata_tracker = get_metadata_tracker()
     ok_count = 0
+
     for f in files:
         # For .url files, check if they are YouTube links
         if f.suffix.lower() == '.url':
@@ -199,8 +221,10 @@ def convert_transcription_only():
                 md_to_txt(md, txt)
                 if txt.exists():
                     produced.append(txt)
+
             if produced:
                 ok_count += 1
+
         except Exception as e:
             error_msg = f"Processing error: {e}"
             print(f"  -> Processing error: {e}")
@@ -243,6 +267,7 @@ def _run_hybrid_markitdown(f: Path, base: str, md_main: Path) -> tuple[bool, lis
                 logline(f"   ⚠️  Table extraction error: {e}")
     return ok_md, produced, table_files
 
+
 def _run_hybrid_ocr(f: Path, base: str) -> tuple[Path | None, list[Path]]:
     produced = []
     ocr_md_path = None
@@ -259,14 +284,53 @@ def _run_hybrid_ocr(f: Path, base: str) -> tuple[Path | None, list[Path]]:
         print(f"   ❌ OCR failed")
     return ocr_md_path, produced
 
+
+def _should_gate_markitdown(ocr_md_path: Path) -> bool:
+    """Gate the large Markitdown section when OCR tables look complete."""
+    if not ocr_md_path or not ocr_md_path.exists():
+        return False
+    try:
+        ocr_content = ocr_md_path.read_text(encoding="utf-8", errors="replace")
+        has_acct_header = bool(
+            re.search(r'^\s*\|\s*(acct\.?|account)\b', ocr_content, re.IGNORECASE | re.MULTILINE)
+        )
+        table_rows = sum(1 for ln in ocr_content.splitlines() if ln.count('|') >= 3)
+        has_total = bool(re.search(r'(?m)^\s*(?:\|.*)?(grand\s+total|total\s*\$)\b',
+                                   ocr_content, re.IGNORECASE))
+        # Require enough table shape to be useful
+        return has_acct_header and has_total and table_rows >= 10
+    except Exception:
+        return False
+
+
+def _file_has_real_tables(md_path: Path) -> bool:
+    """Return True if a markdown file contains at least one header+rule+data row table."""
+    if not md_path or not md_path.exists():
+        return False
+    try:
+        s = md_path.read_text(encoding="utf-8", errors="replace")
+        lines = [ln for ln in s.splitlines() if ln.strip().startswith('|')]
+        if len(lines) < 3:
+            return False
+        # at least one data row with >= 3 pipes (not just the header / rule)
+        return any(ln.count('|') >= 3 for ln in lines[2:])
+    except Exception:
+        return False
+
+
 def _combine_hybrid_results(base: str, md_main: Path, table_files: list[Path], ocr_md: Path | None, strategy, complexity) -> Path | None:
     combined_path = OUT_MD / f"{base}_combined.md"
     print(f"   🔧 Creating enhanced combined output...")
     try:
         markitdown_content = md_main.read_text(encoding="utf-8")
+
         combined = f"# Enhanced Processing Results: {base}\n\n"
         combined += f"**Processing Strategy**: {strategy.description}\n"
-        combined += f"**File Size**: {complexity['size_mb']:.1f}MB\n"
+        size_mb = complexity['size_mb']
+        if size_mb < 1.0:
+            combined += f"**File Size**: {size_mb * 1024:.0f} KB\n"
+        else:
+            combined += f"**File Size**: {size_mb:.2f} MB\n"
         combined += f"**Processed**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
         combined += f"**Methods Used**: {'Markitdown' if strategy.use_markitdown else ''}{'+ OCR' if strategy.use_ocr else ''}\n"
         combined += f"**Benefits**: {', '.join(strategy.benefits)}\n\n"
@@ -285,10 +349,32 @@ def _combine_hybrid_results(base: str, md_main: Path, table_files: list[Path], o
                 return '\n'.join(lines[1:]).strip()
             return '\n'.join(lines).strip()
 
-        combined += "## 📝 Primary Content (Markitdown)\n\n"
-        combined += strip_headers(markitdown_content)
+        # Gate/trim Markitdown section if OCR has good tables OR OCR tables file has rows
+        ocr_tables_md = OUT_MD / f"{base}_tables_from_ocr.md"
+        has_ocr_tables = _file_has_real_tables(ocr_tables_md)
 
-        if table_files:
+        should_gate = GATE_MARKITDOWN_WHEN_OCR_GOOD and (
+            (_should_gate_markitdown(ocr_md) if ocr_md else False) or has_ocr_tables
+        )
+
+        if should_gate:
+            combined += "## 📝 Primary Content (Markitdown) — *Collapsed due to high‑quality OCR tables*\n\n"
+            combined += "*Note: The Markitdown section is collapsed because OCR produced a structured Trial Balance table below.*\n\n"
+            combined += "<details><summary>Click to expand Markitdown content</summary>\n\n"
+            combined += strip_headers(markitdown_content)
+            combined += "\n\n</details>"
+        else:
+            combined += "## 📝 Primary Content (Markitdown)\n\n"
+            combined += strip_headers(markitdown_content)
+
+        # Prefer OCR tables if they have real rows; fall back to local tables
+        if has_ocr_tables:
+            combined += "\n\n---\n\n## 📊 Extracted Tables (OCR)\n\n"
+            try:
+                combined += ocr_tables_md.read_text(encoding="utf-8") + "\n\n"
+            except Exception as e:
+                combined += f"*Error loading OCR tables: {e}*\n\n"
+        elif table_files:
             combined += "\n\n---\n\n## 📊 Extracted Tables (Local Analysis)\n\n"
             for i, table_file in enumerate(table_files):
                 combined += f"### Table {i+1}: {table_file.name}\n\n"
@@ -296,6 +382,7 @@ def _combine_hybrid_results(base: str, md_main: Path, table_files: list[Path], o
                     combined += table_file.read_text(encoding="utf-8") + "\n\n"
                 except Exception as e:
                     combined += f"*Error loading table: {e}*\n\n"
+
         if ocr_md:
             combined += "\n\n---\n\n## 🔍 Enhanced OCR Analysis (Mistral)\n\n"
             combined += strip_headers(ocr_md.read_text(encoding="utf-8"))
@@ -307,6 +394,7 @@ def _combine_hybrid_results(base: str, md_main: Path, table_files: list[Path], o
         print(f"   ❌ Failed to create combined output: {e}")
         return None
 
+
 def convert_hybrid_pipeline():
     print("\n=== Enhanced Hybrid Processing (Markitdown + Mistral OCR) ===")
     files = [p for p in sorted(INPUT_DIR.iterdir()) if p.is_file()]
@@ -317,8 +405,8 @@ def convert_hybrid_pipeline():
     metadata_tracker = get_metadata_tracker()
     ok_count = 0
     total_processing_time = 0
-    print(f"\nAnalyzing {len(files)} files for optimal processing...")
 
+    print(f"\nAnalyzing {len(files)} files for optimal processing...")
     for f in files:
         strategy = get_enhanced_file_strategy(f)
         complexity = analyze_file_complexity(f)
@@ -333,9 +421,9 @@ def convert_hybrid_pipeline():
         start_time = time.time()
         produced: list[Path] = []
         error_msg = ""
-
         try:
             md_main_path = OUT_MD / f"{base}.md"
+
             ok_md, md_produced, table_files = False, [], []
             if strategy.use_markitdown:
                 ok_md, md_produced, table_files = _run_hybrid_markitdown(f, base, md_main_path)
@@ -385,6 +473,7 @@ def convert_hybrid_pipeline():
             print(f"   ❌ No output generated")
 
     metadata_tracker.finalize_session()
+
     print("\n" + "="*60)
     print("📈 PROCESSING SUMMARY")
     print("="*60)
@@ -406,6 +495,7 @@ def batch_process_directory():
     if not files:
         print("No files to process.")
         return
+
     file_groups = {}
     for f in files:
         if f.is_file():
@@ -413,7 +503,9 @@ def batch_process_directory():
             if ext not in file_groups:
                 file_groups[ext] = []
             file_groups[ext].append(f)
+
     print(f"Found {len(files)} files in {len(file_groups)} format groups")
+
     for ext, group_files in file_groups.items():
         print(f"\nProcessing {len(group_files)} {ext} files...")
         for i in range(0, len(group_files), BATCH_SIZE):
@@ -433,6 +525,7 @@ def batch_process_directory():
                     print(f"    ✓ {f.name}")
                 except Exception as e:
                     print(f"    ✗ {f.name}: {e}")
+
     print("\n=== Batch processing complete ===")
 
 
@@ -448,6 +541,7 @@ def print_env_summary():
         print("[OK] Markitdown CLI available (Python API not found)")
     else:
         print("[MISSING] Markitdown not found - install with: pip install markitdown[all]")
+
     if pd is not None and pdfplumber is not None:
         print("[OK] Table extraction enabled (pdfplumber + pandas)")
     else:
@@ -455,16 +549,19 @@ def print_env_summary():
         if pd is None: missing.append("pandas")
         if pdfplumber is None: missing.append("pdfplumber")
         print(f"[WARN] Table extraction limited (missing: {', '.join(missing)})")
+
     try:
         import tabulate as _tab
         print("[OK] Enhanced table formatting available (tabulate)")
     except Exception:
         pass
+
     if camelot is not None:
         if have("gswin64c.exe") or have("gswin32c.exe") or have("gs"):
             print("[OK] Camelot with Ghostscript (best table extraction)")
         else:
             print("[WARN] Camelot without Ghostscript (limited mode)")
+
     if MISTRAL_API_KEY:
         print(f"[OK] Mistral OCR configured")
         print(f"  -> Model: {MISTRAL_MODEL}")
@@ -475,16 +572,19 @@ def print_env_summary():
         print(f"  -> Retry: SDK managed + Upload retries")
     else:
         print("[WARN] Mistral OCR not configured (set MISTRAL_API_KEY in .env)")
+
     if convert_from_path is not None:
         if POPPLER_PATH or have("pdftoppm"):
             print("[OK] PDF to image conversion available")
         else:
             print("[WARN] PDF to image needs Poppler (set POPPLER_PATH)")
+
     print(f"\n--- Performance Settings ---")
     print(f"Batch size: {BATCH_SIZE} files")
     from config import MISTRAL_TIMEOUT
     print(f"HTTP timeout: {MISTRAL_TIMEOUT}s")
     print(f"Max retries: {MAX_RETRIES}")
+
     print(f"\n--- Directories ---")
     print(f"Input:    {INPUT_DIR}")
     print(f"Output:   {OUT_MD}")
@@ -514,8 +614,8 @@ def menu_loop():
         print("  4) Mistral OCR Only (High Accuracy)")
         print("     -> Best for images, scanned PDFs, complex layouts")
         print()
-        print("  5) Transcription Only (Audio/Video)")
-        print("     -> Transcribe audio, video, and YouTube URLs")
+        print("  5) Transcription (Requires Plugin)")
+        print("     -> Experimental: Transcribe audio/video via MarkitDown plugins")
         print()
         print("  6) Standard Batch Process")
         print("     -> Process all files with basic settings")
@@ -533,6 +633,7 @@ def menu_loop():
         except EOFError:
             print("\nExiting.")
             break
+
         if choice == "1":
             convert_hybrid_pipeline()
         elif choice == "2":
@@ -570,20 +671,25 @@ def print_banner():
 def convert_enhanced_batch():
     print("\n=== ENHANCED BATCH PROCESSING ===")
     print("🚀 Using all optimization features for maximum performance")
+
     files = [p for p in sorted(INPUT_DIR.iterdir()) if p.is_file()]
     if not files:
         print("No input files found.")
         return
+
     from utils import (
         ConcurrentProcessor, ErrorRecoveryManager, get_cache, get_metadata_tracker,
         create_file_processor_function, get_enhanced_file_strategy, analyze_file_complexity
     )
+
     cache = get_cache()
     metadata_tracker = get_metadata_tracker()
     processor = ConcurrentProcessor(max_workers=min(os.cpu_count() or 4, 8), rate_limit_delay=1.0)
     error_manager = ErrorRecoveryManager()
+
     print(f"\n📊 PROCESSING ANALYSIS")
     print("="*50)
+
     analysis_results = {}
     total_estimated_time = 0
     for f in files:
@@ -593,32 +699,42 @@ def convert_enhanced_batch():
         time_str = complexity['estimated_processing_time']
         if time_str.endswith('s'):
             total_estimated_time += int(time_str[:-1])
+
     print(f"📁 Files to process: {len(files)}")
     print(f"⏱️  Estimated total time: {total_estimated_time}s ({total_estimated_time//60}m {total_estimated_time%60}s)")
+
     strategy_counts = {}
     for strategy, _ in analysis_results.values():
         desc = strategy.description
         strategy_counts[desc] = strategy_counts.get(desc, 0) + 1
+
     print(f"🎯 Processing strategies:")
     for desc, count in strategy_counts.items():
         print(f"   • {desc}: {count} files")
+
     cache_stats = cache.get_cache_stats()
     if cache_stats.get('total_entries', 0) > 0:
         print(f"💾 Cache: {cache_stats['total_entries']} entries, {cache_stats['size_mb']:.1f}MB")
         print(f"   Hit rate: {cache_stats.get('hit_rate', 0):.1%}")
+
     recommendations = metadata_tracker.get_recommendations()
     if recommendations:
         print(f"\n💡 RECOMMENDATIONS")
         for key, rec in recommendations.items():
             print(f"   • {rec}")
+
     print("\n" + "="*50)
+
     def progress_callback(completed: int, total: int):
         percentage = (completed / total) * 100
         print(f"\r🔄 Progress: {completed}/{total} ({percentage:.1f}%) ", end="", flush=True)
+
     processor_func = create_file_processor_function(use_enhanced_strategy=True)
+
     print(f"\n🚀 Starting enhanced batch processing (Workers: {processor.max_workers})...")
     start_time = time.time()
     results: list[ProcessingResult] = []
+
     try:
         results = processor.process_files_concurrent(
             files,
@@ -627,30 +743,37 @@ def convert_enhanced_batch():
         )
         processing_time = time.time() - start_time
         print(f"\n\n✅ Processing completed in {processing_time:.1f}s")
+
         successful = [r for r in results if r.success]
         failed = [r for r in results if not r.success]
+
         print(f"\n📈 ENHANCED PROCESSING RESULTS")
         print("="*60)
         print(f"✅ Successful: {len(successful)}/{len(results)} ({len(successful)/len(results):.1%})")
         print(f"❌ Failed: {len(failed)}")
         print(f"⚡ Average time per file: {processing_time/len(files):.1f}s")
+
         for result in results:
             metadata_tracker.track_file_processing(result.file_path, result)
+
         method_counts = {}
         total_outputs = 0
         for result in successful:
             method = result.strategy_used
             method_counts[method] = method_counts.get(method, 0) + 1
             total_outputs += len(result.output_files)
+
         print(f"\n🔧 Methods used:")
         for method, count in method_counts.items():
             print(f"   • {method}: {count} files")
+
         print(f"\n📁 Output summary:")
         print(f"   • Total output files: {total_outputs}")
         print(f"   • Markdown files: {OUT_MD}/")
         print(f"   • Text files: {OUT_TXT}/")
         if MISTRAL_INCLUDE_IMAGES:
             print(f"   • Extracted images: {OUT_IMG}/")
+
         if failed:
             print(f"\n⚠️  Error analysis:")
             error_types = {}
@@ -659,11 +782,13 @@ def convert_enhanced_batch():
                 error_types[error_type] = error_types.get(error_type, 0) + 1
             for error_type, count in error_types.items():
                 print(f"   • {error_type}: {count} files")
+
         processor_stats = processor.get_processing_stats()
         print(f"\n📊 Performance metrics:")
         print(f"   • API calls made: {processor_stats.get('api_calls', 0)}")
         print(f"   • Cache utilization: {cache.get_cache_stats().get('hit_rate', 0):.1%}")
         print(f"   • Processing efficiency: {processor_stats.get('success_rate', 0):.1%}")
+
         cache.cleanup_old_entries()
         metadata_tracker.add_performance_metric('total_processing_time', processing_time)
         metadata_tracker.add_performance_metric('files_per_second', len(files) / processing_time)
@@ -671,6 +796,7 @@ def convert_enhanced_batch():
         metadata_tracker.finalize_session()
         print(f"\n💾 Session data saved for future optimization")
         print("="*60)
+
     except KeyboardInterrupt:
         print(f"\n\n⚠️  Processing interrupted by user")
         completed_count = len([r for r in results if hasattr(r, 'success')])
@@ -690,11 +816,13 @@ def show_system_status():
     try:
         from utils import get_cache, get_metadata_tracker
         from config import MISTRAL_API_KEY, MARKITDOWN_USE_LLM, AZURE_DOC_INTEL_ENDPOINT
+
         print("\n🔧 CONFIGURATION STATUS")
         print("-" * 30)
         print(f"✅ Mistral OCR: {'Enabled' if MISTRAL_API_KEY else '❌ Disabled (no API key)'}")
         print(f"✅ LLM Features: {'Enabled' if MARKITDOWN_USE_LLM else '❌ Disabled'}")
         print(f"✅ Azure Doc Intel: {'Enabled' if AZURE_DOC_INTEL_ENDPOINT else '❌ Disabled'}")
+
         print(f"\n💾 CACHE PERFORMANCE")
         print("-" * 30)
         cache = get_cache()
@@ -707,6 +835,7 @@ def show_system_status():
             print(f"❌ Cache misses: {cache_stats.get('cache_misses', 0)}")
         else:
             print("📝 No cache entries yet")
+
         print(f"\n📈 PROCESSING INSIGHTS")
         print("-" * 30)
         metadata_tracker = get_metadata_tracker()
@@ -717,6 +846,7 @@ def show_system_status():
                 print(f"   • {rec}")
         else:
             print("📝 No historical data available yet")
+
         print(f"\n📁 INPUT DIRECTORY ANALYSIS")
         print("-" * 30)
         files = [p for p in sorted(INPUT_DIR.iterdir()) if p.is_file()]
@@ -742,6 +872,13 @@ def show_system_status():
                 print(f"   • {strategy}: {count} files")
         else:
             print("📝 No files found in input directory")
+
+        # Check transcription dependencies
+        ffmpeg_available, ffmpeg_status = check_ffmpeg_availability()
+        print(f"\n🎵 TRANSCRIPTION SUPPORT")
+        print("-" * 30)
+        print(ffmpeg_status)
+
         print(f"\n⚡ SYSTEM RESOURCES")
         print("-" * 30)
         import os as _os
@@ -760,6 +897,7 @@ def show_system_status():
                 print(f"📊 Error getting system metrics: {e}")
         else:
             print("📊 Install psutil for detailed system metrics")
+
         print(f"\n💡 PERFORMANCE TIPS")
         print("-" * 30)
         if len(files) > 10:
@@ -770,12 +908,26 @@ def show_system_status():
             print("🔑 Add MISTRAL_API_KEY for OCR capabilities")
         if (sum(f.stat().st_size for f in files) / (1024*1024)) > 100:
             print("🚀 Large files detected - concurrent processing recommended")
+
         print("\n" + "="*60)
         input("\nPress Enter to continue...")
+
     except Exception as e:
         print(f"❌ Error displaying system status: {e}")
         print("This might be due to missing dependencies or configuration issues.")
         input("\nPress Enter to continue...")
+
+
+def check_ffmpeg_availability() -> tuple[bool, str]:
+    """Check if ffmpeg is available for transcription mode."""
+    try:
+        from utils import have
+        if have("ffmpeg"):
+            return True, "✅ ffmpeg: Available for audio/video transcription"
+        else:
+            return False, "❌ ffmpeg: Not found on PATH (required for audio/video transcription)"
+    except Exception as e:
+        return False, f"❌ ffmpeg: Error checking availability: {e}"
 
 
 if __name__ == "__main__":
@@ -786,13 +938,16 @@ if __name__ == "__main__":
     parser.add_argument("--mode", choices=["hybrid", "markitdown", "ocr", "batch", "enhanced", "transcription"], help="Conversion mode")
     parser.add_argument("--no-interactive", action="store_true", help="Exit after processing")
     args = parser.parse_args()
+
     try:
         print_banner()
         print_env_summary()
+
         if args.test:
             print("\n[SUCCESS] Converter loaded successfully!")
             print("Ready to process documents.")
             sys.exit(0)
+
         if args.mode:
             if args.mode == "hybrid":
                 convert_hybrid_pipeline()
@@ -806,9 +961,12 @@ if __name__ == "__main__":
                 batch_process_directory()
             elif args.mode == "enhanced":
                 convert_enhanced_batch()
+
             if args.no_interactive:
                 sys.exit(0)
+
         menu_loop()
+
     except Exception:
         print("\nFATAL ERROR:\n" + traceback.format_exc())
         sys.exit(1)

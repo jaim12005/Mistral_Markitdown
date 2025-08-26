@@ -34,7 +34,7 @@ from config import (
     AZURE_DOC_INTEL_ENDPOINT, AZURE_DOC_INTEL_KEY, MAX_RETRIES,
     RETRY_DELAY, MONTHS, M_SHORT, OUT_MD, OUT_IMG, POPPLER_PATH, LOG_DIR
 )
-from utils import logline, run, write_text, md_table, have, ErrorRecoveryManager
+from utils import logline, run, write_text, md_table, have, ErrorRecoveryManager, normalize_amount, _normalize_amount_column
 
 
 def run_markitdown_enhanced(inp: Path, out_md: Path) -> bool:
@@ -54,10 +54,13 @@ def run_markitdown_enhanced(inp: Path, out_md: Path) -> bool:
             logline(f"    -> Strategies: Table={MARKITDOWN_TABLE_STRATEGY}, Image={MARKITDOWN_IMAGE_STRATEGY}")
 
             if MARKITDOWN_USE_LLM and MARKITDOWN_LLM_KEY:
-                from openai import OpenAI
-                kwargs['llm_client'] = OpenAI(api_key=MARKITDOWN_LLM_KEY)
-                kwargs['llm_model'] = MARKITDOWN_LLM_MODEL
-                logline(f"    -> LLM image description enabled ({MARKITDOWN_LLM_MODEL})")
+                try:
+                    from openai import OpenAI
+                    kwargs['llm_client'] = OpenAI(api_key=MARKITDOWN_LLM_KEY)
+                    kwargs['llm_model'] = MARKITDOWN_LLM_MODEL
+                    logline(f"    -> LLM image description enabled ({MARKITDOWN_LLM_MODEL})")
+                except Exception as e:
+                    logline(f"    -> LLM disabled (openai not available): {e}")
 
             if AZURE_DOC_INTEL_ENDPOINT and AZURE_DOC_INTEL_KEY:
                 kwargs['docintel_endpoint'] = AZURE_DOC_INTEL_ENDPOINT
@@ -115,7 +118,11 @@ def run_markitdown_enhanced(inp: Path, out_md: Path) -> bool:
 
 def create_enhanced_markitdown_output(inp: Path, result, file_size_mb: float) -> str:
     """Create enhanced markdown output with YAML frontmatter and structure."""
-    text_content = getattr(result, 'text_content', '')
+    # Be defensive about MarkItDown return types
+    text_content = getattr(result, "text_content", None)
+    if text_content is None:
+        text_content = result if isinstance(result, str) else ""
+    
     text_length = len(text_content)
     structure_info = analyze_document_structure(text_content)
 
@@ -127,7 +134,13 @@ def create_enhanced_markitdown_output(inp: Path, result, file_size_mb: float) ->
     content += f"processed_at: {datetime.now().isoformat()}\n"
     content += f"processing_method: Markitdown Enhanced\n"
     content += f"content_length_chars: {text_length}\n"
-    content += f"estimated_reading_time_min: {max(1, text_length // 1500)}\n"
+    
+    # Fix reading time calculation - use word-based estimate
+    import math
+    words = len(re.findall(r"\w+", text_content or ""))
+    wpm = 200
+    content += f"estimated_reading_time_min: {max(1, math.ceil(words / wpm))}\n"
+    
     if structure_info:
         content += "document_structure:\n"
         for key, value in structure_info.items():
@@ -147,13 +160,17 @@ def create_enhanced_markitdown_output(inp: Path, result, file_size_mb: float) ->
 
 def rewrite_markitdown_image_links(content: str, img_dir_rel: str) -> str:
     """Rewrite Markitdown-generated image links to standardized relative path."""
+    IMG_EXT = (".png",".jpg",".jpeg",".tif",".tiff",".webp",".bmp",".gif")
+    
     def replacer(match):
-        original_path = match.group(1)
-        if original_path.startswith(('http://', 'https://', 'data:')):
+        url = match.group(1)
+        if url.startswith(('http://', 'https://', 'data:')):
             return match.group(0)
-        image_name = Path(original_path).name
-        return f"]({img_dir_rel}/{image_name})"
-    return re.sub(r"\]\((.*?)\)", replacer, content)
+        if not any(url.lower().endswith(ext) for ext in IMG_EXT):
+            return match.group(0)
+        return f"]({img_dir_rel}/{Path(url).name})"
+    
+    return re.sub(r"\]\(([^)]+)\)", replacer, content)
 
 
 def analyze_document_structure(text: str) -> dict:
@@ -295,6 +312,19 @@ def log_processing_insights(inp: Path, result, file_ext: str):
         pass
 
 
+def looks_like_tb_header(cells: list[str]) -> bool:
+    """Enhanced header detection for Trial Balance tables."""
+    HEADER_TOKENS = {
+        "acct", "account", "account title", "beginning balance", "current balance",
+        "january", "february", "march", "april", "may", "june",
+        "july", "august", "september", "october", "november", "december"
+    }
+    
+    s = " ".join(str(c).lower().strip() for c in cells if c and str(c).strip())
+    # must contain at least 3 header signals or both "beginning/current"
+    hits = sum(tok in s for tok in HEADER_TOKENS)
+    return hits >= 3 or ("beginning balance" in s and "current balance" in s)
+
 def try_pdfplumber_tables(pdf_path: Path) -> list["pd.DataFrame"]:
     out = []
     if pdfplumber is None or pd is None:
@@ -310,12 +340,15 @@ def try_pdfplumber_tables(pdf_path: Path) -> list["pd.DataFrame"]:
             for page in pdf.pages:
                 try:
                     for t in page.extract_tables(settings):
-                        df = pd.DataFrame(t).dropna(axis=1, how="all")
-                        if df.shape[0] >= 2:
-                            hdr = df.iloc[0].astype(str).tolist()
-                            if any(h.strip() for h in hdr):
-                                df.columns = hdr
+                        raw = pd.DataFrame(t).dropna(axis=1, how="all")
+                        if raw.shape[0] >= 2:
+                            candidate = raw.iloc[0].astype(str).tolist()
+                            if looks_like_tb_header(candidate):
+                                df = raw.copy()
+                                df.columns = candidate
                                 df = df.iloc[1:].reset_index(drop=True)
+                            else:
+                                df = raw.copy()  # keep rows; let reshaper build headers later
                             out.append(df)
                 except Exception:
                     continue
@@ -328,24 +361,91 @@ def try_camelot_tables(pdf_path: Path) -> list["pd.DataFrame"]:
     out = []
     if camelot is None or pd is None:
         return out
+    
+    # Prefer lattice mode if Ghostscript is available
     flavor = "lattice" if have("gswin64c.exe") or have("gswin32c.exe") or have("gs") else "stream"
+    flavor_used = flavor
+    
     try:
-        tables = camelot.read_pdf(str(pdf_path), flavor=flavor, pages="all")
+        # Prefer lattice with sturdier params when available
+        if flavor == "lattice":
+            tables = camelot.read_pdf(
+                str(pdf_path), flavor="lattice", pages="all",
+                line_scale=40,
+                process_background=True,
+            )
+        else:
+            tables = camelot.read_pdf(str(pdf_path), flavor=flavor, pages="all")
         for t in tables:
-            df = t.df
-            if df.shape[0] > 1:
-                df.columns = df.iloc[0]
-                df = df.iloc[1:].reset_index(drop=True)
+            raw = t.df
+            if raw.shape[0] > 1:
+                candidate = raw.iloc[0].astype(str).tolist()
+                if looks_like_tb_header(candidate):
+                    df = raw.copy()
+                    df.columns = candidate
+                    df = df.iloc[1:].reset_index(drop=True)
+                else:
+                    df = raw.copy()  # keep rows; let reshaper build headers later
+            else:
+                df = raw.copy()
             out.append(df)
-    except Exception:
-        pass
+        if out:
+            logline(f"  -> Camelot extracted {len(out)} tables using {flavor_used} mode")
+    except Exception as e:
+        logline(f"  -> Camelot {flavor_used} mode failed: {e}")
+    
+    # Fallback with generous tolerances for messy tables
     if not out and flavor == "lattice":
         try:
-            tables = camelot.read_pdf(str(pdf_path), flavor="stream", pages="all", edge_tol=200, row_tol=12)
+            flavor_used = "stream (fallback)"
+            tables = camelot.read_pdf(
+                str(pdf_path), flavor="stream", pages="all",
+                edge_tol=50, row_tol=6, column_tol=6, strip_text=" \n\t",
+            )
             for t in tables:
-                out.append(t.df)
-        except Exception:
-            pass
+                raw = t.df
+                if raw.shape[0] > 1:
+                    candidate = raw.iloc[0].astype(str).tolist()
+                    if looks_like_tb_header(candidate):
+                        df = raw.copy()
+                        df.columns = candidate
+                        df = df.iloc[1:].reset_index(drop=True)
+                    else:
+                        df = raw.copy()  # keep rows; let reshaper build headers later
+                else:
+                    df = raw.copy()
+                out.append(df)
+            if out:
+                logline(f"  -> Camelot extracted {len(out)} tables using {flavor_used}")
+        except Exception as e:
+            logline(f"  -> Camelot {flavor_used} failed: {e}")
+    
+    # Try both flavors for tabular-looking PDFs  
+    if not out and flavor == "stream":
+        try:
+            flavor_used = "lattice (retry)"
+            tables = camelot.read_pdf(
+                str(pdf_path), flavor="lattice", pages="all",
+                line_scale=40, process_background=True,
+            )
+            for t in tables:
+                raw = t.df
+                if raw.shape[0] > 1:
+                    candidate = raw.iloc[0].astype(str).tolist()
+                    if looks_like_tb_header(candidate):
+                        df = raw.copy()
+                        df.columns = candidate
+                        df = df.iloc[1:].reset_index(drop=True)
+                    else:
+                        df = raw.copy()  # keep rows; let reshaper build headers later
+                else:
+                    df = raw.copy()
+                out.append(df)
+            if out:
+                logline(f"  -> Camelot extracted {len(out)} tables using {flavor_used}")
+        except Exception as e:
+            logline(f"  -> Camelot {flavor_used} failed: {e}")
+    
     return out
 
 
@@ -356,13 +456,25 @@ def is_month_header(s: str) -> bool:
 
 def _get_series_from_df(df: "pd.DataFrame", col: str) -> "pd.Series":
     """Safely retrieve a column as a Series, even with duplicate column names."""
-    if pd is None:
-        return None
+    if pd is None or col not in df.columns:
+        return pd.Series([], dtype="object") if pd is not None else None
     s = df[col]
-    if isinstance(s, pd.DataFrame):
-        return s.iloc[:, 0]
-    return s
+    return s.iloc[:, 0] if isinstance(s, pd.DataFrame) else s
 
+
+def _looks_like_month_header(h: str) -> bool:
+    """Check if a header value looks like a month name - tolerant to OCR glitches."""
+    MONTHS_SET = {
+        "beginning balance","january","february","march","april","may","june",
+        "july","august","september","october","november","december","current balance"
+    }
+    # Remove non-alphabetic characters for fuzzy matching
+    hs = re.sub(r"[^a-z]", "", (h or "").lower())
+    for m in MONTHS_SET:
+        m_clean = re.sub(r"[^a-z]", "", m)
+        if m_clean in hs or hs in m_clean:  # bidirectional fuzzy match
+            return True
+    return False
 
 def reshape_financial_table(df: "pd.DataFrame") -> "pd.DataFrame":
     if pd is None or not isinstance(df, pd.DataFrame) or df.empty:
@@ -371,10 +483,78 @@ def reshape_financial_table(df: "pd.DataFrame") -> "pd.DataFrame":
     try:
         df = df.copy()
         df.columns = [str(c) for c in df.columns]
-        head_row = df.iloc[0].astype(str).str.strip().values.tolist() if len(df) > 0 else []
-        if sum(is_month_header(x) for x in head_row) >= 4:
-            df.columns = [c if c else f"col{i}" for i, c in enumerate(head_row)]
-            df = df.iloc[1:].reset_index(drop=True)
+        
+        # Build robust headers from the first N rows
+        header_rows_to_scan = min(6, len(df))  # Increased from 4 to 6 for better tolerance
+        col_headers = []
+        for c in df.columns:
+            tokens = []
+            for r in range(header_rows_to_scan):
+                val = str(df.iloc[r, df.columns.get_loc(c)]).strip()
+                if val and val.lower() not in {"---","nan","none"}:
+                    tokens.append(val)
+            header = " ".join(tokens)
+            col_headers.append(header if _looks_like_month_header(header) else "")
+
+        # If we found at least 6 month-bearing headers, use them; otherwise keep raw
+        month_header_count = sum(bool(h) for h in col_headers)
+        if month_header_count >= 6:
+            # Standard month labels (consolidated from duplicate lists)
+            months = [
+                "Beginning Balance", "January", "February", "March", "April", "May", "June",
+                "July", "August", "September", "October", "November", "December", "Current Balance"
+            ]
+            mapped = []
+            for h in col_headers:
+                best = next((m for m in months if m.lower() in h.lower()), None)
+                mapped.append(best or h or "Unlabeled")
+            df.columns = mapped
+            df = df.iloc[header_rows_to_scan:].reset_index(drop=True)
+        else:
+            # No reliable header; do not reshape here (fallback to raw)
+            logline(f"  -> Only {month_header_count} month headers found, keeping original table format")
+            return df
+        
+        # Normalize function for fuzzy matching
+        def norm(s): 
+            return re.sub(r'\s+', '', s.lower())
+        
+        # Function to check if a value looks like an amount
+        def is_amount(x):
+            return bool(re.search(r'^\s*\$?\(?-?[\d,]+(\.\d{1,2})?\)?\s*$', str(x)))
+        
+        # Choose best source per month by numeric fill rate
+        best_src_for = {}
+        for m in months:
+            candidates = [c for c in df.columns if norm(m) in norm(str(c))]
+            if not candidates:
+                continue
+            best = max(
+                candidates,
+                key=lambda c: df[c].apply(is_amount).mean()
+            )
+            best_src_for[m] = best
+        
+        # If too few months resolved with data, try positional fallback or bail out
+        resolved_months = sum(1 for m in months if m in best_src_for)
+        if resolved_months < 5:  # Lowered threshold from 6 to 5
+            # Try positional fallback for accounting tables
+            if len(df.columns) >= 12:  # Likely has account info + 10+ numeric columns
+                logline(f"  -> Only {resolved_months} months resolved, trying positional fallback")
+                # Assume first 2 columns are Acct/Title, rest are months in order
+                fallback_months = months[:len(df.columns)-2]
+                fallback_cols = ["Acct", "Account Title"] + fallback_months
+                if len(fallback_cols) == len(df.columns):
+                    df.columns = fallback_cols
+                    logline(f"  -> Applied positional fallback with {len(fallback_months)} month columns")
+                else:
+                    logline(f"  -> Positional fallback failed, keeping original table format")
+                    return df
+            else:
+                logline(f"  -> Only {resolved_months} months resolved with data, keeping original table format")
+                return df
+        
+        # Find account and title columns
         left_cols = list(df.columns)[:3]
         acct_col = None
         for c in left_cols:
@@ -383,53 +563,141 @@ def reshape_financial_table(df: "pd.DataFrame") -> "pd.DataFrame":
             if re.search(r"\b\d{4,7}\b", sample):
                 acct_col = c
                 break
+        
         if acct_col is None:
             acct_col = left_cols[0] if left_cols else (df.columns[0] if len(df.columns) > 0 else None)
+        
         if acct_col is None:
             return df
+        
         title_col_idx = 1 if len(left_cols) > 1 else (1 if len(df.columns) > 1 else 0)
         title_col = df.columns[title_col_idx]
-        try:
+        
+        # Identify non-month columns first; that's where acct/title lives
+        def _is_month_col(name: str) -> bool:
+            nm = re.sub(r"[^a-z]", "", str(name).lower())
+            return any(re.sub(r"[^a-z]", "", m.lower()) in nm for m in months)
+
+        non_month_cols = [c for c in list(df.columns) if not _is_month_col(c)]
+        left_candidates = non_month_cols[:max(8, len(non_month_cols))]  # look wider than 4
+
+        best_col, best_ratio = None, 0.0
+        for c in left_candidates:
+            s = _get_series_from_df(df, c).astype(str)
+            # non-empty only
+            nonempty = s.str.strip().ne("")
+            if not nonempty.any():
+                continue
+            # looks like: digits (3–10), optional dash, then some letters
+            pattern = r"^\s*\(?\d{3,10}\)?(?:\s*[-–—]?\s+|\s+)(?=[A-Za-z]).+"
+            m = s.str.match(pattern, na=False)
+            ratio = (m & nonempty).sum() / nonempty.sum()
+            if ratio > best_ratio:
+                best_ratio, best_col = ratio, c
+
+        if best_col and best_ratio >= 0.15:   # lower threshold; measured over non-empty only
+            ser = _get_series_from_df(df, best_col).astype(str)
+            split = ser.str.extract(
+                r"^\s*\(?(?P<_code>\d{3,10})\)?(?:\s*[-–—]?\s+|\s+)(?P<_title>.+?)\s*$"
+            )
+            # Guard before insert to prevent "already exists" errors
+            code_series  = split["_code"].fillna("").astype(str).str.strip()
+            title_series = split["_title"].fillna("").astype(str).str.strip()
+
+            if "Acct" in df.columns:
+                df["Acct"] = code_series
+            else:
+                df.insert(0, "Acct", code_series)
+
+            if "Account Title" in df.columns:
+                df["Account Title"] = title_series
+            else:
+                try:
+                    pos = list(df.columns).index("Acct") + 1
+                except ValueError:
+                    pos = 1
+                df.insert(pos, "Account Title", title_series)
+            # Drop the original combined column and any near-duplicates
+            try:
+                df.drop(columns=[best_col], inplace=True, errors="ignore")
+            except Exception:
+                pass
+            for c in list(df.columns):
+                nm = re.sub(r"[^a-z]", "", str(c).lower())
+                if nm in {"acct", "account", "accounttitle"} and c not in ("Acct", "Account Title"):
+                    df.drop(columns=[c], inplace=True, errors="ignore")
+            acct_col, title_col = "Acct", "Account Title"
+        else:
+            # Fallback to your previous per-column split, but measure over non-empty rows
             ser = _get_series_from_df(df, acct_col).astype(str)
-            split = ser.str.extract(r"^\s*(?P<_code>\d{4,7})[ \-]+(?P<_title>.+)$")
-            if split["_title"].notna().mean() >= 0.6:
-                df.insert(0, "Acct", split["_code"].str.strip().fillna(""))
-                df.insert(1, "Account Title", split["_title"].str.strip().fillna(""))
+            nonempty = ser.str.strip().ne("")
+            split = ser.str.extract(r"^\s*(?P<_code>\d{3,10})\s*(?:-|–|—)?\s*(?P<_title>.+?)\s*$")
+            title_series = split["_title"] if "_title" in split else ser.copy()
+            code_series  = split["_code"]  if "_code"  in split else ser.copy()
+            title_hit = (title_series.notna() & nonempty).sum() / max(1, nonempty.sum())
+            code_hit  = (code_series.notna()  & nonempty).sum() / max(1, nonempty.sum())
+            if (title_hit >= 0.30) or (code_hit >= 0.30):
+                # Guard before insert to prevent "already exists" errors
+                code_series  = split["_code"].fillna("").astype(str).str.strip()
+                title_series = split["_title"].fillna("").astype(str).str.strip()
+
+                if "Acct" in df.columns:
+                    df["Acct"] = code_series
+                else:
+                    df.insert(0, "Acct", code_series)
+
+                if "Account Title" in df.columns:
+                    df["Account Title"] = title_series
+                else:
+                    try:
+                        pos = list(df.columns).index("Acct") + 1
+                    except ValueError:
+                        pos = 1
+                    df.insert(pos, "Account Title", title_series)
+                    
+                if acct_col in df.columns and acct_col not in ("Acct", "Account Title"):
+                    try:
+                        df.drop(columns=[acct_col], inplace=True, errors="ignore")
+                    except Exception:
+                        pass
                 acct_col, title_col = "Acct", "Account Title"
-
-                def _mostly_zero(s):
-                    s = s.astype(str).str.strip()
-                    return ((s == "") | (s == "0") | (s == "0.0") | s.isna()).mean() > 0.8
-
-                original_title_col = left_cols[1] if len(left_cols) > 1 else None
-                if original_title_col and original_title_col in df.columns and _mostly_zero(_get_series_from_df(df, original_title_col)):
-                    df.drop(columns=[original_title_col], inplace=True, errors="ignore")
-        except Exception:
-            pass
-        colmap = {}
-        for col in df.columns:
-            cl = str(col).strip()
-            for m in MONTHS + M_SHORT:
-                if cl.lower().startswith(m.lower()[:3]):
-                    colmap[col] = m
-                    break
+        # (continue with out_cols construction as in your code)
+        
+        # Build output columns using the best month mappings
         out_cols = [("Acct", acct_col), ("Account Title", title_col)]
-        for m in MONTHS:
-            src = next((k for k, v in colmap.items() if v == m), None)
-            if src is None:
-                src = next((k for k in df.columns if str(k).strip().lower().startswith(m.split()[0].lower()[:3])), None)
+        for m in months:
+            src = best_src_for.get(m)
             out_cols.append((m, src))
+        
+        # Create the output dataframe with normalized amounts
         data = {}
         for out_name, src in out_cols:
-            if src in df.columns:
-                data[out_name] = _get_series_from_df(df, src).astype(str)
+            if src and src in df.columns:
+                if out_name in ["Acct", "Account Title"]:
+                    # Don't normalize account codes or titles
+                    data[out_name] = _get_series_from_df(df, src).astype(str)
+                else:
+                    # Normalize amount columns (column-aware)
+                    data[out_name] = _normalize_amount_column(_get_series_from_df(df, src))
             else:
                 data[out_name] = [""] * len(df)
+        
         out_df = pd.DataFrame(data)
+        
+        # Filter out empty rows
         keep = _get_series_from_df(out_df, "Account Title").astype(str).str.strip() != ""
         if keep.any():
             out_df = out_df[keep]
+        
+        # Also drop rows where all month values are empty to reduce junk totals/section headers
+        month_cols = [c for c in out_df.columns if c in months]
+        if month_cols:
+            numeric_blank = out_df[month_cols].astype(str).apply(lambda s: s.str.strip() == "")
+            out_df = out_df[~numeric_blank.all(axis=1)]
+        
+        logline(f"  -> Reshaped table with {resolved_months} month columns successfully")
         return out_df
+        
     except AttributeError as e:
         if 'tolist' in str(e):
             logline(f"  -> WARN: Reshape failed due to '.tolist' call on a non-Series object. Type was {type(df)}.")
@@ -467,10 +735,96 @@ def extract_tables_to_markdown(pdf_path: Path, base_name: str) -> list[Path]:
     all_path = OUT_MD / f"{base_name}_tables_all.md"
     write_text(all_path, f"# Tables (all): {base_name}\n\n" + "\n".join(parts))
     written.append(all_path)
-    best = max(reshaped, key=lambda x: x.shape[1])
+    
+    # Write CSV for all tables
+    csv_path = OUT_MD / f"{base_name}_tables_all.csv"
+    try:
+        pd.concat(reshaped, ignore_index=True).to_csv(csv_path, index=False)
+        written.append(csv_path)
+    except Exception as e:
+        logline(f"  -> WARN: Failed to write CSV for all tables: {e}")
+    
+    # Coalesce tables by normalized header signature, then pick best preferring clean Acct/Title
+    def _norm_cols(cols):
+        import re
+        return tuple(re.sub(r"[^a-z]", "", str(c).lower()) for c in cols)
+
+    groups = {}
+    for d in reshaped:
+        key = _norm_cols(d.columns)
+        groups.setdefault(key, []).append(d)
+
+    merged_tables = [pd.concat(g, ignore_index=True) for g in groups.values()]
+
+    # Cross-group normalization: normalize all tables to canonical column set and merge
+    canonical = ["Acct","Account Title","Beginning Balance","January","February","March",
+                 "April","May","June","July","August","September","October","November",
+                 "December","Current Balance"]
+
+    def normalize_cols(df):
+        import re
+        renamed = {}
+        for c in df.columns:
+            nm = re.sub(r"[^a-z]", "", str(c).lower())
+            # fuzzy map to canonical
+            if "beginning" in nm and "balance" in nm:
+                renamed[c] = "Beginning Balance"
+            elif "currentbalance" in nm or ("current" in nm and "balance" in nm):
+                renamed[c] = "Current Balance"
+            elif nm in {"acct", "account", "accountid"}:
+                renamed[c] = "Acct"
+            elif "accounttitle" in nm or ("account" in nm and "title" in nm):
+                renamed[c] = "Account Title"
+            else:
+                # months - match against canonical
+                for m in canonical:
+                    mm = re.sub(r"[^a-z]", "", m.lower())
+                    if mm in nm:
+                        renamed[c] = m
+                        break
+        
+        df2 = df.rename(columns=renamed)
+        # Add missing canonical columns
+        for col in canonical:
+            if col not in df2.columns:
+                df2[col] = ""
+        # reorder to canonical
+        return df2[canonical]
+
+    normalized = [normalize_cols(d) for d in merged_tables]
+    all_merged = pd.concat(normalized, ignore_index=True)
+    best = (all_merged
+            .sort_values(["Acct","Account Title"])
+            .drop_duplicates(subset=["Acct","Account Title"], keep="last"))
+    
+    # Log the cross-group merge and deduplication
+    total_before = sum(len(d) for d in merged_tables)
+    logline(f"  -> Cross-group merge: {len(merged_tables)} groups ({total_before} rows) -> {len(best)} unique rows")
+
+    # Write a full (coalesced) table for convenience
+    full_path = OUT_MD / f"{base_name}_tables_full.md"
+    write_text(full_path, f"# Table (full/coalesced): {base_name}\n\n{md_table(best)}\n")
+    written.append(full_path)
+    # CSV for full table
+    full_csv_path = OUT_MD / f"{base_name}_tables_full.csv"
+    try:
+        best.to_csv(full_csv_path, index=False)
+        written.append(full_csv_path)
+    except Exception as e:
+        logline(f"  -> WARN: Failed to write CSV for full table: {e}")
+
+    # Keep wide.md alias to the same best table (for backward compatibility)
     wide_path = OUT_MD / f"{base_name}_tables_wide.md"
     write_text(wide_path, f"# Tables (wide): {base_name}\n\n{md_table(best)}\n")
     written.append(wide_path)
+    # CSV for wide table
+    wide_csv_path = OUT_MD / f"{base_name}_tables_wide.csv"
+    try:
+        best.to_csv(wide_csv_path, index=False)
+        written.append(wide_csv_path)
+    except Exception as e:
+        logline(f"  -> WARN: Failed to write CSV for wide table: {e}")
+    
     small = best.copy()
     if small.shape[1] > 16:
         keep = [c for c in ["Acct", "Account Title", "Current Balance"] if c in small.columns]
@@ -479,6 +833,15 @@ def extract_tables_to_markdown(pdf_path: Path, base_name: str) -> list[Path]:
     small_path = OUT_MD / f"{base_name}_tables.md"
     write_text(small_path, f"## Extracted Tables (local)\n\n{md_table(small)}\n")
     written.append(small_path)
+    
+    # Write CSV for small table
+    small_csv_path = OUT_MD / f"{base_name}_tables.csv"
+    try:
+        small.to_csv(small_csv_path, index=False)
+        written.append(small_csv_path)
+    except Exception as e:
+        logline(f"  -> WARN: Failed to write CSV for small table: {e}")
+    
     return written
 
 

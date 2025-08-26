@@ -1,5 +1,5 @@
 # Core Requirements
-markitdown[all]>=0.1.0
+markitdown[all]>=0.1.3
 mistralai>=1.0.0
 
 # Document Processing
@@ -12,5 +12,7 @@ camelot-py[cv]>=0.11.0
 pdf2image>=1.16.0
 Pillow>=10.0.0
 
-# Development / Optional
-python-dotenv>=1.0.0
+# Optional Features (install as needed)
+# python-dotenv>=1.0.0  # Not needed with custom env loader
+# openai>=1.30.0        # For LLM image captions (set MARKITDOWN_USE_LLM=true)
+# psutil>=5.9.0         # For detailed system metrics in status screen

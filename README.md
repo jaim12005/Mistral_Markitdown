@@ -17,10 +17,10 @@ This project provides a practical, cross‑platform document conversion tool tha
 ## Features
 
 - **Multiple Conversion Modes**:
-  - **Hybrid Mode**: Intelligently combines the strengths of Markitdown and Mistral OCR for the highest quality output.
-  - **Markitdown Only**: For fast, local conversion of formats like `.docx`, `.pptx`, `.html`, etc.
+  - **Hybrid Mode**: Intelligently combines the strengths of Microsoft MarkItDown and Mistral OCR for the highest quality output.
+  - **MarkItDown Only**: For fast, local conversion of formats like `.docx`, `.pptx`, `.html`, etc.
   - **Mistral OCR Only**: For high-accuracy OCR on images, scanned PDFs, and now `.docx` and `.pptx` files.
-  - **Transcription Mode**: Uses Markitdown's powerful transcription features to process audio files (`.mp3`, `.wav`) and YouTube URLs.
+  - **Transcription Mode**: Uses Microsoft MarkItDown's powerful transcription features to process audio files (`.mp3`, `.wav`) and YouTube URLs.
 - **Advanced Table Extraction**: Uses `pdfplumber` and `camelot` to find and extract tables from PDFs, and reshapes them into a clean, usable format.
 - **Modular and Extensible**: The codebase is organized into logical modules for configuration, utilities, and converters, making it easy to maintain and extend.
 - **Robust and Performant**:
@@ -115,8 +115,10 @@ Below is a quick reference of the files produced in each mode and where they are
 
 - `output_md/<name>_tables_all.md`
   - Contains all detected/reshaped tables, each under "### Table N".
+- `output_md/<name>_tables_full.md`
+  - Coalesced full table when pages share the same header layout (merged across pages). Also written as CSV.
 - `output_md/<name>_tables_wide.md`
-  - The single "widest" table (most columns). Useful for month-wide financial statements.
+  - The coalesced table presented under the legacy "wide" name for convenience. Useful for month-wide financial statements.
 - `output_md/<name>_tables.md`
   - A compact subset (commonly Account + key summary columns like Current Balance) for quick review.
   - Note: If reshaping fails, raw tables may be kept; quality depends on the PDF and detectors.
@@ -166,18 +168,18 @@ Below is a quick reference of the files produced in each mode and where they are
 The hybrid pipeline is the most powerful feature of this tool. For each file, it does the following:
 
 1.  **Determines the best strategy**:
-    -   For documents like `.docx`, `.pptx`, `.html`, it uses **Markitdown**.
+    -   For documents like `.docx`, `.pptx`, `.html`, it uses **Microsoft MarkItDown**.
     -   For images, it uses **Mistral OCR**.
     -   For PDFs, it uses **both**.
 
-2.  **Processes with Markitdown**: Extracts the main text content and structure.
+2.  **Processes with Microsoft MarkItDown**: Extracts the main text content and structure.
 
 3.  **Processes with Local Table Extraction**: If the file is a PDF, it uses `pdfplumber` and `camelot` to find and extract tables.
 
 4.  **Processes with Mistral OCR**: Extracts text and layout information with high accuracy.
 
 5.  **Combines the results**: For PDFs, it creates a `_combined.md` file that includes:
-    -   The main text content from Markitdown.
+    -   The main text content from Microsoft MarkItDown.
     -   A section with the extracted tables.
     -   The full, page-by-page OCR analysis from Mistral.
 
@@ -214,7 +216,12 @@ If an installation step appears to stall, open `logs/pip_install.log` in your ed
 ## Requirements and Notes
 
 - Python 3.10+ is required (MarkItDown requires 3.10+).
-- For best PDF table extraction with Camelot lattice mode, install Ghostscript and ensure it is on PATH (`gs`, `gswin64c.exe`, or `gswin32c.exe`).
+- **For optimal PDF table extraction**, install Ghostscript and ensure it is on PATH:
+  - **Critical for avoiding column truncation**: Without Ghostscript, Camelot uses "stream mode" which often misses rightmost columns in wide tables, leading to incomplete data extraction
+  - **Windows**: Download from [Ghostscript Downloads](https://www.ghostscript.com/download/gsdnld.html), install 64-bit version, ensure `C:\Program Files\gs\gs[version]\bin` is on PATH
+  - **macOS**: `brew install ghostscript`
+  - **Linux**: `sudo apt-get install ghostscript` (Ubuntu/Debian) or equivalent
+  - **Verification**: Run `gs --version` (or `gswin64c --version` on Windows) to confirm installation
 - For PDF-to-image, install Poppler (macOS: `brew install poppler`; Windows: download binaries) and set `POPPLER_PATH` on Windows.
 - Poppler improves OCR fallback quality: Option 4 re-renders weak PDF pages to images for a stronger re‑OCR pass when Poppler is available (set `POPPLER_PATH` on Windows); without Poppler it still reprocesses via `file_id` with `pages=[index]`.
 - The Mistral integration uses the official `mistralai` SDK (v1). Set `MISTRAL_API_KEY` in `.env`.
@@ -259,3 +266,34 @@ Note: All output folders (`input/`, `output_md/`, `output_txt/`, `output_images/
 - Mistral SDK – FilePurpose values: https://github.com/mistralai/client-python/blob/main/docs/models/filepurpose.md
 - Camelot (PDF tables): https://camelot-py.readthedocs.io/
 - pdf2image (Poppler): https://github.com/Belval/pdf2image
+- Ghostscript: https://ghostscript.readthedocs.io/en/gs10.05.1/?utm_source=ghostscript&utm_medium=website&utm_content=cta-inline-link
+
+## Latest Updates (August 2025)
+
+### Mistral AI Enhancements
+
+- **New Models Available**:
+  - `mistral-medium` (May 2025): State-of-the-art multimodal model balancing performance and efficiency, ideal for documents with images and text.
+  - `codestral` (Jan 2025): Advanced coding model for processing code-heavy documents and technical specs.
+  - `mistral-ocr` (May 2025): Dedicated OCR service for superior text extraction from documents.
+  - `pixtral-large` (Nov 2024): Frontier multimodal model with advanced image understanding capabilities.
+
+- **Enhanced Features**:
+  - Improved vision capabilities for analyzing images within documents.
+  - Function calling support for dynamic tool integration.
+  - Structured outputs for consistent JSON-formatted results.
+  - Fine-tuning options for customized models.
+  - Guardrailing for content policy enforcement.
+
+### Markitdown Enhancements
+
+- **Version 0.1.3** (Latest): Includes checkbox support for Markdown conversion, improved Docker builds, and Git support in devcontainer.
+- **MCP Server Integration**: Now supports Model Context Protocol for seamless integration with LLM applications like Claude Desktop.
+- **Enhanced Plugin System**: Expanded support for 3rd-party plugins, including YouTube transcription and audio processing.
+- **LLM Integration**: Improved image description capabilities with OpenAI-compatible models.
+
+To use the latest features:
+
+1. Update dependencies: `pip install -r requirements.txt --upgrade`
+2. Set model in `.env`: `MISTRAL_OCR_MODEL=mistral-medium` for multimodal documents
+3. Enable plugins: `MARKITDOWN_ENABLE_PLUGINS=true` for extended format support
