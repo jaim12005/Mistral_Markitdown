@@ -5,9 +5,9 @@ This project provides a practical, cross‑platform document conversion tool tha
 ## Quick Start
 
 - Windows (recommended):
-  - Run `run_converter.bat` (creates `env`, upgrades pip/setuptools/wheel, installs/updates deps with eager strategy, shows a dot progress indicator during install, logs to `logs/pip_install.log`, then launches the app)
+  - Double-click `run_converter.bat` (sets up `env`, installs/updates dependencies with progress, logs to `logs/pip_install.log`, then launches the app with an interactive menu)
 - macOS/Linux:
-  - Run `bash quick_start.sh` (creates `env`, installs deps, runs smoke test)
+  - Use the `quick_start.sh` script to set up the environment (creates `env`, installs dependencies, runs a smoke test)
 - Manual:
   - `python -m venv env && env\Scripts\activate` (Windows) or `source env/bin/activate` (macOS/Linux)
   - `pip install -r requirements.txt`
@@ -62,36 +62,40 @@ This project provides a practical, cross‑platform document conversion tool tha
     # POPPLER_PATH="C:/path/to/poppler-23.08.0/bin"
     ```
 
-## Usage
+## Usage (Selections — No Commands)
 
-The primary way to use the converter is through the interactive menu in `main.py`.
+Everything is menu-driven. Typical workflow:
 
-```bash
-python main.py
-```
+1. Place files in `input/`.
+2. Start the app:
+   - Windows: double-click `run_converter.bat`.
+   - macOS/Linux: run the `quick_start.sh` once to set up, then launch the app from your environment.
+3. Choose an option from the on-screen menu (1–8).
+4. Find results in `output_md/`, `output_txt/`, and `output_images/` (plus `logs/metadata/`).
 
-This launches a menu where you can choose a mode:
+Menu options (in order):
 
-- **Hybrid Mode**: Best default. Uses the optimal engine per file; for PDFs, it produces `<name>_combined.md` with MarkItDown content + tables + OCR analysis.
-- **MarkItDown Only**: Fast local conversion (no API usage).
-- **Mistral OCR Only**: OCR for PDFs, images, and Office documents (uses Files API with `purpose="ocr"` and per‑page improvements where needed).
-- **Transcription Only**: Transcribes audio, video, and YouTube URLs to Markdown.
-- **Batch Process Directory**: Simple batch by type.
-- **Enhanced Batch**: Advanced concurrent processing with caching/metadata.
-- **Convert PDFs to Images**: Renders each page to PNG under `output_images/<pdfname>_pages/`.
+1. **HYBRID Mode (Intelligent Processing)**: Best default. Uses the optimal engine per file; for PDFs, it produces `<name>_combined.md` with MarkItDown content + tables + OCR analysis.
+2. **ENHANCED BATCH (Maximum Performance)**: Advanced concurrent processing with caching/metadata tracking for multiple files.
+3. **Markitdown Only (Fast, Local)**: Fast local conversion (no API usage).
+4. **Mistral OCR Only (High Accuracy)**: OCR for PDFs, images, and Office documents (uses Files API with `purpose="ocr"` and per‑page improvements where needed).
+5. **Transcription (Requires Plugin)**: Transcribes audio, video, and YouTube URLs to Markdown.
+6. **Standard Batch Process**: Simple batch processing by file type.
+7. **Convert PDFs to Images**: Renders each page to PNG under `output_images/<pdfname>_pages/`.
+8. **Show System Status**: Display cache stats, performance metrics, and system recommendations.
 
-### Modes at a Glance
+### Selections at a Glance
 
-| Mode (menu)             | Flag                | Best for                           | Outputs (typical) |
-|-------------------------|---------------------|------------------------------------|-------------------|
-| Hybrid (1)              | `--mode hybrid`     | Best default; PDFs with tables/OCR | `output_md/<name>_combined.md`, `output_txt/` |
-| Enhanced Batch (2)      | `--mode enhanced`   | Many files; concurrency + caching  | `output_md/`, `output_txt/`, `output_images/`, `logs/metadata/` |
-| MarkItDown Only (3)     | `--mode markitdown` | Office/web/text files (local only) | `output_md/<name>.md`, `output_txt/<name>.txt` |
-| Mistral OCR Only (4)    | `--mode ocr`        | Images, scanned PDFs, .docx, .pptx | `output_md/<name>_mistral_ocr.md`, `output_images/<name>_ocr/` (if images) + txt |
-| Transcription Only (5)  | `--mode transcription` | Audio, video, and YouTube URLs    | `output_md/<name>_transcription.md`, `output_txt/<name>_transcription.txt` |
-| Batch Process (6)       | `--mode batch`      | Simple batch by type               | `output_md/`, `output_txt/` |
-| PDF → Images (7)        | n/a                 | Export pages as PNG                | `output_images/<pdfname>_pages/` |
-| System Status (8)       | n/a                 | Environment and cache overview     | console only      |
+| Menu | Best for                             | Typical outputs |
+|------|--------------------------------------|-----------------|
+| 1    | Best default; PDFs with tables/OCR   | `output_md/<name>_combined.md`, `output_txt/` |
+| 2    | Many files; concurrency + caching    | `output_md/`, `output_txt/`, `output_images/`, `logs/metadata/` |
+| 3    | Office/web/text files (local only)   | `output_md/<name>.md`, `output_txt/<name>.txt` |
+| 4    | Images, scanned PDFs, .docx, .pptx   | `output_md/<name>_mistral_ocr.md`, `output_images/<name>_ocr/` (if images) + txt |
+| 5    | Audio, video, and YouTube URLs       | `output_md/<name>_transcription.md`, `output_txt/<name>_transcription.txt` |
+| 6    | Simple batch by type                 | `output_md/`, `output_txt/` |
+| 7    | Convert PDFs to page images          | `output_images/<pdfname>_pages/` |
+| 8    | System diagnostics and optimization  | Console summary with cache stats, performance metrics, and recommendations |
 
 ### Input and Output
 
@@ -221,7 +225,7 @@ If an installation step appears to stall, open `logs/pip_install.log` in your ed
   - **Windows**: Download from [Ghostscript Downloads](https://www.ghostscript.com/download/gsdnld.html), install 64-bit version, ensure `C:\Program Files\gs\gs[version]\bin` is on PATH
   - **macOS**: `brew install ghostscript`
   - **Linux**: `sudo apt-get install ghostscript` (Ubuntu/Debian) or equivalent
-  - **Verification**: Run `gs --version` (or `gswin64c --version` on Windows) to confirm installation
+  - **Verification**: Run `gswin64c --version` (Windows) or `gs --version` (macOS/Linux) to confirm installation
 - For PDF-to-image, install Poppler (macOS: `brew install poppler`; Windows: download binaries) and set `POPPLER_PATH` on Windows.
 - Poppler improves OCR fallback quality: Option 4 re-renders weak PDF pages to images for a stronger re‑OCR pass when Poppler is available (set `POPPLER_PATH` on Windows); without Poppler it still reprocesses via `file_id` with `pages=[index]`.
 - The Mistral integration uses the official `mistralai` SDK (v1). Set `MISTRAL_API_KEY` in `.env`.
@@ -273,10 +277,19 @@ Note: All output folders (`input/`, `output_md/`, `output_txt/`, `output_images/
 ### Mistral AI Enhancements
 
 - **New Models Available**:
-  - `mistral-medium` (May 2025): State-of-the-art multimodal model balancing performance and efficiency, ideal for documents with images and text.
-  - `codestral` (Jan 2025): Advanced coding model for processing code-heavy documents and technical specs.
-  - `mistral-ocr` (May 2025): Dedicated OCR service for superior text extraction from documents.
-  - `pixtral-large` (Nov 2024): Frontier multimodal model with advanced image understanding capabilities.
+  - `mistral-medium-2508` (August 2025): State-of-the-art multimodal model balancing performance and efficiency, ideal for documents with images and text.
+  - `codestral-2508` (July 2025): Advanced coding model for processing code-heavy documents and technical specs.
+  - `mistral-ocr-2505` (May 2025): Dedicated OCR service for superior text extraction from documents.
+  - `pixtral-large-2411` (November 2024): Frontier multimodal model with advanced image understanding capabilities.
+  - `magistral-medium-2507` (July 2025): Frontier-class reasoning model for complex document analysis.
+  - `ministral-8b-2410` and `ministral-3b-2410`: Efficient edge models for resource-constrained environments.
+
+- **Intelligent Model Selection**:
+  - Automatic model selection based on document type, size, and content analysis
+  - `pixtral-large-latest` for image-heavy documents
+  - `codestral-latest` for code documents and technical specifications
+  - `mistral-medium-latest` for complex multimodal documents
+  - `mistral-ocr-latest` for pure OCR tasks
 
 - **Enhanced Features**:
   - Improved vision capabilities for analyzing images within documents.
@@ -284,6 +297,7 @@ Note: All output folders (`input/`, `output_md/`, `output_txt/`, `output_images/
   - Structured outputs for consistent JSON-formatted results.
   - Fine-tuning options for customized models.
   - Guardrailing for content policy enforcement.
+  - Content analysis for optimal model selection.
 
 ### Markitdown Enhancements
 
@@ -291,9 +305,129 @@ Note: All output folders (`input/`, `output_md/`, `output_txt/`, `output_images/
 - **MCP Server Integration**: Now supports Model Context Protocol for seamless integration with LLM applications like Claude Desktop.
 - **Enhanced Plugin System**: Expanded support for 3rd-party plugins, including YouTube transcription and audio processing.
 - **LLM Integration**: Improved image description capabilities with OpenAI-compatible models.
+- **New Format Support**: Added EPub support and enhanced audio/video transcription capabilities.
 
 To use the latest features:
 
 1. Update dependencies: `pip install -r requirements.txt --upgrade`
-2. Set model in `.env`: `MISTRAL_OCR_MODEL=mistral-medium` for multimodal documents
-3. Enable plugins: `MARKITDOWN_ENABLE_PLUGINS=true` for extended format support
+2. Enable intelligent model selection: `MISTRAL_AUTO_MODEL_SELECTION=true` (default: enabled)
+3. Configure preferred models: `MISTRAL_PREFERRED_MODELS=mistral-medium-latest,pixtral-large-latest,codestral-latest,mistral-ocr-latest`
+4. Set model in `.env`: `MISTRAL_OCR_MODEL=mistral-medium-latest` for multimodal documents
+5. Enable plugins: `MARKITDOWN_ENABLE_PLUGINS=true` for extended format support
+
+## Enhanced MarkItDown Integration
+
+The converter now utilizes MarkItDown v0.1.3 with advanced configuration options for maximum performance and feature utilization:
+
+### Advanced Configuration Options
+
+| Feature | Configuration | Description |
+|---------|---------------|-------------|
+| **Table Strategies** | `MARKITDOWN_TABLE_STRATEGY` | `auto`, `ocr_only`, `text_only` |
+| **Image Strategies** | `MARKITDOWN_IMAGE_STRATEGY` | `auto`, `extract`, `ignore` |
+| **PDF Processing** | `MARKITDOWN_PDF_MODE` | `auto`, `text`, `ocr` |
+| **Experimental Features** | `MARKITDOWN_EXPERIMENTAL` | Enable beta features |
+| **Custom Options** | `MARKITDOWN_CUSTOM_OPTIONS` | File-type specific processing |
+| **Built-in Caching** | `MARKITDOWN_USE_CACHE` | MarkItDown's internal caching |
+| **File Size Limits** | `MARKITDOWN_MAX_FILE_SIZE_MB` | Maximum file size for processing |
+| **Advanced Tables** | `MARKITDOWN_ADVANCED_TABLES` | Enhanced table detection |
+| **Enhanced Images** | `MARKITDOWN_ENHANCED_IMAGES` | Better image processing |
+| **Image Quality** | `MARKITDOWN_IMAGE_QUALITY` | 1-100 quality setting |
+| **Parallel Processing** | `MARKITDOWN_PARALLEL_PROCESSING` | Multi-threaded processing |
+| **Worker Count** | `MARKITDOWN_WORKERS` | Number of processing threads |
+
+### Performance Optimizations
+
+- **Intelligent Caching**: Both built-in MarkItDown caching and custom IntelligentCache
+- **Parallel Processing**: Configurable worker threads for large documents
+- **File Type Optimization**: Custom processing options based on file extensions
+- **Memory Management**: File size limits and efficient resource usage
+- **Advanced Table Detection**: Enhanced algorithms for complex table structures
+
+### Enhanced Dependencies
+
+The system now includes additional optional dependencies for maximum functionality:
+
+```bash
+# Enhanced document processing
+beautifulsoup4>=4.12.0    # Better HTML parsing
+lxml>=4.9.0              # XML/HTML processing
+python-docx>=1.1.0       # Enhanced Word documents
+python-pptx>=0.6.23      # Enhanced PowerPoint files
+xlrd>=2.0.1              # Excel reading
+openpyxl>=3.1.2          # Excel writing
+
+# Performance enhancements
+requests>=2.31.0         # Better HTTP performance
+urllib3>=2.0.0           # Connection pooling
+aiofiles>=23.0.0         # Async file operations
+psutil>=5.9.0            # System monitoring
+
+# Audio/Video processing
+ffmpeg-python>=0.2.0     # Audio/video transcription support
+```
+
+## Advanced Mistral AI Capabilities
+
+The system now supports advanced Mistral AI features for enhanced document processing:
+
+### Function Calling
+
+Enable structured data extraction using Mistral's function calling capabilities:
+
+```bash
+# Enable function calling for advanced data extraction
+MISTRAL_ENABLE_FUNCTIONS=true
+```
+
+**Available Functions:**
+
+- `extract_financial_table`: Structured extraction of financial statements and trial balances
+- `extract_document_metadata`: Document structure and metadata analysis
+- `analyze_image_content`: Advanced image analysis with object detection
+
+### Structured Outputs
+
+Use JSON schema to get predictable, structured responses:
+
+```bash
+# Enable structured outputs with JSON schema
+MISTRAL_ENABLE_STRUCTURED_OUTPUT=true
+# Auto-detect schema type or specify manually
+MISTRAL_STRUCTURED_SCHEMA_TYPE=auto
+```
+
+**Schema Types:**
+
+- `financial_statement`: For balance sheets, income statements, trial balances
+- `document_analysis`: General document structure and content analysis
+- `image_description`: Detailed image analysis with metadata
+
+### Enhanced Image Processing
+
+The system now includes advanced image processing capabilities for optimal OCR results:
+
+```bash
+# Enable advanced image analysis and optimization
+MISTRAL_ENABLE_IMAGE_OPTIMIZATION=true
+# Enable image preprocessing for better accuracy
+MISTRAL_ENABLE_IMAGE_PREPROCESSING=false
+# Maximum dimension for large image processing
+MISTRAL_MAX_IMAGE_DIMENSION=2048
+# Quality threshold for advanced model selection
+MISTRAL_IMAGE_QUALITY_THRESHOLD=70
+```
+
+**Image Optimization Features:**
+
+- **Quality Analysis**: Automatic detection of image quality, resolution, and content type
+- **Smart Model Selection**: Automatically chooses Pixtral-Large for complex images or Mistral-OCR for simple ones
+- **Preprocessing**: Contrast enhancement, sharpening, and resizing for optimal OCR
+- **Content Detection**: Identifies text content, charts, and complex visual elements
+
+**Automatic Recommendations:**
+
+- High-resolution images → Pixtral-Large model
+- Text-heavy images → Advanced multimodal processing
+- Low-contrast images → Preprocessing enhancement
+- Large images → Automatic resizing for optimal performance
