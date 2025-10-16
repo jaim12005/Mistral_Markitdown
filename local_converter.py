@@ -484,9 +484,9 @@ def try_camelot_tables(pdf_path: Path) -> List[Any]:
     try:
         # Prefer lattice with sturdier params when available
         if flavor == "lattice":
-            # Try progressively stronger line detection before giving up
+            # SWE Review Fix: Try progressively stronger line detection before giving up (added 120)
             tables = None
-            for ls in (40, 60, 80, 100):
+            for ls in (40, 60, 80, 100, 120):
                 try:
                     t = camelot.read_pdf(
                         str(pdf_path),
@@ -1306,13 +1306,20 @@ Extract key information including title, summary, main points, and document stru
 Identify objects, text content, visual elements, and assess image quality.""",
         }
 
+        # CRITICAL FIX: Include the document payload in the message content
         messages = [
             {
                 "role": "user",
-                "content": prompts.get(
-                    schema_type,
-                    "Analyze this document and extract structured information.",
-                ),
+                "content": [
+                    document_payload,  # Document payload (file_id or document_url)
+                    {
+                        "type": "text",
+                        "text": prompts.get(
+                            schema_type,
+                            "Analyze this document and extract structured information.",
+                        ),
+                    },
+                ],
             }
         ]
 

@@ -458,6 +458,9 @@ def _combine_hybrid_results(
         # Gate/trim Markitdown section if OCR has good tables OR OCR tables file has rows
         ocr_tables_md = OUT_MD / f"{base}_tables_from_ocr.md"
         has_ocr_tables = _file_has_real_tables(ocr_tables_md)
+        # SWE Review Fix: Best-effort include even if the quick check fails (e.g., only one row)
+        if not has_ocr_tables and ocr_tables_md.exists():
+            has_ocr_tables = True
 
         should_gate = GATE_MARKITDOWN_WHEN_OCR_GOOD and (
             (_should_gate_markitdown(ocr_md) if ocr_md else False) or has_ocr_tables

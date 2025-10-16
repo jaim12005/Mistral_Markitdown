@@ -528,7 +528,8 @@ def extract_structured_content(response_json: dict) -> dict:
             structured["text_blocks"].append(text_block)
 
             # Extract structured table data from this page
-            page_tables = _extract_md_tables(page_text, min_columns=4, min_rows=2)
+            # SWE Review Fix: Relaxed min_columns from 4 to 2 for OCR pages
+            page_tables = _extract_md_tables(page_text, min_columns=2, min_rows=2)
             if page_tables:
                 structured["tables"].extend(
                     [{"page": page_idx + 1, **t} for t in page_tables]
@@ -601,8 +602,13 @@ def create_enhanced_markdown_output(
         output += "## 📄 Content\n\n"
 
     def _strip_small_tables(
-        md_text: str, min_columns: int = 3, min_rows: int = 2
+        md_text: str, min_columns: int = 2, min_rows: int = 2
     ) -> str:
+        """Strip small tables that are likely noise.
+
+        SWE Review Fix: Keep wide tables even with just a couple rows; they are likely real.
+        Relaxed from min_columns=4 to min_columns=2 to allow OCR header fragments.
+        """
         lines = md_text.splitlines()
         out = []
         i = 0
@@ -620,8 +626,8 @@ def create_enhanced_markdown_output(
                     if len(row) == len(header):
                         rows.append(row)
                     j += 1
-                if len(header) < min_columns or len(rows) < min_rows:
-                    # Skip this tiny table entirely
+                # Keep wide tables even with just a couple rows; they are likely real
+                if len(header) < min_columns or (len(rows) < min_rows and len(header) < 10):
                     i = j
                     continue
             out.append(lines[i])
@@ -632,7 +638,9 @@ def create_enhanced_markdown_output(
         if block["content"].strip():
             if structured["metadata"]["total_pages"] > 1:
                 output += f"### Page {block['page']}\n\n"
-            content = _strip_small_tables(block["content"], min_columns=4, min_rows=2)
+            # SWE Review Fix: Relaxed min_columns from 4 to 2 for OCR pages
+            # This preserves header fragments that help with table reconstruction
+            content = _strip_small_tables(block["content"], min_columns=2, min_rows=2)
             if img_dir_rel:
 
                 def rewrite_image_link(match):
@@ -709,6 +717,29 @@ def write_tables_from_ocr(response_json: dict, base_name: str) -> list[Path]:
         ]
         canon_norm = [_norm(c) for c in canon_cols]
 
+        # SWE Review Fix: Add tolerant aliases for common OCR variations
+        header_aliases = {
+            "beg": "Beginning Balance",
+            "begbal": "Beginning Balance",
+            "begbalance": "Beginning Balance",
+            "beginning": "Beginning Balance",
+            "curr": "Current Balance",
+            "currbal": "Current Balance",
+            "current": "Current Balance",
+            "jan": "January",
+            "feb": "February",
+            "mar": "March",
+            "apr": "April",
+            "jun": "June",
+            "jul": "July",
+            "aug": "August",
+            "sep": "September",
+            "sept": "September",
+            "oct": "October",
+            "nov": "November",
+            "dec": "December",
+        }
+
         month_norms = set(
             _norm(c) for c in canon_cols if c not in {"Acct", "Account Title"}
         )
@@ -752,7 +783,8 @@ def write_tables_from_ocr(response_json: dict, base_name: str) -> list[Path]:
 
         df = pd.DataFrame(rows, columns=cols)
 
-        # Map columns to canonical names
+        # Map columns to canonical names with tolerant matching
+        # SWE Review Fix: Use header_aliases for better OCR tolerance
         remap: dict[str, str] = {}
         for c in df.columns:
             n = _norm(str(c))
@@ -765,10 +797,15 @@ def write_tables_from_ocr(response_json: dict, base_name: str) -> list[Path]:
             elif "current" in n and "balance" in n:
                 remap[c] = "Current Balance"
             else:
-                for m in canon_cols:
-                    if _norm(m) in n:
-                        remap[c] = m
-                        break
+                # Try exact match with aliases first
+                if n in header_aliases:
+                    remap[c] = header_aliases[n]
+                else:
+                    # Fallback to fuzzy match against canonical columns
+                    for m in canon_cols:
+                        if _norm(m) in n:
+                            remap[c] = m
+                            break
 
         if remap:
             df = df.rename(columns=remap)
@@ -820,35 +857,29 @@ def write_tables_from_ocr(response_json: dict, base_name: str) -> list[Path]:
         for c in month_cols:
             df[c] = df[c].map(normalize_amount)
 
-        # Filter spurious header rows: keep rows with an account code or any amount
+        # SWE Review Fix: Relax filters - keep rows if they have a plausible code OR any amount anywhere
         def _is_code(v: str) -> bool:
             import re as _re
-
             return bool(_re.fullmatch(r"\d{3,10}", str(v or "").strip()))
 
-        has_any_amount = (
-            df[month_cols].astype(str).apply(lambda s: s.str.strip().ne(""))
-        )
-        has_any_amount = (
-            has_any_amount.any(axis=1) if not has_any_amount.empty else False
-        )
-        try:
-            keep_mask = df["Acct"].map(_is_code) | has_any_amount
-            df = df[keep_mask]
-        except Exception:
-            pass
+        # Keep rows with a code OR a non-empty title OR any numeric-looking month value
+        any_amount_mask = df[month_cols].astype(str).apply(
+            lambda s: s.str.match(r"^\s*\$?\(?-?[\d,]+(\.\d{1,2})?\)?\s*$", na=False)
+        ).any(axis=1) if month_cols else False
+        keep_mask = df["Acct"].map(_is_code) | df["Account Title"].astype(str).str.strip().ne("") | any_amount_mask
+        df = df[keep_mask]
+        # Do NOT drop rows just because all month values are blank; titles + codes are still useful
 
-        # Drop junk rows: empty titles or fully empty month values
-        keep = df["Account Title"].astype(str).str.strip().ne("")
-        df = df[keep]
-        if month_cols:
-            empty_row = (
-                df[month_cols]
-                .astype(str)
-                .apply(lambda s: s.str.strip().eq(""))
-                .all(axis=1)
-            )
-            df = df[~empty_row]
+        # If still empty, try a last-ditch fallback: use the first text-like column as title
+        if df.empty and text_like_cols:
+            src = text_like_cols[0]
+            df = pd.DataFrame(rows, columns=cols)  # rebuild raw
+            df.insert(0, "Acct", "")
+            df.insert(1, "Account Title", df[src].astype(str).str.strip())
+            for m in canon_cols:
+                if m not in df.columns:
+                    df[m] = ""
+            df = df[canon_cols]
 
         if df.empty:
             # Avoid writing a useless file
@@ -999,6 +1030,13 @@ def select_optimal_model(
         ]
     )
 
+    # CRITICAL FIX (SWE Review): Force OCR model for PDFs with tables
+    if file_ext == ".pdf":
+        # PDFs should use OCR model, especially those with tables
+        if "mistral-ocr-latest" in MISTRAL_PREFERRED_MODELS:
+            logline("  -> PDF detected: forcing mistral-ocr-latest for table extraction")
+            return "mistral-ocr-latest"
+
     # Prioritize models based on file characteristics
     if is_code_file or code_indicators:
         # Use Codestral for code-heavy content
@@ -1021,9 +1059,9 @@ def select_optimal_model(
         if "pixtral-large-latest" in MISTRAL_PREFERRED_MODELS:
             return "pixtral-large-latest"
     elif is_large_file or is_document:
-        # Use multimodal model for complex documents
-        if "mistral-medium-latest" in MISTRAL_PREFERRED_MODELS:
-            return "mistral-medium-latest"
+        # Use OCR model for documents (already prioritized for PDFs above)
+        if "mistral-ocr-latest" in MISTRAL_PREFERRED_MODELS:
+            return "mistral-ocr-latest"
 
     # Check content analysis if available
     if content_analysis:
@@ -1113,13 +1151,26 @@ def analyze_file_content(file_path: Path) -> dict:
 
 
 def _is_page_md_poor(md: str) -> bool:
-    if not md or len(md.strip()) < 120:
+    """Enhanced version that preserves wide markdown tables with month columns.
+
+    SWE Review Fix: Keep markdown tables from being flagged as "poor" when they
+    contain wide tables with many pipes and month tokens, even if there are repeated lines.
+    """
+    if not md:
         return True
-    lines = [l for l in md.split("\n") if l.strip() and not l.strip().startswith("---")]
+    s = md.strip()
+    # If we have a wide markdown table with many pipes and month tokens, keep it
+    pipe_count = s.count("|")
+    has_months = any(m in s for m in ["January","February","March","April","May","June","July","August","September","October","November","December","Beginning Balance","Current Balance"])
+    has_table_rule = ("| ---" in s) or (":---" in s)
+    if pipe_count >= 50 and has_months and has_table_rule:
+        return False
+    if len(s) < 120:
+        return True
+    lines = [l for l in s.split("\n") if l.strip() and not l.strip().startswith("---")]
     if len(lines) <= 2:
         return True
     from collections import Counter as _Counter
-
     counts = _Counter(lines)
     if counts:
         _, c = counts.most_common(1)[0]
@@ -1134,9 +1185,10 @@ def _reprocess_pdf_page_via_image(pdf_path: Path, page_index: int) -> str | None
 
         if convert_from_path is None:
             return None
+        # SWE Review Fix: Increased DPI from 250 to 300 for better OCR precision on small fonts
         images = convert_from_path(
             str(pdf_path),
-            dpi=250,
+            dpi=300,
             first_page=page_index + 1,
             last_page=page_index + 1,
             poppler_path=POPPLER_PATH if POPPLER_PATH else None,
@@ -1405,10 +1457,15 @@ def extract_structured_data_with_functions(
             }
 
         # Use function calling for structured extraction
+        # CRITICAL FIX: Include the document payload in the message content
         messages = [
             {
                 "role": "user",
-                "content": f"""Please analyze this document and extract structured information using the available functions.
+                "content": [
+                    payload,  # Document payload (file_id or document_url)
+                    {
+                        "type": "text",
+                        "text": f"""Please analyze this document and extract structured information using the available functions.
 
 Document: {file_path.name}
 Type: {file_path.suffix.upper()[1:] if file_path.suffix else "Unknown"}
@@ -1419,6 +1476,8 @@ Please use the appropriate functions to extract:
 3. Image analysis (if images are present)
 
 Be thorough and use multiple function calls if needed.""",
+                    },
+                ],
             }
         ]
 

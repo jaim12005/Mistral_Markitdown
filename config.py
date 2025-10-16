@@ -120,10 +120,10 @@ MISTRAL_AUTO_MODEL_SELECTION = get_env_bool("MISTRAL_AUTO_MODEL_SELECTION", True
 MISTRAL_PREFERRED_MODELS = get_env_list(
     "MISTRAL_PREFERRED_MODELS",
     [
-        "mistral-medium-latest",  # Best for multimodal documents
+        "mistral-ocr-latest",  # PRIORITY: Best for PDFs with tables (SWE review fix)
         "pixtral-large-latest",  # Best for complex images
+        "mistral-medium-latest",  # Best for multimodal documents
         "codestral-latest",  # Best for code documents
-        "mistral-ocr-latest",  # Fallback for pure OCR
     ],
 )
 
