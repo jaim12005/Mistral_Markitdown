@@ -250,10 +250,6 @@ def validate_configuration() -> List[str]:
     if sys.platform == "win32" and not POPPLER_PATH:
         issues.append("INFO: POPPLER_PATH not set. PDF to image conversion may not work on Windows.")
 
-    # Check model preferences
-    if MISTRAL_AUTO_MODEL_SELECTION and not MISTRAL_PREFERRED_MODELS:
-        issues.append("WARNING: MISTRAL_AUTO_MODEL_SELECTION is true but no preferred models configured.")
-
     return issues
 
 # ============================================================================
