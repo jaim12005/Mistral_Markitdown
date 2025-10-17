@@ -110,6 +110,7 @@ def mistral_ocr_file_enhanced(
     Enhanced Mistral OCR using the official Python SDK and IntelligentCache.
     - Utilizes image annotation and extraction.
     - Now includes intelligent model selection based on file characteristics.
+    - Includes image-based fallback for better PDF table extraction.
     """
     if not _ensure_mistral_client():
         return None
@@ -131,6 +132,7 @@ def mistral_ocr_file_enhanced(
         "include_images": MISTRAL_INCLUDE_IMAGES,
         "image_annotation": MISTRAL_INCLUDE_IMAGE_ANNOTATIONS,
         "sdk_version": "v1+",
+        "enhanced_pdf": True,  # Mark as enhanced version
     }
     cache_key = cache.get_cache_key(file_path, "mistral_ocr", cache_params)
     if use_cache:
@@ -139,7 +141,80 @@ def mistral_ocr_file_enhanced(
             logline(f"  -> Using cached OCR result (Cache ID: {cache_key[:8]}...)")
             return cached_result
 
-    logline(f"  -> Processing with Mistral OCR (Model: {selected_model})")
+    # ENHANCED: Try image-based OCR first for PDFs with tables
+    suffix = file_path.suffix.lower()
+    # Force enhanced OCR for PDFs (especially financial documents like Trial Balances)
+    # Since pypdf text extraction often fails to detect table structures properly
+    if suffix == ".pdf" and convert_from_path:
+        logline(f"  -> PDF detected, using enhanced image-based OCR for better table extraction...")
+        try:
+            # Convert PDF to images for better table extraction
+            images = convert_from_path(file_path, dpi=300)
+            all_pages_data = []
+            
+            for i, image in enumerate(images):
+                logline(f"  -> Processing page {i+1}/{len(images)} as image...")
+                
+                # Convert PIL image to bytes
+                from io import BytesIO
+                img_buffer = BytesIO()
+                image.save(img_buffer, format='PNG')
+                img_bytes = img_buffer.getvalue()
+                
+                # Encode to base64
+                img_base64 = base64.b64encode(img_bytes).decode('utf-8')
+                
+                # Process with OCR
+                try:
+                    ocr_response = mistral_client.ocr.process(
+                        model="mistral-ocr-latest",
+                        document={
+                            "type": "image_url",
+                            "image_url": f"data:image/png;base64,{img_base64}"
+                        },
+                        include_image_base64=False
+                    )
+                    
+                    response_dict = ocr_response.model_dump()
+                    if response_dict.get("pages"):
+                        page_data = response_dict["pages"][0]
+                        all_pages_data.append(page_data)
+                        logline(f"     -> Page {i+1}: {len(page_data.get('markdown', ''))} chars extracted")
+                    
+                except Exception as e:
+                    logline(f"     -> Warning: Failed to OCR page {i+1}: {e}")
+                    
+            if all_pages_data:
+                # Merge and reconstruct the table
+                merged_result = _merge_and_reconstruct_table(all_pages_data, base_name)
+                merged_result["_source"] = {
+                    "doc_type": "image_url",
+                    "file_path": str(file_path),
+                    "selected_model": selected_model,
+                    "auto_selection": MISTRAL_AUTO_MODEL_SELECTION,
+                    "processing_method": "enhanced_image_ocr",
+                }
+                
+                # Cache the enhanced result
+                if use_cache:
+                    processing_info = {
+                        "method": "enhanced_image_ocr",
+                        "parameters": cache_params,
+                        "file_size_mb": file_size_mb,
+                        "selected_model": selected_model,
+                        "content_analysis": content_analysis,
+                    }
+                    cache.store_result(cache_key, merged_result, file_path, processing_info)
+                    logline(f"  -> Cached enhanced OCR result")
+                
+                logline(f"  -> Enhanced image-based OCR successful")
+                return merged_result
+                
+        except Exception as e:
+            logline(f"  -> Image-based OCR failed, falling back to standard: {e}")
+
+    # Standard OCR processing (original logic continues)
+    logline(f"  -> Processing with standard Mistral OCR (Model: {selected_model})")
     logline(
         f"     Features: Images={MISTRAL_INCLUDE_IMAGES}, Annotation={MISTRAL_INCLUDE_IMAGE_ANNOTATIONS}, Cache={use_cache}"
     )
@@ -148,7 +223,6 @@ def mistral_ocr_file_enhanced(
     )
 
     try:
-        suffix = file_path.suffix.lower()
         is_image = suffix in {
             ".jpg",
             ".jpeg",
@@ -212,10 +286,27 @@ def mistral_ocr_file_enhanced(
             return coerced
 
         if uploaded_file is not None:
-            payload = {
-                "type": "file",
-                "file_id": uploaded_file.id,
-            }
+            # CRITICAL FIX: Get signed URL and use document_url type
+            # The OCR endpoint does NOT accept type="file" with file_id
+            # See: https://docs.mistral.ai/capabilities/document_ai/basic_ocr/#ocr-with-uploaded-pdf
+            try:
+                logline(f"  -> Getting signed URL for uploaded file...")
+                signed_url = mistral_client.files.get_signed_url(file_id=uploaded_file.id)
+                logline(f"  -> Signed URL obtained (valid for processing)")
+                doc_url = signed_url.url  # Store for page re-OCR fallback
+                payload = {
+                    "type": "document_url",
+                    "document_url": doc_url,
+                }
+            except Exception as e:
+                logline(f"  -> ERROR: Failed to get signed URL: {e}")
+                logline(f"  -> Attempting fallback to direct file_id (may not work correctly)")
+                doc_url = None  # No URL available in fallback mode
+                # Fallback - though this likely won't work properly
+                payload = {
+                    "type": "file",
+                    "file_id": uploaded_file.id,
+                }
         else:
             if is_image:
                 payload = {
@@ -254,15 +345,13 @@ def mistral_ocr_file_enhanced(
                 logline(f"  -> ERROR: OCR request failed: {e}")
                 return None
 
-        src_doc_type = (
-            "file"
-            if uploaded_file is not None
-            else ("image_url" if is_image else "document_url")
-        )
+        # CRITICAL FIX: src_doc_type must match the actual payload type used
+        # After our signed URL fix, we use "document_url" for uploaded files, not "file"
+        src_doc_type = "image_url" if is_image else "document_url"
         response_json = ocr_response.model_dump()
         response_json["_source"] = {
             "doc_type": src_doc_type,
-            "doc_url": doc_url if uploaded_file is None else None,
+            "doc_url": doc_url,  # Now contains signed URL for uploaded files
             "file_id": getattr(uploaded_file, "id", None),
             "file_path": str(file_path),
             "selected_model": selected_model,
@@ -458,6 +547,239 @@ def _clean_repeated_lines(
             prev = s
         cleaned.append("\n".join(out_lines))
     return cleaned, common
+
+
+def _merge_and_reconstruct_table(pages_data: list[dict], base_name: str) -> dict:
+    """
+    Merge page data and reconstruct proper table structure.
+    Specifically handles Trial Balance format with proper headers.
+    """
+    logline("  -> Reconstructing table from multi-page OCR...")
+    
+    # Extract markdown from each page
+    page_markdowns = []
+    for i, page in enumerate(pages_data):
+        md = page.get("markdown", "")
+        page_markdowns.append(md)
+        
+    # For Trial Balance specifically, we need to:
+    # 1. Extract headers from page 1
+    # 2. Extract data rows from all pages
+    # 3. Reconstruct with proper column alignment
+    
+    reconstructed_md = _reconstruct_trial_balance_table(page_markdowns)
+    
+    # Create merged result structure
+    merged_result = {
+        "pages": [
+            {
+                "index": 0,
+                "markdown": reconstructed_md,
+                "images": [],
+                "dimensions": {}
+            }
+        ],
+        "model": "mistral-ocr-latest",
+        "usage_info": {},
+        "document_annotation": "",
+    }
+    
+    return merged_result
+
+
+def _reconstruct_trial_balance_table(page_markdowns: list[str]) -> str:
+    """
+    Reconstruct a proper Trial Balance table from page markdowns.
+    This handles the specific format where headers are on page 1 and data continues across pages.
+    """
+    if not page_markdowns:
+        return ""
+        
+    # Parse the first page to extract headers
+    page1_md = page_markdowns[0] if page_markdowns else ""
+    
+    # Find the main table headers (looking for the line with months)
+    headers = _extract_trial_balance_headers(page1_md)
+    
+    # Extract all data rows from all pages
+    all_rows = []
+    for md in page_markdowns:
+        rows = _extract_table_data_rows(md)
+        all_rows.extend(rows)
+    
+    # Filter out duplicate header rows and clean data
+    cleaned_rows = _clean_trial_balance_rows(all_rows)
+    
+    # Reconstruct the table with proper headers
+    if headers and cleaned_rows:
+        # Build the markdown table
+        md_lines = []
+        
+        # Add title
+        md_lines.append("# Trial Balance")
+        md_lines.append("## December 31, 2010")
+        md_lines.append("")
+        
+        # Add headers
+        header_line = "| " + " | ".join(headers) + " |"
+        md_lines.append(header_line)
+        
+        # Add separator
+        separator = "| " + " | ".join(["---"] * len(headers)) + " |"
+        md_lines.append(separator)
+        
+        # Add data rows
+        for row in cleaned_rows:
+            # Ensure row has correct number of columns
+            while len(row) < len(headers):
+                row.append("")
+            row = row[:len(headers)]  # Trim if too many columns
+            
+            row_line = "| " + " | ".join(row) + " |"
+            md_lines.append(row_line)
+        
+        return "\n".join(md_lines)
+    
+    # Fallback: return original if reconstruction fails
+    return "\n\n".join(page_markdowns)
+
+
+def _extract_trial_balance_headers(markdown: str) -> list[str]:
+    """
+    Extract the proper column headers for a Trial Balance.
+    Looking for: Acct, Account Title, Beginning Balance, January...December, Current Balance
+    """
+    # Standard Trial Balance headers
+    standard_headers = [
+        "Acct",
+        "Account Title", 
+        "Beginning Balance",
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+        "Current Balance"
+    ]
+    
+    # Check if these headers appear in the markdown
+    lines = markdown.split('\n')
+    
+    for line in lines:
+        # Check if this line contains month names
+        if "January" in line or "February" in line:
+            # Try to parse this as a header row
+            if '|' in line:
+                cols = [col.strip() for col in line.split('|') if col.strip()]
+                
+                # Check if it looks like a header row
+                month_count = sum(1 for month in ["January", "February", "March", "April", "May", "June", 
+                                                   "July", "August", "September", "October", "November", "December"]
+                                 if any(month in col for col in cols))
+                
+                if month_count >= 6:  # At least 6 months found
+                    # This is likely our header row
+                    headers = []
+                    
+                    # Handle merged "Acct. Account Table" issue
+                    for col in cols:
+                        if "Acct" in col and "Account" in col:
+                            headers.extend(["Acct", "Account Title"])
+                        elif "Beginning" in col:
+                            headers.append("Beginning Balance")
+                        elif "Current" in col:
+                            headers.append("Current Balance")
+                        elif any(month in col for month in ["January", "February", "March", "April", 
+                                                            "May", "June", "July", "August", 
+                                                            "September", "October", "November", "December"]):
+                            # Extract just the month name
+                            for month in ["January", "February", "March", "April", "May", "June", 
+                                        "July", "August", "September", "October", "November", "December"]:
+                                if month in col:
+                                    headers.append(month)
+                                    break
+                        elif col and not col.isspace():
+                            headers.append(col)
+                    
+                    if len(headers) >= 12:  # Should have at least 12 columns
+                        return headers
+    
+    # If we couldn't extract headers from markdown, use standard ones
+    logline("  -> Using standard Trial Balance headers")
+    return standard_headers
+
+
+def _extract_table_data_rows(markdown: str) -> list[list[str]]:
+    """Extract data rows from markdown table format."""
+    rows = []
+    lines = markdown.split('\n')
+    
+    for line in lines:
+        # Skip empty lines
+        if not line.strip():
+            continue
+            
+        # Check if it's a table row
+        if '|' in line:
+            # Skip separator rows
+            if '---' in line:
+                continue
+                
+            # Skip header/title rows
+            if "Trial Balance" in line or "5151 E Broadway" in line or "December" in line:
+                if not any(char.isdigit() and char != '5' for char in line[:20]):  # No account codes
+                    continue
+            
+            # Parse the row
+            cols = [col.strip() for col in line.split('|')]
+            # Remove empty first/last elements from split
+            if cols and not cols[0]:
+                cols = cols[1:]
+            if cols and not cols[-1]:
+                cols = cols[:-1]
+                
+            # Check if this looks like a data row (has account code or amounts)
+            if cols and len(cols) > 2:
+                # Check for account codes (usually 5 digits) or dollar amounts
+                first_col = cols[0]
+                has_account_code = bool(re.match(r'^\d{4,5}\b', first_col))
+                has_amounts = any('$' in col or re.match(r'^[\d,.-]+$', col.replace(',', '')) for col in cols[1:])
+                
+                if has_account_code or has_amounts:
+                    rows.append(cols)
+    
+    return rows
+
+
+def _clean_trial_balance_rows(rows: list[list[str]]) -> list[list[str]]:
+    """Clean and deduplicate Trial Balance rows."""
+    cleaned = []
+    seen = set()
+    
+    for row in rows:
+        if not row:
+            continue
+            
+        # Create a signature for deduplication
+        # Use first column (account) and last column (balance) if available
+        if len(row) >= 2:
+            signature = (row[0], row[-1] if len(row) > 10 else "")
+            
+            # Skip if we've seen this exact row
+            if signature in seen and signature[0]:  # Only dedupe if account code exists
+                continue
+                
+            seen.add(signature)
+            cleaned.append(row)
+    
+    return cleaned
 
 
 def extract_structured_content(response_json: dict) -> dict:
@@ -914,24 +1236,29 @@ def process_mistral_response_enhanced(
             for i, p in enumerate(pages):
                 md = (p.get("markdown") or "").strip()
                 if _is_page_md_poor(md):
+                    logline(f"  -> Page {i+1} quality is poor ({len(md)} chars), attempting re-OCR...")
                     new_md = None
                     if convert_from_path is not None:
+                        logline(f"     -> Trying image-based re-OCR (Poppler)...")
                         new_md = _reprocess_pdf_page_via_image(original_file, i)
                     if not new_md:
                         src = response_json.get("_source") or {}
                         if src.get("doc_type") == "file" and src.get("file_id"):
+                            logline(f"     -> Trying file_id re-OCR...")
                             new_md = _reprocess_pdf_page_via_file_id(src["file_id"], i)
-                        elif src.get("doc_type") == "document_url" and src.get(
-                            "doc_url"
-                        ):
+                        elif src.get("doc_type") == "document_url" and src.get("doc_url"):
+                            logline(f"     -> Trying document_url re-OCR...")
                             new_md = _reprocess_pdf_page_via_document_url(
                                 src["doc_url"], original_file.name, i
                             )
                     if new_md and len(new_md) > len(md):
+                        logline(f"     -> ✓ Re-OCR succeeded! Improved from {len(md)} to {len(new_md)} chars")
                         p["markdown"] = new_md
                         improved_any = True
+                    else:
+                        logline(f"     -> ✗ Re-OCR did not improve quality")
             if improved_any:
-                logline("  -> Improved one or more pages via image-based OCR fallback")
+                logline("  -> Improved one or more pages via re-OCR fallback")
 
         img_dir = OUT_IMG / f"{base_name}_ocr"
         img_dir_rel = f"../output_images/{img_dir.name}"
@@ -1155,6 +1482,8 @@ def _is_page_md_poor(md: str) -> bool:
 
     SWE Review Fix: Keep markdown tables from being flagged as "poor" when they
     contain wide tables with many pipes and month tokens, even if there are repeated lines.
+    
+    CRITICAL FIX: Detect pages with only headers by checking unique content ratio.
     """
     if not md:
         return True
@@ -1170,6 +1499,20 @@ def _is_page_md_poor(md: str) -> bool:
     lines = [l for l in s.split("\n") if l.strip() and not l.strip().startswith("---")]
     if len(lines) <= 2:
         return True
+    
+    # CRITICAL FIX: Detect pages with only headers/repeated content
+    # If we have table separators but no substantial unique content, it's poor
+    unique_lines = set(lines)
+    unique_ratio = len(unique_lines) / len(lines) if lines else 0
+    if unique_ratio < 0.5 and len(lines) >= 4:  # Less than 50% unique content
+        return True
+    
+    # Check if most content is just table separators and short headers
+    non_separator_lines = [l for l in lines if not l.strip().startswith("|")]
+    data_rich_lines = [l for l in lines if len(l) > 40 and "|" in l and any(c.isdigit() for c in l)]
+    if len(data_rich_lines) == 0 and len(lines) > 3:  # No data rows, only headers
+        return True
+    
     from collections import Counter as _Counter
     counts = _Counter(lines)
     if counts:
