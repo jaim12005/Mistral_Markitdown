@@ -1,1206 +1,740 @@
-import subprocess
-import shutil
-from pathlib import Path
-import re
-import time
-import json
-import os
-import random
-import uuid
-from datetime import datetime
-from decimal import Decimal, InvalidOperation
-from typing import Callable, Any, Dict, Optional
-import logging
-from logging.handlers import RotatingFileHandler
-
-# Optional libs
-try:
-    import pandas as pd
-except Exception:
-    pd = None
-try:
-    from tabulate import tabulate
-except Exception:
-    tabulate = None
-
-from config import OUT_TXT, CACHE_DIR, CACHE_DURATION_HOURS, LOG_DIR, LOG_LEVEL
-
-
-_logger: Optional[logging.Logger] = None
-
-
-def setup_logging(level: str | None = None) -> None:
-    """Configure logging with console + rotating file handlers."""
-    global _logger
-    if _logger is not None:
-        return
-    try:
-        LOG_DIR.mkdir(parents=True, exist_ok=True)
-    except Exception:
-        pass
-    logger = logging.getLogger("converter")
-    logger.setLevel(
-        getattr(logging, (level or LOG_LEVEL or "INFO").upper(), logging.INFO)
-    )
-    logger.propagate = False
-
-    ch = logging.StreamHandler()
-    ch.setLevel(logger.level)
-    ch.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
-    logger.addHandler(ch)
-
-    try:
-        fh = RotatingFileHandler(
-            LOG_DIR / "app.log",
-            maxBytes=5 * 1024 * 1024,
-            backupCount=3,
-            encoding="utf-8",
-        )
-        fh.setLevel(logger.level)
-        fh.setFormatter(
-            logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
-        )
-        logger.addHandler(fh)
-    except Exception:
-        pass
-
-    _logger = logger
-
-
-def _get_logger() -> logging.Logger:
-    global _logger
-    if _logger is None:
-        setup_logging()
-    return _logger  # type: ignore[return-value]
-
-
-def logline(s: str) -> None:
-    _get_logger().info(s)
-
-
-def run(cmd: list[str] | str, timeout: int | None = None) -> tuple[int, str, str]:
-    shell = isinstance(cmd, str)
-    try:
-        proc = subprocess.run(
-            cmd, shell=shell, capture_output=True, text=True, timeout=timeout
-        )
-        return proc.returncode, proc.stdout, proc.stderr
-    except subprocess.TimeoutExpired as e:
-        return 124, e.stdout or "", e.stderr or "TIMEOUT"
-    except Exception as e:
-        return 1, "", str(e)
-
-
-def have(exe: str) -> bool:
-    return shutil.which(exe) is not None
-
-
-def write_text(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(content)
-
-
-def md_table(df: "pd.DataFrame") -> str:
-    if df is None or df.empty:
-        return ""
-
-    def _fmt_amount(v):
-        s = "" if v is None else str(v).strip()
-        import re as _re
-        from decimal import Decimal
-
-        # bare numbers -> 2dp
-        if _re.fullmatch(r"-?\d+(\.\d+)?", s):
-            try:
-                return f"{Decimal(s):,.2f}"
-            except Exception:
-                return s
-        # accounting-ish
-        if _re.fullmatch(r"^\s*\$?\(?-?[\d,]+(\.\d{1,2})?\)?\s*$", s):
-            try:
-                t = s.replace("$", "").replace(",", "")
-                neg = t.startswith("(") and t.endswith(")")
-                t = t.strip("()")
-                d = Decimal(t)
-                if neg:
-                    d = -d
-                # keep plain digits (no thousands separators) to make TSV export predictable
-                return f"{d:,.2f}".replace(",", "")
-            except Exception:
-                return s
-        return s
-
-    df_disp = df.copy()
-
-    # Preserve id-like columns as strings
-    import re as _re
-
-    id_like = [
-        c
-        for c in df_disp.columns
-        if _re.search(r"^(acct(\.|$)|account(\s*id)?$|account\s*title$)", str(c), _re.I)
-    ]
-    for c in id_like:
-        df_disp[c] = df_disp[c].astype(str)
-
-    # Detect numeric columns and format amounts
-    def looks_amount_col(col):
-        s = df_disp[col].astype(str)
-        mask = s.str.match(r"^\s*\$?\(?-?[\d,]+(\.\d{1,2})?\)?\s*$", na=False)
-        return mask.mean() >= 0.7
-
-    for c in df_disp.columns:
-        if c not in id_like:
-            if looks_amount_col(c):
-                df_disp[c] = df_disp[c].map(_fmt_amount)
-            else:
-                df_disp[c] = df_disp[c].astype(str)
-
-    # Always use manual renderer to prevent ellipses
-    def _sanitize_cell(x):
-        s = "" if x is None else str(x)
-        return s.replace("|", r"\|")
-
-    headers = [str(c) for c in df_disp.columns]
-    lines = []
-    lines.append("| " + " | ".join(headers) + " |")
-    lines.append("| " + " | ".join(["---"] * len(headers)) + " |")
-    for _, row in df_disp.iterrows():
-        vals = [_sanitize_cell(v) for v in row.tolist()]
-        lines.append("| " + " | ".join(vals) + " |")
-    return "\n".join(lines)
-
-
-def md_to_txt(md_path: Path, txt_path: Path) -> None:
-    try:
-        with open(md_path, "r", encoding="utf-8") as f:
-            md = f.read()
-        out_lines = []
-        in_code_block = False
-        for line in md.splitlines():
-            if line.strip().startswith("```"):
-                in_code_block = not in_code_block
-                continue
-            if line.strip().startswith("|") and "|" in line:
-                row = [c.strip() for c in line.strip().strip("|").split("|")]
-                if all(re.fullmatch(r"\s*:?-{3,}:?\s*", c) for c in row):
-                    continue
-                out_lines.append("\t".join(row))
-            else:
-                if in_code_block:
-                    out_lines.append(line)
-                    continue
-                if re.search(r"!\[.*?\]\(.*?\)", line):
-                    continue
-                line = re.sub(r"^\s{0,3}#{1,6}\s*", "", line)
-                line = re.sub(r"^\s{0,3}[-*+]\s+", "", line)
-                out_lines.append(line)
-        write_text(txt_path, "\n".join(out_lines))
-    except Exception as e:
-        logline(f"  -> WARN: MD->TXT failed for {md_path.name}: {e}")
-
-
-def get_mime_type(file_path: Path) -> str:
-    suffix = file_path.suffix.lower()
-    mime_types = {
-        ".pdf": "application/pdf",
-        ".jpg": "image/jpeg",
-        ".jpeg": "image/jpeg",
-        ".png": "image/png",
-        ".tif": "image/tiff",
-        ".tiff": "image/tiff",
-        ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        ".webp": "image/webp",
-        ".bmp": "image/bmp",
-    }
-    return mime_types.get(suffix, "application/octet-stream")
-
-
-def normalize_amount(s: str) -> str:
-    """
-    Normalize accounting numbers for OCR and tables.
-    Handles common OCR artifacts and accounting formats.
-    """
-    if s is None:
-        return ""
-    t = str(s).strip()
-    if not t:
-        return ""
-
-    # Unify thousands/decimals, remove $ and spaces
-    t = t.replace("$", "").replace(" ", "")
-
-    # Handle accounting parentheses
-    neg = False
-    if t.startswith("(") and t.endswith(")"):
-        neg = True
-        t = t[1:-1]
-
-    # Remove grouping commas
-    t = t.replace(",", "")
-
-    # If decimals present with >2 digits, round to 2
-    import re
-
-    m = re.match(r"^-?\d+\.(\d{2,})$", t)
-    if m and len(m.group(1)) != 2:
-        try:
-            val = Decimal(t).quantize(Decimal("0.00"))
-            t = str(val)
-        except InvalidOperation:
-            return s
-
-    # Ensure two decimals for plain integers or 1-2 decimal inputs
-    try:
-        val = Decimal(t)
-        if neg:
-            val = -val
-        return f"{val:,.2f}".replace(
-            ",", ""
-        )  # keep no thousands here; you can add later if desired
-    except (InvalidOperation, ValueError):
-        return s  # if not a number, return original  # if not a number, return original
-
-
-# Note: _normalize_amount_column is defined later in the file with enhanced outlier repair logic
-
-
-class ProcessingStrategy:
-    def __init__(
-        self,
-        use_markitdown: bool,
-        use_ocr: bool,
-        priority: int,
-        description: str,
-        benefits: list[str],
-    ):
-        self.use_markitdown = use_markitdown
-        self.use_ocr = use_ocr
-        self.priority = priority
-        self.description = description
-        self.benefits = benefits
-
-
-def get_enhanced_file_strategy(file_path: Path) -> ProcessingStrategy:
-    ext = file_path.suffix.lower()
-    file_size_mb = file_path.stat().st_size / (1024 * 1024)
-    try:
-        from config import MISTRAL_API_KEY
-    except ImportError:
-        MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY", "")
-
-    # New: Handle YouTube URLs from .url files
-    if ext == ".url":
-        try:
-            content = file_path.read_text(encoding="utf-8").strip()
-            if "youtube.com" in content or "youtu.be" in content:
-                return ProcessingStrategy(
-                    use_markitdown=True,
-                    use_ocr=False,
-                    priority=1,
-                    description="YouTube URL for transcription",
-                    benefits=["Video transcription", "Metadata extraction"],
-                )
-        except Exception:
-            pass  # Fall through to default unknown file handling
-
-    # Handle audio/video files for transcription
-    if ext in {".mp3", ".wav", ".m4a", ".flac", ".mp4", ".avi", ".mov", ".mkv"}:
-        return ProcessingStrategy(
-            use_markitdown=True,
-            use_ocr=False,
-            priority=1,
-            description="Audio/Video file for transcription",
-            benefits=["Speech-to-text transcription", "Metadata extraction"],
-        )
-
-    if ext in {".docx", ".pptx", ".xlsx", ".xls"}:
-        return ProcessingStrategy(
-            use_markitdown=True,
-            use_ocr=False,
-            priority=1,
-            description="Office document with structured content",
-            benefits=[
-                "Native text extraction",
-                "Preserves formatting",
-                "Table structure",
-            ],
-        )
-    if ext in {".html", ".xml", ".csv", ".json", ".txt", ".md", ".rtf"}:
-        return ProcessingStrategy(
-            use_markitdown=True,
-            use_ocr=False,
-            priority=1,
-            description="Structured text format",
-            benefits=["Fast processing", "Perfect text preservation", "No API costs"],
-        )
-    if ext in {".jpg", ".jpeg", ".png", ".tiff", ".tif", ".bmp", ".gif", ".webp"}:
-        if not MISTRAL_API_KEY:
-            return ProcessingStrategy(
-                use_markitdown=True,
-                use_ocr=False,
-                priority=3,
-                description="Image without OCR capability",
-                benefits=["EXIF metadata extraction"],
-            )
-        return ProcessingStrategy(
-            use_markitdown=False,
-            use_ocr=True,
-            priority=1,
-            description="Image requiring OCR",
-            benefits=["High-accuracy text extraction", "Layout preservation"],
-        )
-    if ext == ".pdf":
-        if file_size_mb > 50:
-            if MISTRAL_API_KEY:
-                return ProcessingStrategy(
-                    use_markitdown=True,
-                    use_ocr=True,
-                    priority=2,
-                    description="Large PDF requiring hybrid processing",
-                    benefits=[
-                        "Text + OCR coverage",
-                        "Table extraction",
-                        "Image analysis",
-                    ],
-                )
-            else:
-                return ProcessingStrategy(
-                    use_markitdown=True,
-                    use_ocr=False,
-                    priority=2,
-                    description="Large PDF with text extraction only",
-                    benefits=["Fast text extraction", "Table detection"],
-                )
-        else:
-            return ProcessingStrategy(
-                use_markitdown=True,
-                use_ocr=bool(MISTRAL_API_KEY),
-                priority=1,
-                description="Standard PDF with optimal processing",
-                benefits=[
-                    "Complete text extraction",
-                    "Enhanced OCR analysis",
-                    "Table processing",
-                ],
-            )
-    if ext in {".zip", ".epub"}:
-        return ProcessingStrategy(
-            use_markitdown=True,
-            use_ocr=False,
-            priority=2,
-            description="Archive format with nested content",
-            benefits=["Content extraction", "Structure preservation"],
-        )
-
-    # Unknown format handling
-    if MISTRAL_API_KEY:
-        return ProcessingStrategy(
-            use_markitdown=True,
-            use_ocr=True,
-            priority=3,
-            description="Unknown format - attempting both methods",
-            benefits=["Maximum coverage", "Fallback options"],
-        )
-    else:
-        return ProcessingStrategy(
-            use_markitdown=True,
-            use_ocr=False,
-            priority=3,
-            description="Unknown format - text extraction only",
-            benefits=["Basic text extraction"],
-        )
-
-
-def analyze_file_complexity(file_path: Path) -> dict:
-    try:
-        stat_info = file_path.stat()
-        file_size_mb = stat_info.st_size / (1024 * 1024)
-        complexity = {
-            "size_mb": file_size_mb,
-            "size_category": "small"
-            if file_size_mb < 1
-            else "medium"
-            if file_size_mb < 10
-            else "large",
-            "estimated_processing_time": estimate_processing_time(file_path),
-            "recommended_method": "hybrid" if file_size_mb > 5 else "standard",
-            "memory_usage_estimate": estimate_memory_usage(file_path),
-        }
-        return complexity
-    except Exception as e:
-        return {
-            "size_mb": 0,
-            "size_category": "unknown",
-            "estimated_processing_time": "unknown",
-            "recommended_method": "standard",
-            "memory_usage_estimate": "low",
-            "error": str(e),
-        }
-
-
-def estimate_processing_time(file_path: Path) -> str:
-    ext = file_path.suffix.lower()
-    size_mb = file_path.stat().st_size / (1024 * 1024)
-    if ext in {".txt", ".md", ".csv", ".json"}:
-        return f"{max(1, int(size_mb * 0.1))}s"
-    elif ext in {".docx", ".xlsx", ".pptx"}:
-        return f"{max(2, int(size_mb * 0.5))}s"
-    elif ext == ".pdf":
-        return f"{max(5, int(size_mb * 2))}s"
-    elif ext in {".jpg", ".png", ".tiff"}:
-        return f"{max(3, int(size_mb * 1.5))}s"
-    else:
-        return f"{max(2, int(size_mb * 1))}s"
-
-
-def estimate_memory_usage(file_path: Path) -> str:
-    size_mb = file_path.stat().st_size / (1024 * 1024)
-    if size_mb < 1:
-        return "low"
-    elif size_mb < 10:
-        return "medium"
-    elif size_mb < 50:
-        return "high"
-    else:
-        return "very_high"
-
-
-import concurrent.futures
-import threading
-from dataclasses import dataclass
-
-
-@dataclass
-class ProcessingResult:
-    file_path: Path
-    success: bool
-    output_files: list[Path]
-    error_message: str = ""
-    error_type: str = ""
-    processing_time: float = 0.0
-    strategy_used: str = ""
-    metadata: dict = None
-
-    def __post_init__(self):
-        if self.metadata is None:
-            self.metadata = {}
-
-
-class ConcurrentProcessor:
-    def __init__(self, max_workers: int = None, rate_limit_delay: float = 1.0):
-        self.max_workers = max_workers or min(4, (os.cpu_count() or 1) + 1)
-        self.rate_limit_delay = rate_limit_delay
-        self.processing_stats = {
-            "total_processed": 0,
-            "successful": 0,
-            "failed": 0,
-            "total_time": 0.0,
-            "api_calls": 0,
-        }
-        self._rate_limiter = threading.Semaphore(1)
-
-    def process_files_concurrent(
-        self,
-        files: list[Path],
-        processing_func: Callable[[Path], ProcessingResult],
-        progress_callback: Callable[[int, int], None] = None,
-    ) -> list[ProcessingResult]:
-        results = []
-        completed = 0
-        api_files, local_files = self._categorize_files(files)
-        logline(
-            f"  -> Concurrent processing: {len(api_files)} API files, {len(local_files)} local files"
-        )
-        if local_files:
-            local_results = self._process_local_files_concurrent(
-                local_files, processing_func
-            )
-            results.extend(local_results)
-            completed += len(local_results)
-            if progress_callback:
-                progress_callback(completed, len(files))
-        if api_files:
-            api_results = self._process_api_files_sequential(
-                api_files, processing_func, progress_callback, completed, len(files)
-            )
-            results.extend(api_results)
-        self.processing_stats["total_processed"] += len(results)
-        self.processing_stats["successful"] += sum(1 for r in results if r.success)
-        self.processing_stats["failed"] += sum(1 for r in results if not r.success)
-        self.processing_stats["total_time"] += sum(r.processing_time for r in results)
-        return results
-
-    def _categorize_files(self, files: list[Path]) -> tuple[list[Path], list[Path]]:
-        try:
-            from config import MISTRAL_API_KEY
-        except ImportError:
-            MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY", "")
-
-        api_files, local_files = [], []
-        for file_path in files:
-            strategy = get_enhanced_file_strategy(file_path)
-            if strategy.use_ocr and MISTRAL_API_KEY:
-                api_files.append(file_path)  # always serialize OCR-bound work
-            else:
-                local_files.append(file_path)
-        return api_files, local_files
-
-    def _process_local_files_concurrent(
-        self, files: list[Path], processing_func: Callable[[Path], ProcessingResult]
-    ) -> list[ProcessingResult]:
-        results = []
-        with concurrent.futures.ThreadPoolExecutor(
-            max_workers=self.max_workers
-        ) as executor:
-            future_to_file = {
-                executor.submit(self._safe_process_file, f, processing_func): f
-                for f in files
-            }
-            for future in concurrent.futures.as_completed(future_to_file):
-                file_path = future_to_file[future]
-                try:
-                    result = future.result()
-                    results.append(result)
-                except Exception as e:
-                    error_result = ProcessingResult(
-                        file_path=file_path,
-                        success=False,
-                        output_files=[],
-                        error_message=f"Concurrent processing error: {e}",
-                        error_type=type(e).__name__,
-                    )
-                    results.append(error_result)
-                    logline(f"  -> Error processing {file_path.name}: {e}")
-        return results
-
-    def _process_api_files_sequential(
-        self,
-        files: list[Path],
-        processing_func: Callable[[Path], ProcessingResult],
-        progress_callback: Callable[[int, int], None],
-        initial_completed: int,
-        total_files: int,
-    ) -> list[ProcessingResult]:
-        results = []
-        completed = initial_completed
-        for file_path in files:
-            with self._rate_limiter:
-                result = self._safe_process_file(file_path, processing_func)
-                results.append(result)
-                if result.success and "ocr" in result.strategy_used.lower():
-                    self.processing_stats["api_calls"] += 1
-                    time.sleep(self.rate_limit_delay)
-                completed += 1
-                if progress_callback:
-                    progress_callback(completed, total_files)
-        return results
-
-    def _safe_process_file(
-        self, file_path: Path, processing_func: Callable[[Path], ProcessingResult]
-    ) -> ProcessingResult:
-        start_time = time.time()
-        try:
-            result = processing_func(file_path)
-            result.processing_time = time.time() - start_time
-            return result
-        except FileNotFoundError:
-            return ProcessingResult(
-                file_path=file_path,
-                success=False,
-                output_files=[],
-                error_message="File not found",
-                processing_time=time.time() - start_time,
-            )
-        except PermissionError:
-            return ProcessingResult(
-                file_path=file_path,
-                success=False,
-                output_files=[],
-                error_message="Permission denied",
-                processing_time=time.time() - start_time,
-            )
-        except Exception as e:
-            return ProcessingResult(
-                file_path=file_path,
-                success=False,
-                output_files=[],
-                error_message=str(e),
-                processing_time=time.time() - start_time,
-            )
-
-    def get_processing_stats(self) -> dict:
-        stats = self.processing_stats.copy()
-        if stats["total_processed"] > 0:
-            stats["success_rate"] = stats["successful"] / stats["total_processed"]
-            stats["average_time"] = stats["total_time"] / stats["total_processed"]
-        else:
-            stats["success_rate"] = 0.0
-            stats["average_time"] = 0.0
-        return stats
-
-
-class ErrorRecoveryManager:
-    """Manages error recovery and retry strategies."""
-
-    def __init__(self, max_retries: int = 3, backoff_factor: float = 2.0):
-        self.max_retries = max_retries
-        self.backoff_factor = backoff_factor
-        self.error_history = []
-
-    def retry_with_backoff(self, func: Callable, *args, **kwargs) -> Any:
-        last_exception = None
-        for attempt in range(self.max_retries + 1):
-            try:
-                return func(*args, **kwargs)
-            except Exception as e:
-                if not self._is_transient_error(e):
-                    logline(f"  -> Non-retriable error encountered: {e}")
-                    raise e
-                last_exception = e
-                self.error_history.append(
-                    {
-                        "timestamp": datetime.now().isoformat(),
-                        "function": func.__name__,
-                        "attempt": attempt + 1,
-                        "error": str(e),
-                        "error_type": type(e).__name__,
-                    }
-                )
-                if attempt < self.max_retries:
-                    delay = (self.backoff_factor**attempt) + random.uniform(0.1, 1.0)
-                    logline(
-                        f"  -> Retry {attempt + 1}/{self.max_retries} after {delay:.1f}s due to {type(e).__name__}: {e}"
-                    )
-                    time.sleep(delay)
-                else:
-                    logline(f"  -> All retries exhausted: {e}")
-        if last_exception:
-            raise last_exception
-
-    def _is_transient_error(self, exception: Exception) -> bool:
-        if hasattr(exception, "status_code"):
-            status_code = getattr(exception, "status_code")
-            if status_code in [408, 429, 502, 503, 504]:
-                return True
-            if 400 <= status_code < 500:
-                return False
-        error_str = str(exception).lower()
-        transient_keywords = [
-            "timeout",
-            "connection reset",
-            "connection error",
-            "rate limit",
-            "temporarily unavailable",
-            "bad gateway",
-            "service unavailable",
-            "gateway timeout",
-        ]
-        return any(keyword in error_str for keyword in transient_keywords)
-
-    def get_error_summary(self) -> dict:
-        if not self.error_history:
-            return {"total_errors": 0}
-        error_types = {}
-        for e in self.error_history:
-            et = e.get("error_type") or type(e.get("error")).__name__
-            error_types[et] = error_types.get(et, 0) + 1
-        return {
-            "total_errors": len(self.error_history),
-            "error_types": error_types,
-            "recent_errors": self.error_history[-5:]
-            if len(self.error_history) > 5
-            else self.error_history,
-        }
-
-
-def create_file_processor_function(
-    use_enhanced_strategy: bool = True,
-) -> Callable[[Path], ProcessingResult]:
-    from local_converter import run_markitdown_enhanced
-    from mistral_converter import (
-        mistral_ocr_file_enhanced,
-        process_mistral_response_enhanced,
-    )
-    from local_converter import extract_tables_to_markdown
-    from config import OUT_MD, OUT_TXT, MISTRAL_API_KEY
-    from config import BATCH_EXTRACT_TABLES
-
-    def process_single_file(file_path: Path) -> ProcessingResult:
-        base_name = file_path.stem
-        output_files = []
-        try:
-            if use_enhanced_strategy:
-                strategy = get_enhanced_file_strategy(file_path)
-                strategy_description = strategy.description
-                if strategy.use_markitdown:
-                    md_path = OUT_MD / f"{base_name}.md"
-                    success = run_markitdown_enhanced(file_path, md_path)
-                    if success and md_path.exists():
-                        output_files.append(md_path)
-                        # Optional table extraction for PDFs in batch modes
-                        if BATCH_EXTRACT_TABLES and file_path.suffix.lower() == ".pdf":
-                            for p in extract_tables_to_markdown(file_path, base_name):
-                                output_files.append(p)
-                if strategy.use_ocr:
-                    if MISTRAL_API_KEY:
-                        resp = mistral_ocr_file_enhanced(
-                            file_path, base_name, use_cache=True
-                        )
-                        if resp:
-                            ocr_path = process_mistral_response_enhanced(
-                                resp, base_name, file_path
-                            )
-                            if ocr_path and ocr_path.exists():
-                                output_files.append(ocr_path)
-            else:
-                md_path = OUT_MD / f"{base_name}.md"
-                success = run_markitdown_enhanced(file_path, md_path)
-                if success and md_path.exists():
-                    output_files.append(md_path)
-                    # Optional table extraction for PDFs in standard batch mode too
-                    if BATCH_EXTRACT_TABLES and file_path.suffix.lower() == ".pdf":
-                        for p in extract_tables_to_markdown(file_path, base_name):
-                            output_files.append(p)
-                strategy_description = "Simple Markitdown processing"
-            from utils import md_to_txt
-
-            for md_file in output_files[:]:
-                if md_file.suffix == ".md":
-                    txt_path = OUT_TXT / f"{md_file.stem}.txt"
-                    md_to_txt(md_file, txt_path)
-                    if txt_path.exists():
-                        output_files.append(txt_path)
-            return ProcessingResult(
-                file_path=file_path,
-                success=len(output_files) > 0,
-                output_files=output_files,
-                strategy_used=strategy_description,
-                metadata={"file_size_mb": file_path.stat().st_size / (1024 * 1024)},
-            )
-        except Exception as e:
-            return ProcessingResult(
-                file_path=file_path,
-                success=False,
-                output_files=[],
-                error_message=str(e),
-                error_type=type(e).__name__,
-            )
-
-    return process_single_file
-
+"""
+Enhanced Document Converter v2.1 - Utility Functions
+
+This module provides helper functions for logging, caching, file operations,
+and metadata tracking.
+
+Documentation references:
+- MarkItDown: https://github.com/microsoft/markitdown
+- Mistral OCR: https://docs.mistral.ai/capabilities/document_ai/basic_ocr/
+"""
 
 import hashlib
-import pickle
-from typing import Dict, Any, Optional
+import json
+import logging
+import time
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+import sys
 
+import config
+
+# ============================================================================
+# Logging Setup
+# ============================================================================
+
+def setup_logging(log_file: Optional[str] = None) -> logging.Logger:
+    """
+    Configure logging for the application.
+
+    Args:
+        log_file: Optional path to log file
+
+    Returns:
+        Configured logger instance
+    """
+    logger = logging.getLogger("document_converter")
+    logger.setLevel(getattr(logging, config.LOG_LEVEL, logging.INFO))
+
+    # Clear existing handlers
+    logger.handlers.clear()
+
+    # Console handler with formatting
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.INFO)
+    console_format = logging.Formatter(
+        '%(levelname)s: %(message)s'
+    )
+    console_handler.setFormatter(console_format)
+    logger.addHandler(console_handler)
+
+    # File handler if requested
+    if log_file and config.SAVE_PROCESSING_LOGS:
+        file_handler = logging.FileHandler(log_file, encoding='utf-8')
+        file_handler.setLevel(logging.DEBUG)
+        file_format = logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        )
+        file_handler.setFormatter(file_format)
+        logger.addHandler(file_handler)
+
+    return logger
+
+# Default logger
+logger = setup_logging()
+
+# ============================================================================
+# Intelligent Caching System
+# ============================================================================
 
 class IntelligentCache:
-    """Advanced caching system with content-based invalidation and metadata tracking."""
+    """
+    Hash-based caching system for OCR results to avoid reprocessing.
 
-    def __init__(self, cache_dir: Path, max_age_hours: int = CACHE_DURATION_HOURS):
+    Uses file content hashing to detect changes and cache invalidation.
+    """
+
+    def __init__(self, cache_dir: Path = config.CACHE_DIR):
+        """
+        Initialize the cache system.
+
+        Args:
+            cache_dir: Directory to store cache files
+        """
         self.cache_dir = cache_dir
-        self.max_age_seconds = max_age_hours * 3600
-        self.metadata_file = cache_dir / "cache_metadata.json"
-        self.cache_dir.mkdir(exist_ok=True)
-        self._load_metadata()
-
-    def _default_metadata(self):
-        return {
-            "created": datetime.now().isoformat(),
-            "entries": {},
-            "stats": {
-                "total_entries": 0,
-                "cache_hits": 0,
-                "cache_misses": 0,
-                "total_size_bytes": 0,
-            },
-        }
-
-    def _load_metadata(self):
-        """Load cache metadata robustly."""
-        try:
-            if self.metadata_file.exists():
-                with open(self.metadata_file, "r", encoding="utf-8") as f:
-                    self.metadata = json.load(f)
-            else:
-                self.metadata = self._default_metadata()
-            if not isinstance(self.metadata.get("entries"), dict) or not isinstance(
-                self.metadata.get("stats"), dict
-            ):
-                raise ValueError("Invalid metadata structure")
-        except (json.JSONDecodeError, ValueError) as e:
-            logline(
-                f"Warning: Cache metadata corrupted or invalid. Resetting. Error: {e}"
-            )
-            self.metadata = self._default_metadata()
-        except Exception as e:
-            logline(f"Warning: Could not load cache metadata: {e}")
-            self.metadata = self._default_metadata()
-
-    def _save_metadata(self):
-        try:
-            with open(self.metadata_file, "w", encoding="utf-8") as f:
-                json.dump(self.metadata, f, indent=2)
-        except Exception as e:
-            logline(f"Warning: Could not save cache metadata: {e}")
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.hits = 0
+        self.misses = 0
 
     def _get_file_hash(self, file_path: Path) -> str:
+        """
+        Generate SHA-256 hash of file contents.
+
+        Args:
+            file_path: Path to file
+
+        Returns:
+            Hexadecimal hash string
+        """
         hasher = hashlib.sha256()
-        stat_info = file_path.stat()
-        hasher.update(str(stat_info.st_size).encode())
-        hasher.update(str(stat_info.st_mtime).encode())
-        if stat_info.st_size < 10 * 1024 * 1024:
-            try:
-                with open(file_path, "rb") as f:
-                    for chunk in iter(lambda: f.read(4096), b""):
-                        hasher.update(chunk)
-            except Exception:
-                pass
+        with open(file_path, 'rb') as f:
+            # Read in chunks for memory efficiency
+            for chunk in iter(lambda: f.read(8192), b''):
+                hasher.update(chunk)
         return hasher.hexdigest()
 
-    def get_cache_key(
-        self, file_path: Path, processing_method: str, parameters: Dict[str, Any] = None
-    ) -> str:
-        file_hash = self._get_file_hash(file_path)
-        if parameters:
-            try:
-                param_str = json.dumps(parameters, sort_keys=True, default=str)
-                param_hash = hashlib.sha256(param_str.encode()).hexdigest()[:16]
-            except TypeError:
-                param_hash = hashlib.sha256(
-                    str(sorted(parameters.items())).encode()
-                ).hexdigest()[:16]
-        else:
-            param_hash = "default"
-        return f"{file_hash}_{processing_method}_{param_hash}"
+    def _get_cache_path(self, file_hash: str) -> Path:
+        """Get cache file path for a given hash."""
+        return self.cache_dir / f"{file_hash}.json"
 
-    def is_cached(self, cache_key: str) -> bool:
-        if cache_key not in self.metadata["entries"]:
-            return False
-        entry = self.metadata["entries"][cache_key]
-        cache_file = self.cache_dir / f"{cache_key}.pkl"
-        if not cache_file.exists():
-            del self.metadata["entries"][cache_key]
-            self._save_metadata()
-            return False
-        cached_time = datetime.fromisoformat(entry["timestamp"])
-        age_seconds = (datetime.now() - cached_time).total_seconds()
-        if age_seconds > self.max_age_seconds:
+    def get(self, file_path: Path, cache_type: str = "ocr") -> Optional[Dict[str, Any]]:
+        """
+        Retrieve cached result for a file.
+
+        Args:
+            file_path: Path to the file
+            cache_type: Type of cache (ocr, table, etc.)
+
+        Returns:
+            Cached data if valid, None otherwise
+        """
+        try:
+            file_hash = self._get_file_hash(file_path)
+            cache_path = self._get_cache_path(file_hash)
+
+            if not cache_path.exists():
+                self.misses += 1
+                return None
+
+            # Load cache data
+            with open(cache_path, 'r', encoding='utf-8') as f:
+                cache_data = json.load(f)
+
+            # Check cache age
+            cached_time = datetime.fromisoformat(cache_data.get("timestamp", ""))
+            max_age = timedelta(hours=config.CACHE_DURATION_HOURS)
+
+            if datetime.now() - cached_time > max_age:
+                logger.debug(f"Cache expired for {file_path.name}")
+                cache_path.unlink()  # Remove expired cache
+                self.misses += 1
+                return None
+
+            # Check cache type
+            if cache_data.get("type") != cache_type:
+                self.misses += 1
+                return None
+
+            self.hits += 1
+            logger.info(f"Cache hit for {file_path.name}")
+            return cache_data.get("data")
+
+        except Exception as e:
+            logger.warning(f"Error reading cache for {file_path.name}: {e}")
+            self.misses += 1
+            return None
+
+    def set(
+        self,
+        file_path: Path,
+        data: Dict[str, Any],
+        cache_type: str = "ocr",
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> None:
+        """
+        Store data in cache.
+
+        Args:
+            file_path: Path to the file
+            data: Data to cache
+            cache_type: Type of cache
+            metadata: Optional metadata to store
+        """
+        try:
+            file_hash = self._get_file_hash(file_path)
+            cache_path = self._get_cache_path(file_hash)
+
+            cache_entry = {
+                "timestamp": datetime.now().isoformat(),
+                "file_name": file_path.name,
+                "file_size": file_path.stat().st_size,
+                "type": cache_type,
+                "data": data,
+                "metadata": metadata or {},
+            }
+
+            with open(cache_path, 'w', encoding='utf-8') as f:
+                json.dump(cache_entry, f, indent=2, ensure_ascii=False)
+
+            logger.debug(f"Cached result for {file_path.name}")
+
+        except Exception as e:
+            logger.warning(f"Error writing cache for {file_path.name}: {e}")
+
+    def clear_old_entries(self) -> int:
+        """
+        Remove cache entries older than CACHE_DURATION_HOURS.
+
+        Returns:
+            Number of entries removed
+        """
+        removed = 0
+        max_age = timedelta(hours=config.CACHE_DURATION_HOURS)
+
+        for cache_file in self.cache_dir.glob("*.json"):
             try:
-                cache_file.unlink()
-                del self.metadata["entries"][cache_key]
-                self._save_metadata()
-            except Exception:
-                pass
-            return False
+                with open(cache_file, 'r', encoding='utf-8') as f:
+                    cache_data = json.load(f)
+
+                cached_time = datetime.fromisoformat(cache_data.get("timestamp", ""))
+
+                if datetime.now() - cached_time > max_age:
+                    cache_file.unlink()
+                    removed += 1
+
+            except Exception as e:
+                logger.debug(f"Error processing cache file {cache_file.name}: {e}")
+
+        return removed
+
+    def get_statistics(self) -> Dict[str, Any]:
+        """
+        Get cache statistics.
+
+        Returns:
+            Dictionary with cache stats
+        """
+        cache_files = list(self.cache_dir.glob("*.json"))
+        total_size = sum(f.stat().st_size for f in cache_files)
+
+        return {
+            "total_entries": len(cache_files),
+            "total_size_mb": total_size / (1024 * 1024),
+            "cache_hits": self.hits,
+            "cache_misses": self.misses,
+            "hit_rate": (self.hits / (self.hits + self.misses) * 100) if (self.hits + self.misses) > 0 else 0,
+        }
+
+# Global cache instance
+cache = IntelligentCache()
+
+# ============================================================================
+# Markdown Table Formatting
+# ============================================================================
+
+def format_table_to_markdown(
+    data: List[List[str]],
+    headers: Optional[List[str]] = None
+) -> str:
+    """
+    Convert table data to Markdown format.
+
+    Args:
+        data: List of rows (each row is a list of cells)
+        headers: Optional list of column headers
+
+    Returns:
+        Markdown-formatted table string
+    """
+    if not data:
+        return ""
+
+    # Use first row as headers if not provided
+    if headers is None and data:
+        headers = data[0]
+        data = data[1:]
+
+    if not headers:
+        return ""
+
+    # Build markdown table
+    lines = []
+
+    # Header row
+    lines.append("| " + " | ".join(str(h) for h in headers) + " |")
+
+    # Separator row
+    lines.append("| " + " | ".join("---" for _ in headers) + " |")
+
+    # Data rows
+    for row in data:
+        # Pad row to match header length
+        padded_row = list(row) + [""] * (len(headers) - len(row))
+        lines.append("| " + " | ".join(str(cell) for cell in padded_row[:len(headers)]) + " |")
+
+    return "\n".join(lines)
+
+# ============================================================================
+# Table Header Normalization & Cleanup
+# ============================================================================
+
+# Common month headers found in financial documents
+MONTH_HEADERS = [
+    "Beginning", "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December", "Current"
+]
+
+def detect_month_header_row(table: List[List[str]]) -> Optional[int]:
+    """
+    Detect which row contains month headers (for financial documents).
+
+    Args:
+        table: List of table rows
+
+    Returns:
+        Row index containing month headers, or None if not found
+    """
+    if not table:
+        return None
+
+    for row_idx, row in enumerate(table):
+        # Join all cells in the row
+        row_text = " ".join(str(cell or "") for cell in row).strip()
+
+        # Check if this row contains multiple month names
+        month_count = sum(1 for month in MONTH_HEADERS if month in row_text)
+
+        # If we find at least 3 month names (or Beginning/Current), likely a header
+        if month_count >= 3:
+            return row_idx
+
+    return None
+
+def clean_table_cell(cell: str) -> str:
+    """
+    Clean individual table cell.
+
+    - Removes extra whitespace and newlines within cells
+    - Normalizes "Acct\nAccount Title" to "Acct Account Title"
+    - Strips leading/trailing whitespace
+
+    Args:
+        cell: Cell content string
+
+    Returns:
+        Cleaned cell content
+    """
+    if not cell:
+        return ""
+
+    # Replace newlines with spaces
+    cell = cell.replace('\n', ' ').replace('\r', ' ')
+
+    # Collapse multiple spaces
+    cell = ' '.join(cell.split())
+
+    return cell.strip()
+
+def is_page_artifact_row(row: List[str]) -> bool:
+    """
+    Detect if a row is a page artifact (page numbers, repeated headers, etc.).
+
+    Common artifacts:
+    - "Page 1", "Page 2", etc.
+    - Date stamps like "December 31, 2010"
+    - Repeated document headers
+
+    Args:
+        row: Table row
+
+    Returns:
+        True if row appears to be a page artifact
+    """
+    if not row:
+        return False
+
+    # Join all cells
+    row_text = " ".join(str(cell or "") for cell in row).strip()
+
+    # Check for common page artifacts
+    artifacts = [
+        "Page 1", "Page 2", "Page 3", "Page 4", "Page 5",
+        "Page 6", "Page 7", "Page 8", "Page 9", "Page 10",
+    ]
+
+    for artifact in artifacts:
+        if row_text == artifact:
+            return True
+
+    # Check if the row is just a date (e.g., "December 31, 2010")
+    # Pattern: single cell or cells that form a date
+    if len(row_text) < 30 and any(month in row_text for month in MONTH_HEADERS):
+        # Check if it looks like "Month DD, YYYY"
+        import re
+        date_pattern = r'^[A-Za-z]+\s+\d{1,2},?\s+\d{4}$'
+        if re.match(date_pattern, row_text.replace(',', '')):
+            return True
+
+    # Empty or near-empty rows
+    if len(row_text.strip()) < 3:
         return True
 
-    def get_cached_result(self, cache_key: str) -> Optional[Any]:
-        if not self.is_cached(cache_key):
-            self.metadata["stats"]["cache_misses"] = (
-                self.metadata["stats"].get("cache_misses", 0) + 1
-            )
-            return None
-        try:
-            cache_file = self.cache_dir / f"{cache_key}.pkl"
-            with open(cache_file, "rb") as f:
-                result = pickle.load(f)
-            self.metadata["stats"]["cache_hits"] = (
-                self.metadata["stats"].get("cache_hits", 0) + 1
-            )
-            self.metadata["entries"][cache_key]["last_accessed"] = (
-                datetime.now().isoformat()
-            )
-            self._save_metadata()
-            return result
-        except (pickle.UnpicklingError, EOFError) as e:
-            logline(
-                f"Warning: Cached result corrupted (Pickle error): {e}. Removing entry."
-            )
-            self.remove_entry(cache_key)
-            self.metadata["stats"]["cache_misses"] = (
-                self.metadata["stats"].get("cache_misses", 0) + 1
-            )
-            return None
-        except Exception as e:
-            logline(f"Warning: Could not load cached result: {e}")
-            self.metadata["stats"]["cache_misses"] = (
-                self.metadata["stats"].get("cache_misses", 0) + 1
-            )
-            return None
+    return False
 
-    def store_result(
-        self,
-        cache_key: str,
-        result: Any,
-        source_file: Path,
-        processing_info: Dict[str, Any],
-    ):
-        try:
-            cache_file = self.cache_dir / f"{cache_key}.pkl"
-            with open(cache_file, "wb") as f:
-                pickle.dump(result, f)
-            timestamp = datetime.now().isoformat()
-            self.metadata["entries"][cache_key] = {
-                "timestamp": timestamp,
-                "last_accessed": timestamp,
-                "source_file": str(source_file.name),
-                "file_size": source_file.stat().st_size,
-                "processing_info": processing_info,
-                "cache_size": cache_file.stat().st_size,
-            }
-            self.metadata["stats"]["total_entries"] = len(self.metadata["entries"])
-            self.metadata["stats"]["total_size_bytes"] = sum(
-                entry.get("cache_size", 0)
-                for entry in self.metadata["entries"].values()
-            )
-            self._save_metadata()
-        except pickle.PicklingError as e:
-            logline(f"Warning: Result object is not picklable. Cannot cache: {e}")
-        except Exception as e:
-            logline(f"Warning: Could not store cache result: {e}")
-
-    def remove_entry(self, cache_key: str):
-        try:
-            cache_file = self.cache_dir / f"{cache_key}.pkl"
-            if cache_file.exists():
-                cache_file.unlink()
-            if cache_key in self.metadata["entries"]:
-                del self.metadata["entries"][cache_key]
-            self._save_metadata()
-        except Exception:
-            pass
-
-    def cleanup_old_entries(self, max_entries: int = 1000):
-        if len(self.metadata["entries"]) <= max_entries:
-            return
-        entries_by_time = sorted(
-            self.metadata["entries"].items(), key=lambda x: x[1]["timestamp"]
-        )
-        entries_to_remove = entries_by_time[:-max_entries]
-        for cache_key, _ in entries_to_remove:
-            try:
-                cache_file = self.cache_dir / f"{cache_key}.pkl"
-                if cache_file.exists():
-                    cache_file.unlink()
-                del self.metadata["entries"][cache_key]
-            except Exception:
-                pass
-        self._save_metadata()
-        logline(f"Cache cleanup: Removed {len(entries_to_remove)} old entries")
-
-    def get_cache_stats(self) -> Dict[str, Any]:
-        stats = self.metadata["stats"].copy()
-        total_requests = stats.get("cache_hits", 0) + stats.get("cache_misses", 0)
-        if total_requests > 0:
-            stats["hit_rate"] = stats.get("cache_hits", 0) / total_requests
-        else:
-            stats["hit_rate"] = 0.0
-        stats["size_mb"] = stats.get("total_size_bytes", 0) / (1024 * 1024)
-        return stats
-
-
-class MetadataTracker:
-    def __init__(self, metadata_dir: Path):
-        self.metadata_dir = metadata_dir
-        self.metadata_dir.mkdir(exist_ok=True)
-        self.session_file = (
-            metadata_dir / f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-        )
-        self.global_stats_file = metadata_dir / "global_stats.json"
-        self.session_data = {
-            "session_id": str(uuid.uuid4())[:8],
-            "start_time": datetime.now().isoformat(),
-            "files_processed": [],
-            "performance_metrics": {},
-            "error_log": [],
-        }
-        self._load_global_stats()
-
-    def _load_global_stats(self):
-        try:
-            if self.global_stats_file.exists():
-                with open(self.global_stats_file, "r", encoding="utf-8") as f:
-                    self.global_stats = json.load(f)
-            else:
-                self.global_stats = {
-                    "total_files_processed": 0,
-                    "total_processing_time": 0.0,
-                    "file_type_stats": {},
-                    "processing_method_stats": {},
-                    "average_file_sizes": {},
-                    "error_patterns": {},
-                }
-        except Exception as e:
-            logline(f"Warning: Could not load global stats: {e}")
-            self.global_stats = {}
-
-    def track_file_processing(self, file_path: Path, result: "ProcessingResult"):
-        file_info = {
-            "file_path": str(file_path),
-            "file_name": file_path.name,
-            "file_extension": file_path.suffix.lower(),
-            "file_size_mb": file_path.stat().st_size / (1024 * 1024),
-            "processing_time": result.processing_time,
-            "success": result.success,
-            "strategy_used": result.strategy_used,
-            "output_files": [str(p) for p in result.output_files],
-            "error_message": result.error_message,
-            "error_type": getattr(result, "error_type", "")
-            or (result.metadata or {}).get("error_type", ""),
-            "timestamp": datetime.now().isoformat(),
-            "metadata": result.metadata or {},
-        }
-        self.session_data["files_processed"].append(file_info)
-        self._update_global_stats(file_info)
-
-    def _update_global_stats(self, file_info: Dict[str, Any]):
-        ext = file_info["file_extension"]
-        strategy = file_info["strategy_used"]
-        if ext not in self.global_stats.get("file_type_stats", {}):
-            self.global_stats.setdefault("file_type_stats", {})[ext] = {
-                "count": 0,
-                "total_time": 0.0,
-                "success_rate": 0.0,
-                "average_size_mb": 0.0,
-            }
-        type_stats = self.global_stats["file_type_stats"][ext]
-        type_stats["count"] += 1
-        type_stats["total_time"] += file_info["processing_time"]
-        if strategy not in self.global_stats.get("processing_method_stats", {}):
-            self.global_stats.setdefault("processing_method_stats", {})[strategy] = {
-                "count": 0,
-                "total_time": 0.0,
-                "success_rate": 0.0,
-            }
-        method_stats = self.global_stats["processing_method_stats"][strategy]
-        method_stats["count"] += 1
-        method_stats["total_time"] += file_info["processing_time"]
-        if not file_info["success"]:
-            error_type = (
-                file_info.get("error_type")
-                or (file_info.get("error_message") and "Error")
-                or "UnknownError"
-            )
-            self.global_stats.setdefault("error_patterns", {})[error_type] = (
-                self.global_stats.get("error_patterns", {}).get(error_type, 0) + 1
-            )
-        self.global_stats["total_files_processed"] = (
-            self.global_stats.get("total_files_processed", 0) + 1
-        )
-        self.global_stats["total_processing_time"] = (
-            self.global_stats.get("total_processing_time", 0.0)
-            + file_info["processing_time"]
-        )
-
-    def add_performance_metric(self, metric_name: str, value: Any):
-        self.session_data["performance_metrics"][metric_name] = value
-
-    def log_error(self, error_message: str, context: Dict[str, Any] = None):
-        error_entry = {
-            "timestamp": datetime.now().isoformat(),
-            "message": error_message,
-            "context": context or {},
-        }
-        self.session_data["error_log"].append(error_entry)
-
-    def finalize_session(self):
-        self.session_data["end_time"] = datetime.now().isoformat()
-        processed_files = self.session_data["files_processed"]
-        if processed_files:
-            total_time = sum(f["processing_time"] for f in processed_files)
-            successful = sum(1 for f in processed_files if f["success"])
-            self.session_data["session_stats"] = {
-                "total_files": len(processed_files),
-                "successful_files": successful,
-                "failed_files": len(processed_files) - successful,
-                "success_rate": successful / len(processed_files),
-                "total_processing_time": total_time,
-                "average_time_per_file": total_time / len(processed_files),
-                "files_per_second": len(processed_files) / max(total_time, 0.1),
-            }
-        try:
-            with open(self.session_file, "w", encoding="utf-8") as f:
-                json.dump(self.session_data, f, indent=2)
-        except Exception as e:
-            logline(f"Warning: Could not save session data: {e}")
-        try:
-            with open(self.global_stats_file, "w", encoding="utf-8") as f:
-                json.dump(self.global_stats, f, indent=2)
-        except Exception as e:
-            logline(f"Warning: Could not save global stats: {e}")
-
-    def get_recommendations(self) -> Dict[str, str]:
-        recommendations = {}
-        if not self.global_stats.get("file_type_stats"):
-            return recommendations
-        for ext, stats in self.global_stats["file_type_stats"].items():
-            if stats["count"] >= 5:
-                avg_time = stats["total_time"] / stats["count"]
-                if avg_time > 30:
-                    recommendations[f"slow_processing_{ext}"] = (
-                        f"Consider using concurrent processing for {ext} files (avg: {avg_time:.1f}s)"
-                    )
-        error_patterns = self.global_stats.get("error_patterns", {})
-        if error_patterns:
-            most_common_error = max(error_patterns.items(), key=lambda x: x[1])
-            if most_common_error[1] >= 3:
-                recommendations["common_error"] = (
-                    f"Common error pattern: {most_common_error[0]} ({most_common_error[1]} occurrences)"
-                )
-        return recommendations
-
-
-_cache_instance = None
-_metadata_tracker = None
-
-
-def get_cache() -> IntelligentCache:
-    global _cache_instance
-    if _cache_instance is None:
-        _cache_instance = IntelligentCache(CACHE_DIR)
-    return _cache_instance
-
-
-def get_metadata_tracker() -> MetadataTracker:
-    global _metadata_tracker
-    if _metadata_tracker is None:
-        from config import LOG_DIR
-
-        metadata_dir = LOG_DIR / "metadata"
-        _metadata_tracker = MetadataTracker(metadata_dir)
-    return _metadata_tracker
-
-
-def _normalize_amount_column(series: "pd.Series") -> "pd.Series":
+def clean_table(table: List[List[str]]) -> List[List[str]]:
     """
-    Column-aware amount normalization with outlier repair.
-    Applies the '1.031' → '1031.00' heuristic when the majority of values match this pattern,
-    and includes outlier repair for isolated values.
+    Clean a table by:
+    - Removing newlines in cells
+    - Removing page artifact rows
+    - Normalizing cell content
+
+    Args:
+        table: List of table rows
+
+    Returns:
+        Cleaned table
+    """
+    if not table:
+        return []
+
+    cleaned = []
+
+    for row in table:
+        # Skip page artifact rows
+        if is_page_artifact_row(row):
+            continue
+
+        # Clean each cell
+        cleaned_row = [clean_table_cell(cell) for cell in row]
+
+        # Only add non-empty rows
+        if any(cell.strip() for cell in cleaned_row):
+            cleaned.append(cleaned_row)
+
+    return cleaned
+
+def normalize_table_headers(table: List[List[str]]) -> Tuple[List[str], List[List[str]]]:
+    """
+    Normalize table headers by detecting month headers and cleaning cells.
+
+    Args:
+        table: List of table rows
+
+    Returns:
+        Tuple of (headers, data_rows)
+    """
+    if not table or len(table) < 1:
+        return [], []
+
+    # First, clean the table
+    table = clean_table(table)
+
+    if not table:
+        return [], []
+
+    # Detect month header row
+    header_idx = detect_month_header_row(table)
+
+    if header_idx is not None:
+        # Use detected month header
+        headers = table[header_idx]
+        data_rows = table[:header_idx] + table[header_idx + 1:]
+    else:
+        # Fall back to first row as header
+        headers = table[0]
+        data_rows = table[1:]
+
+    return headers, data_rows
+
+# ============================================================================
+# Text Export Functions
+# ============================================================================
+
+def markdown_to_text(markdown_content: str) -> str:
+    """
+    Convert Markdown to plain text by removing formatting.
+
+    Args:
+        markdown_content: Markdown string
+
+    Returns:
+        Plain text string
     """
     import re
 
-    s = series.astype(str).str.strip()
+    text = markdown_content
 
-    # Column-wide heuristic for dot-thousands pattern
-    dot_thousands_ratio = s.str.match(r"^-?\d{1,3}\.\d{3}$", na=False).mean()
-    if dot_thousands_ratio >= 0.7:
-        s = s.str.replace(r"^(-?\d{1,3})\.(\d{3})$", r"\1\2.00", regex=True)
+    # Remove YAML frontmatter
+    text = re.sub(r'^---\n.*?\n---\n', '', text, flags=re.DOTALL)
 
-    # Outlier repair: fix isolated 1.031-style values when many entries look like thousands
-    def _maybe_fix(x: str) -> str:
-        if re.fullmatch(r"-?\d{1,3}\.\d{3}", x):
-            try:
-                val = float(x)
-            except ValueError:
-                return x
-            longish = (s.str.replace(r"[^\d]", "", regex=True).str.len() >= 4).mean()
-            if val < 10 and longish >= 0.3:
-                return re.sub(r"^(-?\d{1,3})\.(\d{3})$", r"\1\2.00", x)
-        return x
+    # Remove images
+    text = re.sub(r'!\[.*?\]\(.*?\)', '', text)
 
-    s = s.map(_maybe_fix)
-    return s.map(normalize_amount)
+    # Remove links but keep text
+    text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
+
+    # Remove headers #
+    text = re.sub(r'^#+\s+', '', text, flags=re.MULTILINE)
+
+    # Remove bold/italic
+    text = re.sub(r'\*\*([^\*]+)\*\*', r'\1', text)
+    text = re.sub(r'\*([^\*]+)\*', r'\1', text)
+    text = re.sub(r'__([^_]+)__', r'\1', text)
+    text = re.sub(r'_([^_]+)_', r'\1', text)
+
+    # Remove code blocks
+    text = re.sub(r'```[^\n]*\n.*?```', '', text, flags=re.DOTALL)
+    text = re.sub(r'`([^`]+)`', r'\1', text)
+
+    # Clean up multiple blank lines
+    text = re.sub(r'\n{3,}', '\n\n', text)
+
+    return text.strip()
+
+def save_text_output(markdown_path: Path, markdown_content: str) -> Optional[Path]:
+    """
+    Save plain text version of markdown content.
+
+    Args:
+        markdown_path: Path to markdown file
+        markdown_content: Markdown content
+
+    Returns:
+        Path to text file if successful, None otherwise
+    """
+    if not config.GENERATE_TXT_OUTPUT:
+        return None
+
+    try:
+        text_path = config.OUTPUT_TXT_DIR / f"{markdown_path.stem}.txt"
+        text_content = markdown_to_text(markdown_content)
+
+        with open(text_path, 'w', encoding='utf-8') as f:
+            f.write(text_content)
+
+        logger.debug(f"Saved text output: {text_path.name}")
+        return text_path
+
+    except Exception as e:
+        logger.error(f"Error saving text output: {e}")
+        return None
+
+# ============================================================================
+# Metadata Tracking
+# ============================================================================
+
+class MetadataTracker:
+    """Track metadata for batch operations."""
+
+    def __init__(self):
+        """Initialize metadata tracker."""
+        self.metadata = {
+            "session_start": datetime.now().isoformat(),
+            "files_processed": [],
+            "total_files": 0,
+            "successful": 0,
+            "failed": 0,
+            "skipped": 0,
+            "total_time_seconds": 0,
+        }
+        self.start_time = time.time()
+
+    def add_file(
+        self,
+        file_name: str,
+        status: str,
+        processing_time: float,
+        error: Optional[str] = None,
+        details: Optional[Dict[str, Any]] = None
+    ) -> None:
+        """
+        Add file processing metadata.
+
+        Args:
+            file_name: Name of the file
+            status: Processing status (success, failed, skipped)
+            processing_time: Time taken to process
+            error: Optional error message
+            details: Optional additional details
+        """
+        file_entry = {
+            "file_name": file_name,
+            "status": status,
+            "processing_time_seconds": processing_time,
+            "timestamp": datetime.now().isoformat(),
+        }
+
+        if error:
+            file_entry["error"] = error
+
+        if details:
+            file_entry["details"] = details
+
+        self.metadata["files_processed"].append(file_entry)
+        self.metadata["total_files"] += 1
+
+        if status == "success":
+            self.metadata["successful"] += 1
+        elif status == "failed":
+            self.metadata["failed"] += 1
+        elif status == "skipped":
+            self.metadata["skipped"] += 1
+
+    def save(self, output_name: str = "batch_metadata.json") -> Path:
+        """
+        Save metadata to file.
+
+        Args:
+            output_name: Name of metadata file
+
+        Returns:
+            Path to saved metadata file
+        """
+        self.metadata["session_end"] = datetime.now().isoformat()
+        self.metadata["total_time_seconds"] = time.time() - self.start_time
+
+        metadata_path = config.METADATA_DIR / output_name
+
+        with open(metadata_path, 'w', encoding='utf-8') as f:
+            json.dump(self.metadata, f, indent=2, ensure_ascii=False)
+
+        return metadata_path
+
+# ============================================================================
+# Progress Indicators
+# ============================================================================
+
+def print_progress(current: int, total: int, prefix: str = "Progress") -> None:
+    """
+    Print progress bar to console.
+
+    Args:
+        current: Current item number
+        total: Total number of items
+        prefix: Prefix text
+    """
+    if not config.VERBOSE_PROGRESS:
+        return
+
+    percent = (current / total) * 100 if total > 0 else 0
+    bar_length = 40
+    filled = int(bar_length * current // total) if total > 0 else 0
+    bar = '█' * filled + '-' * (bar_length - filled)
+
+    print(f'\r{prefix}: |{bar}| {percent:.1f}% ({current}/{total})', end='', flush=True)
+
+    if current == total:
+        print()  # New line when complete
+
+# ============================================================================
+# File Validation
+# ============================================================================
+
+def validate_file(file_path: Path) -> Tuple[bool, Optional[str]]:
+    """
+    Validate if a file can be processed.
+
+    Args:
+        file_path: Path to file
+
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    if not file_path.exists():
+        return False, f"File does not exist: {file_path}"
+
+    if not file_path.is_file():
+        return False, f"Not a file: {file_path}"
+
+    if file_path.stat().st_size == 0:
+        return False, f"File is empty: {file_path.name}"
+
+    # Check file extension
+    ext = file_path.suffix.lower().lstrip('.')
+    supported = config.MARKITDOWN_SUPPORTED | config.MISTRAL_OCR_SUPPORTED
+
+    if ext not in supported:
+        return False, f"Unsupported file type: .{ext}"
+
+    return True, None
+
+# ============================================================================
+# YAML Frontmatter Generation
+# ============================================================================
+
+def generate_yaml_frontmatter(
+    title: str,
+    file_name: str,
+    conversion_method: str,
+    additional_fields: Optional[Dict[str, Any]] = None
+) -> str:
+    """
+    Generate YAML frontmatter for markdown files.
+
+    Args:
+        title: Document title
+        file_name: Original file name
+        conversion_method: Method used for conversion
+        additional_fields: Optional additional metadata fields
+
+    Returns:
+        YAML frontmatter string
+    """
+    if not config.INCLUDE_METADATA:
+        return ""
+
+    metadata = {
+        "title": title,
+        "source_file": file_name,
+        "conversion_method": conversion_method,
+        "converted_at": datetime.now().isoformat(),
+        "converter_version": "2.1",
+    }
+
+    if additional_fields:
+        metadata.update(additional_fields)
+
+    # Build YAML
+    lines = ["---"]
+    for key, value in metadata.items():
+        if isinstance(value, str):
+            lines.append(f'{key}: "{value}"')
+        else:
+            lines.append(f'{key}: {value}')
+    lines.append("---\n")
+
+    return "\n".join(lines)
+
+def strip_yaml_frontmatter(content: str) -> str:
+    """
+    Remove YAML frontmatter from markdown content.
+
+    Frontmatter is detected as content between two '---' markers at the start.
+
+    Args:
+        content: Markdown content that may contain frontmatter
+
+    Returns:
+        Content without frontmatter
+    """
+    import re
+
+    # Pattern to match YAML frontmatter at the start of content
+    # Matches: ---\n...anything...\n---\n
+    pattern = r'^---\s*\n.*?\n---\s*\n'
+
+    # Remove frontmatter if found
+    cleaned = re.sub(pattern, '', content, count=1, flags=re.DOTALL)
+
+    return cleaned.strip()

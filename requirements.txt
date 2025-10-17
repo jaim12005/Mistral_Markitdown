@@ -1,32 +1,33 @@
-# Core Requirements - Updated for August 2025
-markitdown[all]>=0.1.3
-mistralai>=1.0.0,<2.0.0  # Upper bound to prevent breaking changes in v2.0+
-
-# Document Processing - Enhanced for better table extraction and PDF handling
+# Core dependencies
+markitdown>=0.1.3
+mistralai>=1.0.0
+python-dotenv>=1.0.0
 pdfplumber>=0.10.0
-pandas>=2.0.0
-tabulate>=0.9.0
 camelot-py[cv]>=0.11.0
-pypdf>=4.0.0  # Added for intelligent content analysis
-
-# Image Processing - Latest versions for better performance
 pdf2image>=1.16.0
 Pillow>=10.0.0
 
-# Optional Features - Enhanced for maximum MarkItDown capabilities
-openai>=1.30.0        # For LLM image captions (set MARKITDOWN_USE_LLM=true)
-azure-ai-documentintelligence>=1.0.0  # For Azure Document Intelligence integration
-psutil>=5.9.0         # For detailed system metrics in status screen
-ffmpeg-python>=0.2.0  # For audio/video processing in transcription mode
-beautifulsoup4>=4.12.0  # Enhanced HTML processing
-lxml>=4.9.0           # XML/HTML parsing for complex documents
-python-docx>=1.1.0    # Enhanced Word document processing
-python-pptx>=0.6.23   # Enhanced PowerPoint processing
-xlrd>=2.0.1           # Excel reading capabilities
-openpyxl>=3.1.2       # Excel writing capabilities
+# Enhanced document processing
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
+python-docx>=1.1.0
+python-pptx>=0.6.23
+xlrd>=2.0.1
+openpyxl>=3.1.2
 
-# Performance and Caching - Latest versions
-requests>=2.31.0      # HTTP client with better performance
-urllib3>=2.0.0        # Connection pooling and performance
-aiofiles>=23.0.0      # Async file operations for better performance
-python-dotenv>=1.0.1  # Robust .env loading
+# Performance enhancements
+requests>=2.31.0
+urllib3>=2.0.0
+aiofiles>=23.0.0
+psutil>=5.9.0
+
+# Audio/Video processing (optional)
+ffmpeg-python>=0.2.0
+
+# Table extraction
+opencv-python>=4.8.0
+ghostscript>=0.7
+
+# Additional utilities
+PyPDF2>=3.0.0
+tabulate>=0.9.0

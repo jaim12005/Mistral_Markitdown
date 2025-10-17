@@ -1,283 +1,269 @@
+"""
+Enhanced Document Converter v2.1 - Configuration Module
+
+This module handles all configuration settings for the document converter,
+including environment variables, directory setup, and model configuration.
+
+Documentation references:
+- MarkItDown: https://github.com/microsoft/markitdown
+- Mistral OCR: https://docs.mistral.ai/capabilities/document_ai/basic_ocr/
+- Mistral Python SDK: https://github.com/mistralai/client-python
+"""
+
 import os
+import sys
 from pathlib import Path
+from typing import List, Optional
+from dotenv import load_dotenv
 
-# --- Configuration and Setup ---
-APP_ROOT = Path(__file__).resolve().parent
-INPUT_DIR = (APP_ROOT / "input").resolve()
-OUT_MD = (APP_ROOT / "output_md").resolve()
-OUT_TXT = (APP_ROOT / "output_txt").resolve()
-OUT_IMG = (APP_ROOT / "output_images").resolve()
-LOG_DIR = (APP_ROOT / "logs").resolve()
-CACHE_DIR = (APP_ROOT / "cache").resolve()
+# Load environment variables from .env file
+load_dotenv()
 
+# ============================================================================
+# Project Paths
+# ============================================================================
 
-def setup_directories():
-    """Create necessary directories."""
-    for p in (INPUT_DIR, OUT_MD, OUT_TXT, OUT_IMG, LOG_DIR, CACHE_DIR):
-        p.mkdir(parents=True, exist_ok=True)
+# Base directory
+BASE_DIR = Path(__file__).parent.resolve()
 
+# Input/Output directories
+INPUT_DIR = BASE_DIR / "input"
+OUTPUT_MD_DIR = BASE_DIR / "output_md"
+OUTPUT_TXT_DIR = BASE_DIR / "output_txt"
+OUTPUT_IMAGES_DIR = BASE_DIR / "output_images"
 
-def load_env_like_files() -> None:
-    """Load environment variables from .env using python-dotenv if available.
+# System directories
+CACHE_DIR = BASE_DIR / "cache"
+LOGS_DIR = BASE_DIR / "logs"
+METADATA_DIR = LOGS_DIR / "metadata"
 
-    Falls back to a minimal key=value parser for .env or env file when
-    python-dotenv isn't installed.
+# ============================================================================
+# Directory Creation
+# ============================================================================
+
+def ensure_directories() -> None:
+    """Create all required directories if they don't exist."""
+    directories = [
+        INPUT_DIR,
+        OUTPUT_MD_DIR,
+        OUTPUT_TXT_DIR,
+        OUTPUT_IMAGES_DIR,
+        CACHE_DIR,
+        LOGS_DIR,
+        METADATA_DIR,
+    ]
+
+    for directory in directories:
+        directory.mkdir(parents=True, exist_ok=True)
+
+# ============================================================================
+# API Configuration
+# ============================================================================
+
+# Mistral AI API Key (required)
+MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY", "")
+
+# Optional API Keys
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+AZURE_DOC_INTEL_ENDPOINT = os.getenv("AZURE_DOC_INTEL_ENDPOINT", "")
+AZURE_DOC_INTEL_KEY = os.getenv("AZURE_DOC_INTEL_KEY", "")
+
+# ============================================================================
+# Mistral OCR Configuration
+# ============================================================================
+
+# Model selection - ALWAYS use mistral-ocr-latest for OCR
+MISTRAL_OCR_MODEL = os.getenv("MISTRAL_OCR_MODEL", "mistral-ocr-latest")
+
+# OCR options
+MISTRAL_INCLUDE_IMAGES = os.getenv("MISTRAL_INCLUDE_IMAGES", "true").lower() == "true"
+SAVE_MISTRAL_JSON = os.getenv("SAVE_MISTRAL_JSON", "false").lower() == "true"
+
+# Advanced features
+MISTRAL_ENABLE_FUNCTIONS = os.getenv("MISTRAL_ENABLE_FUNCTIONS", "false").lower() == "true"
+MISTRAL_ENABLE_STRUCTURED_OUTPUT = os.getenv("MISTRAL_ENABLE_STRUCTURED_OUTPUT", "false").lower() == "true"
+MISTRAL_STRUCTURED_SCHEMA_TYPE = os.getenv("MISTRAL_STRUCTURED_SCHEMA_TYPE", "auto")
+
+# Image optimization
+MISTRAL_ENABLE_IMAGE_OPTIMIZATION = os.getenv("MISTRAL_ENABLE_IMAGE_OPTIMIZATION", "true").lower() == "true"
+MISTRAL_ENABLE_IMAGE_PREPROCESSING = os.getenv("MISTRAL_ENABLE_IMAGE_PREPROCESSING", "false").lower() == "true"
+MISTRAL_MAX_IMAGE_DIMENSION = int(os.getenv("MISTRAL_MAX_IMAGE_DIMENSION", "2048"))
+MISTRAL_IMAGE_QUALITY_THRESHOLD = int(os.getenv("MISTRAL_IMAGE_QUALITY_THRESHOLD", "70"))
+
+# ============================================================================
+# MarkItDown Configuration
+# ============================================================================
+
+# LLM integration
+MARKITDOWN_USE_LLM = os.getenv("MARKITDOWN_USE_LLM", "false").lower() == "true"
+MARKITDOWN_LLM_MODEL = os.getenv("MARKITDOWN_LLM_MODEL", "gpt-4-vision-preview")
+MARKITDOWN_ENABLE_PLUGINS = os.getenv("MARKITDOWN_ENABLE_PLUGINS", "false").lower() == "true"
+
+# File size limit (for determining when to use Mistral Files API)
+MARKITDOWN_MAX_FILE_SIZE_MB = int(os.getenv("MARKITDOWN_MAX_FILE_SIZE_MB", "100"))
+
+# ============================================================================
+# System Configuration
+# ============================================================================
+
+# External tools paths (Windows)
+POPPLER_PATH = os.getenv("POPPLER_PATH", "")
+GHOSTSCRIPT_PATH = os.getenv("GHOSTSCRIPT_PATH", "")
+
+# Caching
+CACHE_DURATION_HOURS = int(os.getenv("CACHE_DURATION_HOURS", "24"))
+AUTO_CLEAR_CACHE = os.getenv("AUTO_CLEAR_CACHE", "true").lower() == "true"
+
+# Logging
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+SAVE_PROCESSING_LOGS = os.getenv("SAVE_PROCESSING_LOGS", "true").lower() == "true"
+VERBOSE_PROGRESS = os.getenv("VERBOSE_PROGRESS", "true").lower() == "true"
+
+# Performance
+MAX_CONCURRENT_FILES = int(os.getenv("MAX_CONCURRENT_FILES", "5"))
+MAX_RETRIES = int(os.getenv("MAX_RETRIES", "3"))
+RETRY_DELAY = int(os.getenv("RETRY_DELAY", "1"))
+
+# ============================================================================
+# Output Configuration
+# ============================================================================
+
+GENERATE_TXT_OUTPUT = os.getenv("GENERATE_TXT_OUTPUT", "true").lower() == "true"
+INCLUDE_METADATA = os.getenv("INCLUDE_METADATA", "true").lower() == "true"
+TABLE_OUTPUT_FORMATS = os.getenv("TABLE_OUTPUT_FORMATS", "markdown,csv").split(",")
+ENABLE_BATCH_METADATA = os.getenv("ENABLE_BATCH_METADATA", "true").lower() == "true"
+
+# ============================================================================
+# Mistral Model Configuration
+# ============================================================================
+
+# Latest Mistral models (as of August 2025)
+MISTRAL_MODELS = {
+    "mistral-medium-latest": {
+        "name": "Mistral Medium 2508",
+        "description": "State-of-the-art multimodal model",
+        "best_for": ["complex_documents", "multimodal_content"],
+        "max_tokens": 32768,
+    },
+    "codestral-latest": {
+        "name": "Codestral 2508",
+        "description": "Advanced coding model",
+        "best_for": ["code_documents", "technical_content"],
+        "max_tokens": 32768,
+    },
+    "mistral-ocr-latest": {
+        "name": "Mistral OCR 2505",
+        "description": "Dedicated OCR service",
+        "best_for": ["ocr", "text_extraction"],
+        "max_tokens": 16384,
+    },
+    "pixtral-large-latest": {
+        "name": "Pixtral Large 2411",
+        "description": "Frontier multimodal with image understanding",
+        "best_for": ["image_heavy", "visual_content"],
+        "max_tokens": 128000,
+    },
+    "magistral-medium-latest": {
+        "name": "Magistral Medium 2507",
+        "description": "Frontier-class reasoning",
+        "best_for": ["complex_reasoning", "analysis"],
+        "max_tokens": 32768,
+    },
+    "ministral-8b-latest": {
+        "name": "Ministral 8B 2410",
+        "description": "Edge model - fast and efficient",
+        "best_for": ["simple_documents", "fast_processing"],
+        "max_tokens": 8192,
+    },
+    "ministral-3b-latest": {
+        "name": "Ministral 3B 2410",
+        "description": "Ultra-fast edge model",
+        "best_for": ["simple_text", "quick_extraction"],
+        "max_tokens": 4096,
+    },
+}
+
+def select_best_model(
+    file_type: str,
+    content_analysis: Optional[dict] = None
+) -> str:
     """
-    try:
-        from dotenv import load_dotenv, find_dotenv  # type: ignore
+    Select Mistral model for OCR processing.
 
-        dotenv_path = find_dotenv(filename=".env", usecwd=True)
-        if dotenv_path:
-            load_dotenv(dotenv_path, override=False)
-        else:
-            # Fallback to sibling 'env' file if present
-            alt = APP_ROOT / "env"
-            if alt.exists() and alt.is_file():
-                load_dotenv(str(alt), override=False)
-    except Exception:
-        # Fallback: light parser
-        for fname in (".env", "env"):
-            p = APP_ROOT / fname
-            if not (p.exists() and p.is_file()):
-                continue
-            try:
-                for raw in p.read_text(encoding="utf-8").splitlines():
-                    raw = raw.strip()
-                    if not raw or raw.startswith("#") or "=" not in raw:
-                        continue
-                    k, v = raw.split("=", 1)
-                    k = k.strip()
-                    v = v.strip().strip('"').strip("'")
-                    if k and (k not in os.environ):
-                        os.environ[k] = v
-            except Exception:
-                pass
+    ALWAYS returns mistral-ocr-latest for OCR tasks.
+    This is the dedicated OCR model and should never be substituted.
 
+    Args:
+        file_type: The type of file being processed (pdf, image, docx, etc.)
+        content_analysis: Optional dict with keys like 'has_images', 'has_code', etc.
 
-# Load environment variables immediately
-load_env_like_files()
+    Returns:
+        Model identifier string (always mistral-ocr-latest for OCR)
+    """
+    # ALWAYS use mistral-ocr-latest for OCR tasks
+    # Never substitute with pixtral, codestral, or other models
+    return MISTRAL_OCR_MODEL
 
+# ============================================================================
+# File Type Configuration
+# ============================================================================
 
-# --- Enhanced Configuration Loading Helpers ---
-def get_env_bool(key: str, default: bool) -> bool:
-    value = os.environ.get(key, str(default)).lower()
-    return value in ("true", "1", "yes")
+# Supported file extensions
+MARKITDOWN_SUPPORTED = {
+    "docx", "doc", "pptx", "ppt", "xlsx", "xls",
+    "html", "htm", "csv", "json", "xml", "epub",
+    "pdf", "png", "jpg", "jpeg", "gif", "bmp",
+    "mp3", "wav", "m4a", "flac",  # Audio (requires plugins)
+}
 
+MISTRAL_OCR_SUPPORTED = {
+    "pdf", "png", "jpg", "jpeg", "gif", "bmp",
+    "docx", "pptx",
+}
 
-def get_env_int(key: str, default: int) -> int:
-    try:
-        return int(os.environ.get(key, str(default)))
-    except ValueError:
-        return default
+PDF_EXTENSIONS = {"pdf"}
+IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "bmp", "tiff"}
+OFFICE_EXTENSIONS = {"docx", "doc", "pptx", "ppt", "xlsx", "xls"}
 
+# ============================================================================
+# Validation
+# ============================================================================
 
-def get_env_list(key: str, default: list) -> list:
-    """Get environment variable as a list (comma-separated)."""
-    value = os.environ.get(key, ",".join(default))
-    return [item.strip() for item in value.split(",") if item.strip()]
+def validate_configuration() -> List[str]:
+    """
+    Validate the configuration and return a list of warnings/errors.
 
+    Returns:
+        List of warning/error messages
+    """
+    issues = []
 
-def get_env_str(key: str, default: str) -> str:
-    return os.environ.get(key, default)
+    # Check required API key
+    if not MISTRAL_API_KEY:
+        issues.append("WARNING: MISTRAL_API_KEY not set. Mistral OCR features will not work.")
 
+    # Check LLM configuration
+    if MARKITDOWN_USE_LLM and not OPENAI_API_KEY:
+        issues.append("WARNING: MARKITDOWN_USE_LLM is true but OPENAI_API_KEY not set.")
 
-# --- System Path Configuration ---
-# Path to Poppler binary installation, required for PDF-to-image conversion features.
-POPPLER_PATH = os.environ.get("POPPLER_PATH", "")
-LOG_LEVEL = get_env_str("LOG_LEVEL", "INFO").upper()
+    # Check Poppler on Windows
+    if sys.platform == "win32" and not POPPLER_PATH:
+        issues.append("INFO: POPPLER_PATH not set. PDF to image conversion may not work on Windows.")
 
-# --- Mistral AI API Configuration ---
-# Your main API key for authenticating with the Mistral platform.
-MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY", "").strip()
-# The specific OCR model to use for document processing.
-# Updated to support latest models as of August 2025
-MISTRAL_MODEL = os.environ.get("MISTRAL_OCR_MODEL", "mistral-ocr-latest")
-# Alternative models for different use cases:
-# - "mistral-ocr-latest" (default): Latest OCR model (currently mistral-ocr-2505)
-# - "mistral-medium-latest": Multimodal model for documents with images/text (mistral-medium-2508)
-# - "pixtral-large-latest": Advanced multimodal model for complex image understanding (pixtral-large-2411)
-# - "codestral-latest": Advanced coding model for processing code-heavy documents (codestral-2508)
-# - "magistral-medium-latest": Frontier-class reasoning model (magistral-medium-2507)
-# - "ministral-8b-latest": Efficient edge model (ministral-8b-2410)
-# - "ministral-3b-latest": World's best edge model (ministral-3b-2410)
-# If True, includes base64-encoded images in the OCR response.
-MISTRAL_INCLUDE_IMAGES = get_env_bool("MISTRAL_INCLUDE_IMAGES", True)
-# If True, requests AI-generated descriptions for images found in the document.
-MISTRAL_INCLUDE_IMAGE_ANNOTATIONS = get_env_bool(
-    "MISTRAL_INCLUDE_IMAGE_ANNOTATIONS", True
-)
-# If True, saves the full JSON response from Mistral to the 'logs' directory for debugging.
-SAVE_MISTRAL_JSON = get_env_bool("SAVE_MISTRAL_JSON", False)
-# If True, collapses MarkItDown sections when OCR tables are high quality. Set to False to always show full content.
-GATE_MARKITDOWN_WHEN_OCR_GOOD = get_env_bool("GATE_MARKITDOWN_WHEN_OCR_GOOD", True)
-# Files larger than this (in MB) are uploaded via the Files API rather than sent inline.
-LARGE_FILE_THRESHOLD_MB = get_env_int("LARGE_FILE_THRESHOLD_MB", 45)
-# Timeout in seconds for individual HTTP requests to the Mistral API.
-MISTRAL_TIMEOUT = get_env_int("MISTRAL_HTTP_TIMEOUT", 300)
-# Enable automatic model selection based on document characteristics
-MISTRAL_AUTO_MODEL_SELECTION = get_env_bool("MISTRAL_AUTO_MODEL_SELECTION", True)
-# Preferred models for different document types (comma-separated)
-MISTRAL_PREFERRED_MODELS = get_env_list(
-    "MISTRAL_PREFERRED_MODELS",
-    [
-        "mistral-ocr-latest",  # PRIORITY: Best for PDFs with tables (SWE review fix)
-        "pixtral-large-latest",  # Best for complex images
-        "mistral-medium-latest",  # Best for multimodal documents
-        "codestral-latest",  # Best for code documents
-    ],
-)
+    # Check model preferences
+    if MISTRAL_AUTO_MODEL_SELECTION and not MISTRAL_PREFERRED_MODELS:
+        issues.append("WARNING: MISTRAL_AUTO_MODEL_SELECTION is true but no preferred models configured.")
 
-# --- Markitdown Engine Configuration ---
-# If True, uses an OpenAI-compatible model to generate image descriptions.
-MARKITDOWN_USE_LLM = get_env_bool("MARKITDOWN_USE_LLM", False)
-# The model name to use for LLM-based image descriptions (e.g., 'gpt-4o-mini').
-MARKITDOWN_LLM_MODEL = os.environ.get("MARKITDOWN_LLM_MODEL", "gpt-4o-mini")
-# The API key for the LLM service (e.g., OpenAI).
-MARKITDOWN_LLM_KEY = os.environ.get("OPENAI_API_KEY", "")
-# Endpoint for using Azure Document Intelligence as the backend for Markitdown.
-AZURE_DOC_INTEL_ENDPOINT = os.environ.get("AZURE_DOC_INTEL_ENDPOINT", "")
-AZURE_DOC_INTEL_KEY = os.environ.get("AZURE_DOC_INTEL_KEY", "")
+    return issues
 
-# --- Markitdown Advanced Settings ---
-# Strategy for table extraction: 'ocr_only', 'text_only', 'auto'.
-MARKITDOWN_TABLE_STRATEGY = os.environ.get("MARKITDOWN_TABLE_STRATEGY", "auto")
-# Strategy for image extraction: 'extract', 'ignore', 'auto'.
-MARKITDOWN_IMAGE_STRATEGY = os.environ.get("MARKITDOWN_IMAGE_STRATEGY", "auto")
-# PDF processing mode if Azure is not used: 'auto', 'text', or 'ocr'.
-MARKITDOWN_PDF_MODE = os.environ.get("MARKITDOWN_PDF_MODE", "auto")
-# If True, enables Markitdown's third-party plugin system.
-MARKITDOWN_ENABLE_PLUGINS = get_env_bool("MARKITDOWN_ENABLE_PLUGINS", False)
+# ============================================================================
+# Initialization
+# ============================================================================
 
-# --- Enhanced Markitdown Configuration ---
-# Enable experimental features in Markitdown
-MARKITDOWN_EXPERIMENTAL = get_env_bool("MARKITDOWN_EXPERIMENTAL", False)
-# Custom processing options for different file types
-MARKITDOWN_CUSTOM_OPTIONS = get_env_bool("MARKITDOWN_CUSTOM_OPTIONS", True)
-# Enable Markitdown's built-in caching for repeated files
-MARKITDOWN_USE_CACHE = get_env_bool("MARKITDOWN_USE_CACHE", True)
-# Maximum file size for Markitdown processing (in MB)
-MARKITDOWN_MAX_FILE_SIZE_MB = get_env_int("MARKITDOWN_MAX_FILE_SIZE_MB", 100)
-# Enable advanced table detection algorithms
-MARKITDOWN_ADVANCED_TABLES = get_env_bool("MARKITDOWN_ADVANCED_TABLES", True)
-# Enable enhanced image processing and OCR
-MARKITDOWN_ENHANCED_IMAGES = get_env_bool("MARKITDOWN_ENHANCED_IMAGES", True)
-# Custom image quality settings (1-100, higher = better quality but larger files)
-MARKITDOWN_IMAGE_QUALITY = get_env_int("MARKITDOWN_IMAGE_QUALITY", 90)
-# Enable parallel processing for large documents
-MARKITDOWN_PARALLEL_PROCESSING = get_env_bool("MARKITDOWN_PARALLEL_PROCESSING", True)
-# Number of parallel workers for document processing
-# Default: min(cpu_count or 4, 8) - uses CPU count with fallback to 4, capped at 8 workers max
-MARKITDOWN_WORKERS = get_env_int("MARKITDOWN_WORKERS", min(os.cpu_count() or 4, 8))
+# Ensure all directories exist
+ensure_directories()
 
-# --- Performance & Batch Processing ---
-# Number of files to process concurrently in standard batch mode.
-BATCH_SIZE = get_env_int("BATCH_SIZE", 5)
-# Maximum number of retries for failed network requests (e.g., API calls).
-MAX_RETRIES = get_env_int("MAX_RETRIES", 3)
-# Base delay in seconds for exponential backoff between retries.
-RETRY_DELAY = get_env_int("RETRY_DELAY", 5)
-
-# --- Caching Configuration ---
-# Duration in hours to retain cached OCR results.
-CACHE_DURATION_HOURS = get_env_int("CACHE_DURATION_HOURS", 24)
-# Enable PDF table extraction during batch/enhanced modes
-BATCH_EXTRACT_TABLES = get_env_bool("BATCH_EXTRACT_TABLES", False)
-
-# --- Advanced Mistral AI Features ---
-# Enable function calling for structured data extraction
-MISTRAL_ENABLE_FUNCTIONS = get_env_bool("MISTRAL_ENABLE_FUNCTIONS", False)
-# Enable structured outputs with JSON schema
-MISTRAL_ENABLE_STRUCTURED_OUTPUT = get_env_bool(
-    "MISTRAL_ENABLE_STRUCTURED_OUTPUT", False
-)
-# Schema type for structured output ('auto', 'financial_statement', 'document_analysis', 'image_description')
-MISTRAL_STRUCTURED_SCHEMA_TYPE = os.environ.get(
-    "MISTRAL_STRUCTURED_SCHEMA_TYPE", "auto"
-)
-# Enable multi-turn conversations for complex analysis
-MISTRAL_ENABLE_MULTI_TURN = get_env_bool("MISTRAL_ENABLE_MULTI_TURN", False)
-# Maximum number of conversation turns
-MISTRAL_MAX_TURNS = get_env_int("MISTRAL_MAX_TURNS", 3)
-
-# --- Enhanced Image Processing ---
-# Enable advanced image quality analysis and optimization
-MISTRAL_ENABLE_IMAGE_OPTIMIZATION = get_env_bool(
-    "MISTRAL_ENABLE_IMAGE_OPTIMIZATION", True
-)
-# Enable image preprocessing to improve OCR accuracy
-MISTRAL_ENABLE_IMAGE_PREPROCESSING = get_env_bool(
-    "MISTRAL_ENABLE_IMAGE_PREPROCESSING", False
-)
-# Maximum image dimension for processing (longest side in pixels)
-MISTRAL_MAX_IMAGE_DIMENSION = get_env_int("MISTRAL_MAX_IMAGE_DIMENSION", 2048)
-# Image quality threshold for using advanced models (0-100 in config, converted to 0.0-1.0 internally)
-MISTRAL_IMAGE_QUALITY_THRESHOLD = (
-    get_env_int("MISTRAL_IMAGE_QUALITY_THRESHOLD", 70) / 100.0
-)
-
-# Constants
-MONTHS = [
-    "Beginning Balance",
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
-    "Current Balance",
-]
-M_SHORT = [
-    "Beginning",
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
-    "Current",
-]
-
-# Initialize directories
-setup_directories()
-
-
-# --- Runtime overrides ---
-def override_paths(
-    input_dir: str | None = None,
-    out_md: str | None = None,
-    out_txt: str | None = None,
-    out_img: str | None = None,
-) -> None:
-    """Optionally override key IO paths at runtime then (re)create dirs."""
-    global INPUT_DIR, OUT_MD, OUT_TXT, OUT_IMG
-    if input_dir:
-        INPUT_DIR = Path(input_dir).resolve()
-    if out_md:
-        OUT_MD = Path(out_md).resolve()
-    if out_txt:
-        OUT_TXT = Path(out_txt).resolve()
-    if out_img:
-        OUT_IMG = Path(out_img).resolve()
-    setup_directories()
-
-
-def set_workers(workers: int) -> None:
-    """Override worker count for parallel processing runtimes."""
-    global MARKITDOWN_WORKERS
-    try:
-        workers = int(workers)
-        MARKITDOWN_WORKERS = max(1, min(workers, 64))
-    except Exception:
-        pass
+# Validate configuration on import
+_config_issues = validate_configuration()
+if _config_issues and __name__ == "__main__":
+    print("\n".join(_config_issues))
