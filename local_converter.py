@@ -172,7 +172,7 @@ def extract_tables_camelot(
     flavor: str = "lattice"
 ) -> List[List[List[str]]]:
     """
-    Extract tables from PDF using camelot.
+    Extract tables from PDF using camelot with tuned parameters for financial documents.
 
     Args:
         pdf_path: Path to PDF file
@@ -188,19 +188,38 @@ def extract_tables_camelot(
     tables = []
 
     try:
-        # Extract tables with camelot
-        table_list = camelot.read_pdf(
-            str(pdf_path),
-            pages='all',
-            flavor=flavor,
-            suppress_stdout=True
-        )
+        # Extract tables with camelot using tuned parameters
+        if flavor == "lattice":
+            # Lattice mode: better for tables with clear grid lines
+            # Tuned for wide financial tables (e.g., trial balances with many columns)
+            table_list = camelot.read_pdf(
+                str(pdf_path),
+                pages='all',
+                flavor='lattice',
+                suppress_stdout=True,
+                line_scale=40,  # Increase to detect more subtle grid lines
+                shift_text=['l', 't'],  # Shift text left and top for better alignment
+                strip_text=' \n',  # Strip whitespace and newlines from cells
+            )
+        else:
+            # Stream mode: better for tables without clear grid lines
+            table_list = camelot.read_pdf(
+                str(pdf_path),
+                pages='all',
+                flavor='stream',
+                suppress_stdout=True,
+                edge_tol=50,  # Tolerance for detecting table edges
+                row_tol=5,  # Tolerance for detecting rows
+                column_tol=5,  # Tolerance for detecting columns
+            )
 
         for table in table_list:
             # Convert DataFrame to list of lists
             table_data = table.df.values.tolist()
 
             if table_data and len(table_data) > 0:
+                # Post-process: fix merged currency cells
+                table_data = _fix_merged_currency_cells(table_data)
                 tables.append(table_data)
                 logger.debug(f"Camelot extracted table with {len(table_data)} rows")
 
@@ -208,6 +227,60 @@ def extract_tables_camelot(
         logger.error(f"Error extracting tables with camelot ({flavor}): {e}")
 
     return tables
+
+def _fix_merged_currency_cells(table: List[List[str]]) -> List[List[str]]:
+    """
+    Fix cells where multiple currency values are merged into one cell.
+
+    Example: "$ 1,234.56 $ 5,678.90" should be split into two cells.
+
+    This commonly happens when Camelot misses a column boundary between
+    the last two columns (e.g., December and Current Balance).
+
+    Args:
+        table: Table as list of rows
+
+    Returns:
+        Fixed table with currency cells properly split
+    """
+    import re
+
+    # Pattern to detect multiple currency values in one cell
+    # Matches: "$ 1,234.56 $ 5,678.90" or "$ (1,234.56) $ (5,678.90)"
+    double_currency_pattern = re.compile(
+        r'(\$\s*[\(\-]?[\d,]+\.?\d*[\)]?)\s+(\$\s*[\(\-]?[\d,]+\.?\d*[\)]?)'
+    )
+
+    fixed_table = []
+
+    for row in table:
+        fixed_row = []
+        for cell in row:
+            if not cell or not isinstance(cell, str):
+                fixed_row.append(cell)
+                continue
+
+            # Check if this cell contains two currency values
+            match = double_currency_pattern.search(cell)
+
+            if match:
+                # Split on the second $ sign
+                parts = cell.split('$')
+                if len(parts) >= 3:  # First element is before first $, rest after
+                    # Reconstruct as two separate cells
+                    first_value = '$' + parts[1].strip()
+                    second_value = '$' + parts[2].strip()
+                    fixed_row.append(first_value)
+                    fixed_row.append(second_value)
+                    logger.debug(f"Split merged currency cell: '{cell}' → '{first_value}' + '{second_value}'")
+                else:
+                    fixed_row.append(cell)
+            else:
+                fixed_row.append(cell)
+
+        fixed_table.append(fixed_row)
+
+    return fixed_table
 
 def extract_all_tables(pdf_path: Path) -> Dict[str, Any]:
     """

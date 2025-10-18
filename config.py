@@ -77,7 +77,7 @@ MISTRAL_OCR_MODEL = os.getenv("MISTRAL_OCR_MODEL", "mistral-ocr-latest")
 
 # OCR options
 MISTRAL_INCLUDE_IMAGES = os.getenv("MISTRAL_INCLUDE_IMAGES", "true").lower() == "true"
-SAVE_MISTRAL_JSON = os.getenv("SAVE_MISTRAL_JSON", "false").lower() == "true"
+SAVE_MISTRAL_JSON = os.getenv("SAVE_MISTRAL_JSON", "true").lower() == "true"  # Default true for quality assessment
 
 # Advanced features
 MISTRAL_ENABLE_FUNCTIONS = os.getenv("MISTRAL_ENABLE_FUNCTIONS", "false").lower() == "true"

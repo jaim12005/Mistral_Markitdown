@@ -17,6 +17,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 import sys
+import itertools
 
 import config
 
@@ -461,6 +462,33 @@ def normalize_table_headers(table: List[List[str]]) -> Tuple[List[str], List[Lis
 # Text Export Functions
 # ============================================================================
 
+def clean_consecutive_duplicates(text: str) -> str:
+    """
+    Clean text by collapsing consecutive identical lines into a single occurrence.
+
+    This helps remove artifacts from OCR output where headers, footers, or
+    other elements are mistakenly recognized multiple times in sequence.
+    It compares lines exactly as they appear (including whitespace and Markdown).
+
+    Args:
+        text: The input text (e.g., OCR output for a page).
+    Returns:
+        Cleaned text with consecutive duplicates collapsed.
+    """
+    if not text:
+        return ""
+
+    # Use splitlines() to handle different line endings correctly
+    lines = text.splitlines()
+
+    # Use itertools.groupby to group consecutive identical lines.
+    # The 'key' represents the unique line content for each group.
+    # By taking only the key, we effectively collapse the group into one line.
+    cleaned_lines = [key for key, group in itertools.groupby(lines)]
+
+    # Rejoin the lines
+    return "\n".join(cleaned_lines)
+
 def markdown_to_text(markdown_content: str) -> str:
     """
     Convert Markdown to plain text by removing formatting.
@@ -630,9 +658,10 @@ def print_progress(current: int, total: int, prefix: str = "Progress") -> None:
     percent = (current / total) * 100 if total > 0 else 0
     bar_length = 40
     filled = int(bar_length * current // total) if total > 0 else 0
-    bar = '█' * filled + '-' * (bar_length - filled)
+    bar = '=' * filled + '-' * (bar_length - filled)
 
-    print(f'\r{prefix}: |{bar}| {percent:.1f}% ({current}/{total})', end='', flush=True)
+    # Use ASCII characters for better Windows console compatibility
+    print(f'\r{prefix}: [{bar}] {percent:.1f}% ({current}/{total})', end='', flush=True)
 
     if current == total:
         print()  # New line when complete

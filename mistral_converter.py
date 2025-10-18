@@ -103,9 +103,19 @@ def optimize_image(image_path: Path) -> Optional[Path]:
 
         img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
 
-        # Save optimized image
+        # Save optimized image with format-appropriate parameters
         optimized_path = image_path.parent / f"{image_path.stem}_optimized{image_path.suffix}"
-        img.save(optimized_path, quality=config.MISTRAL_IMAGE_QUALITY_THRESHOLD)
+
+        # Use different save parameters based on format
+        if img.format == 'PNG' or image_path.suffix.lower() == '.png':
+            # PNG supports optimize and compress_level, not quality
+            img.save(optimized_path, format='PNG', optimize=True, compress_level=6)
+        elif img.format in ['JPEG', 'JPG'] or image_path.suffix.lower() in ['.jpg', '.jpeg']:
+            # JPEG supports quality parameter
+            img.save(optimized_path, format='JPEG', quality=config.MISTRAL_IMAGE_QUALITY_THRESHOLD, optimize=True)
+        else:
+            # For other formats, save with optimize only
+            img.save(optimized_path, optimize=True)
 
         logger.debug(f"Optimized image: {image_path.name} -> {optimized_path.name}")
         return optimized_path
@@ -161,7 +171,7 @@ def preprocess_image(image_path: Path) -> Optional[Path]:
 
 def upload_file_for_ocr(client: Mistral, file_path: Path) -> Optional[str]:
     """
-    Upload file to Mistral using Files API with purpose="ocr".
+    Upload file to Mistral using Files API with purpose="ocr" and get signed URL.
 
     Required for files >4MB or when preferred for large files.
 
@@ -170,7 +180,7 @@ def upload_file_for_ocr(client: Mistral, file_path: Path) -> Optional[str]:
         file_path: Path to file to upload
 
     Returns:
-        File ID if successful, None otherwise
+        Signed URL if successful, None otherwise
     """
     try:
         logger.info(f"Uploading file to Mistral: {file_path.name}")
@@ -187,11 +197,24 @@ def upload_file_for_ocr(client: Mistral, file_path: Path) -> Optional[str]:
             purpose="ocr"  # Critical: Must specify purpose="ocr"
         )
 
-        if hasattr(response, 'id'):
-            logger.info(f"File uploaded successfully: {response.id}")
-            return response.id
-        else:
+        if not hasattr(response, 'id'):
             logger.error("Upload response missing file ID")
+            return None
+
+        logger.info(f"File uploaded successfully: {response.id}")
+
+        # Get signed URL for the uploaded file
+        # The signed URL is required to process the file with OCR
+        signed_url_response = client.files.get_signed_url(
+            file_id=response.id,
+            expiry=1  # URL expires in 1 hour
+        )
+
+        if hasattr(signed_url_response, 'url'):
+            logger.debug(f"Got signed URL for file {response.id}")
+            return signed_url_response.url
+        else:
+            logger.error("Failed to get signed URL for uploaded file")
             return None
 
     except Exception as e:
@@ -238,13 +261,16 @@ def process_with_ocr(
 
         # Prepare document - use dict format instead of model classes
         if use_files_api:
-            file_id = upload_file_for_ocr(client, file_path)
-            if not file_id:
+            # Upload file and get signed URL
+            # NOTE: The Mistral OCR API requires a signed HTTPS URL, not a file ID
+            # After uploading, we must call get_signed_url() to get an HTTPS URL
+            signed_url = upload_file_for_ocr(client, file_path)
+            if not signed_url:
                 return False, None, "Failed to upload file"
 
             document = {
                 "type": "document_url",
-                "document_url": f"mistral://files/{file_id}"
+                "document_url": signed_url  # Use the signed HTTPS URL
             }
         else:
             # Use base64 encoding for smaller files
@@ -345,10 +371,20 @@ def _parse_ocr_response(response: Any, file_path: Path) -> Dict[str, Any]:
                 elif isinstance(page, str):
                     page_text = page
 
+                # Apply cleaning to remove consecutive duplicate lines (OCR artifacts)
+                original_length = len(page_text)
+                page_text = utils.clean_consecutive_duplicates(page_text)
+                cleaned_length = len(page_text)
+
+                if cleaned_length < original_length:
+                    reduction = original_length - cleaned_length
+                    logger.debug(f"Page {idx}: Cleaned {reduction} chars of consecutive duplicates.")
+
                 logger.debug(f"Page {idx}: {len(page_text)} chars extracted")
 
                 page_data = {
-                    "page_number": getattr(page, 'page_number', idx),
+                    # Enforce standardized 0-based index instead of relying on OCR metadata
+                    "page_number": idx,
                     "text": page_text,
                     "images": [],
                 }
@@ -369,28 +405,31 @@ def _parse_ocr_response(response: Any, file_path: Path) -> Dict[str, Any]:
 
         # Format 2: response.markdown (Mistral OCR format)
         elif hasattr(response, 'markdown') and response.markdown:
-            result["full_text"] = response.markdown
+            cleaned_text = utils.clean_consecutive_duplicates(response.markdown)
+            result["full_text"] = cleaned_text
             result["pages"].append({
                 "page_number": 0,
-                "text": response.markdown,
+                "text": cleaned_text,
                 "images": [],
             })
 
         # Format 3: response.text (direct text)
         elif hasattr(response, 'text') and response.text:
-            result["full_text"] = response.text
+            cleaned_text = utils.clean_consecutive_duplicates(response.text)
+            result["full_text"] = cleaned_text
             result["pages"].append({
                 "page_number": 0,
-                "text": response.text,
+                "text": cleaned_text,
                 "images": [],
             })
 
         # Format 4: response.content
         elif hasattr(response, 'content') and response.content:
-            result["full_text"] = response.content
+            cleaned_text = utils.clean_consecutive_duplicates(response.content)
+            result["full_text"] = cleaned_text
             result["pages"].append({
                 "page_number": 0,
-                "text": response.content,
+                "text": cleaned_text,
                 "images": [],
             })
 
@@ -399,25 +438,29 @@ def _parse_ocr_response(response: Any, file_path: Path) -> Dict[str, Any]:
             if 'pages' in response:
                 for idx, page in enumerate(response['pages']):
                     page_text = page.get('markdown', page.get('text', page.get('content', '')))
+                    # Apply cleaning to dict-based pages
+                    page_text = utils.clean_consecutive_duplicates(page_text)
                     result["pages"].append({
-                        "page_number": idx,
+                        "page_number": idx,  # Standardized numbering
                         "text": page_text,
                         "images": page.get('images', []),
                     })
                     if page_text:
                         result["full_text"] += page_text + "\n\n"
             elif 'markdown' in response:
-                result["full_text"] = response['markdown']
+                cleaned_text = utils.clean_consecutive_duplicates(response['markdown'])
+                result["full_text"] = cleaned_text
                 result["pages"].append({
                     "page_number": 0,
-                    "text": response['markdown'],
+                    "text": cleaned_text,
                     "images": [],
                 })
             elif 'text' in response:
-                result["full_text"] = response['text']
+                cleaned_text = utils.clean_consecutive_duplicates(response['text'])
+                result["full_text"] = cleaned_text
                 result["pages"].append({
                     "page_number": 0,
-                    "text": response['text'],
+                    "text": cleaned_text,
                     "images": [],
                 })
 
@@ -504,6 +547,87 @@ def _is_weak_page(text: str) -> bool:
             return True
 
     return False
+
+def assess_ocr_quality(ocr_result: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Assess the quality of OCR results to determine if they should be used.
+
+    Args:
+        ocr_result: OCR result dictionary
+
+    Returns:
+        Dictionary with quality assessment:
+        {
+            "is_usable": bool,           # Overall quality verdict
+            "quality_score": float,       # 0-100 score
+            "issues": List[str],          # List of quality issues found
+            "weak_page_count": int,       # Number of weak pages
+            "total_page_count": int,      # Total pages analyzed
+            "digit_count": int,           # Total digits extracted
+            "uniqueness_ratio": float,    # Token uniqueness across all pages
+        }
+    """
+    full_text = ocr_result.get("full_text", "")
+    pages = ocr_result.get("pages", [])
+
+    assessment = {
+        "is_usable": True,
+        "quality_score": 100.0,
+        "issues": [],
+        "weak_page_count": 0,
+        "total_page_count": len(pages),
+        "digit_count": 0,
+        "uniqueness_ratio": 0.0,
+    }
+
+    if not full_text or len(full_text.strip()) < 50:
+        assessment["is_usable"] = False
+        assessment["quality_score"] = 0.0
+        assessment["issues"].append("Minimal text extracted")
+        return assessment
+
+    # Count weak pages
+    for page in pages:
+        page_text = page.get("text", "")
+        if _is_weak_page(page_text):
+            assessment["weak_page_count"] += 1
+
+    # Calculate metrics
+    assessment["digit_count"] = sum(1 for char in full_text if char.isdigit())
+
+    tokens = full_text.split()
+    if tokens:
+        unique_tokens = set(tokens)
+        assessment["uniqueness_ratio"] = len(unique_tokens) / len(tokens)
+
+    # Deduct points for issues
+    if assessment["weak_page_count"] > 0:
+        weak_ratio = assessment["weak_page_count"] / max(1, assessment["total_page_count"])
+        points_lost = weak_ratio * 50  # Up to 50 points for all weak pages
+        assessment["quality_score"] -= points_lost
+        assessment["issues"].append(
+            f"{assessment['weak_page_count']}/{assessment['total_page_count']} pages are weak quality"
+        )
+
+    if assessment["digit_count"] < 100:  # Low number count for financial docs
+        assessment["quality_score"] -= 20
+        assessment["issues"].append(f"Low numerical content ({assessment['digit_count']} digits)")
+
+    if assessment["uniqueness_ratio"] < 0.3:  # Highly repetitive
+        assessment["quality_score"] -= 30
+        assessment["issues"].append(f"High repetition (uniqueness: {assessment['uniqueness_ratio']:.1%})")
+
+    # Final verdict
+    if assessment["quality_score"] < 40:
+        assessment["is_usable"] = False
+        assessment["issues"].append("Overall quality too low for inclusion")
+
+    logger.info(
+        f"OCR Quality Assessment: Score={assessment['quality_score']:.1f}/100, "
+        f"Usable={assessment['is_usable']}, Issues={len(assessment['issues'])}"
+    )
+
+    return assessment
 
 def improve_weak_pages(
     client: Mistral,
@@ -680,15 +804,25 @@ def convert_with_mistral_ocr(
     if not success or not ocr_result:
         return False, None, error
 
-    # DISABLED: Weak page improvement (causing issues with response parsing)
-    # The OCR API returns good results - re-processing weak pages makes things worse
-    # if improve_weak and ocr_result.get("pages"):
-    #     content_analysis = local_converter.analyze_file_content(file_path)
-    #     model = config.select_best_model(
-    #         file_type=file_path.suffix.lower().lstrip('.'),
-    #         content_analysis=content_analysis
-    #     )
-    #     ocr_result = improve_weak_pages(client, file_path, ocr_result, model)
+    # Assess OCR quality
+    logger.info("Assessing OCR quality...")
+    quality_assessment = assess_ocr_quality(ocr_result)
+    ocr_result["quality_assessment"] = quality_assessment
+
+    # Re-process weak pages if requested and quality is low
+    if improve_weak and ocr_result.get("pages") and quality_assessment.get("weak_page_count", 0) > 0:
+        logger.info(f"Attempting to improve {quality_assessment['weak_page_count']} weak pages...")
+        content_analysis = local_converter.analyze_file_content(file_path)
+        model = config.select_best_model(
+            file_type=file_path.suffix.lower().lstrip('.'),
+            content_analysis=content_analysis
+        )
+        ocr_result = improve_weak_pages(client, file_path, ocr_result, model)
+
+        # Re-assess quality after improvement
+        improved_quality = assess_ocr_quality(ocr_result)
+        ocr_result["quality_assessment"] = improved_quality
+        logger.info(f"Quality after improvement: {improved_quality['quality_score']:.1f}/100")
 
     # Cache result
     if use_cache:
@@ -734,22 +868,26 @@ def _create_markdown_output(file_path: Path, ocr_result: Dict[str, Any]) -> Path
     # Build markdown content
     md_content = frontmatter + f"\n# OCR Result: {file_path.name}\n\n"
 
-    # Add full text
-    md_content += "## Full Text\n\n"
-    md_content += ocr_result.get("full_text", "")
-    md_content += "\n\n---\n\n"
-
-    # Add page-by-page breakdown
+    # Add page-by-page breakdown (no "Full Text" section to avoid duplication)
     if ocr_result.get("pages"):
-        md_content += "## Page-by-Page Content\n\n"
+        total_pages = len(ocr_result["pages"])
+        md_content += f"## OCR Content ({total_pages} page{'s' if total_pages != 1 else ''})\n\n"
 
+        # Iterate directly over pages. Since page_number is standardized to 0-based index in _parse_ocr_response,
+        # we just need to add 1 for 1-based display (Page 1, Page 2, etc.)
         for page in ocr_result["pages"]:
-            page_num = page.get("page_number", 0)
             text = page.get("text", "")
+            # Display as 1-based index using the standardized 0-based page_number
+            display_page_num = page.get("page_number", 0) + 1
 
-            md_content += f"### Page {page_num}\n\n"
+            md_content += f"### Page {display_page_num}\n\n"
             md_content += text
             md_content += "\n\n---\n\n"
+    else:
+        # Fallback if pages aren't available (shouldn't happen, but be defensive)
+        md_content += "## OCR Content\n\n"
+        md_content += ocr_result.get("full_text", "")
+        md_content += "\n\n---\n\n"
 
     # Save markdown
     output_path = config.OUTPUT_MD_DIR / f"{file_path.stem}_mistral_ocr.md"

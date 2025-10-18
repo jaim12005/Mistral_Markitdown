@@ -12,7 +12,7 @@ A powerful, production-ready document conversion system that combines Microsoft'
 - **Intelligent Caching**: Hash-based caching to avoid reprocessing
 - **Batch Processing**: Concurrent file processing with metadata tracking
 - **Multi-Format Support**: PDF, DOCX, PPTX, XLSX, images, audio/video
-- **Auto Model Selection**: Intelligent Mistral model selection based on content
+- **OCR Quality Assessment**: Automated quality scoring and weak page detection
 - **Per-Page OCR Improvement**: Automatic re-OCR of weak results
 
 ### Supported Formats
@@ -77,17 +77,25 @@ python main.py
 
 **Best for**: Maximum accuracy, complex PDFs, critical documents
 
-Combines MarkItDown + Mistral OCR for optimal results:
+Combines MarkItDown + advanced table extraction + Mistral OCR for comprehensive analysis:
 - MarkItDown text extraction
-- Advanced table extraction (pdfplumber + camelot)
-- Full Mistral OCR analysis
-- Creates `<filename>_combined.md` with all results
+- Advanced table extraction (pdfplumber + camelot with tuned parameters)
+- **Mistral OCR analysis (works on ALL PDFs - both scanned and text-based)**
+- Quality assessment provides transparency into OCR performance
+- Creates `<filename>_combined.md` with all results and quality metrics
+
+**Mistral OCR Capabilities**:
+- ~95% accuracy across diverse document types
+- Works on both scanned documents AND text-based PDFs
+- Understands complex elements: tables, equations, multi-column layouts
+- Extracts embedded images alongside text
+- Quality score displayed for transparency (0-100)
 
 **Output Files**:
-- `<name>_combined.md`: Aggregated report
+- `<name>_combined.md`: Comprehensive aggregated report with quality summary
 - `<name>.md`: MarkItDown conversion
-- `<name>_mistral_ocr.md`: Mistral OCR results
-- `<name>_tables_all.md`: All extracted tables
+- `<name>_mistral_ocr.md`: Mistral OCR results with page-by-page breakdown
+- `<name>_tables_all.md`: All extracted tables with post-processing
 - `<name>_ocr_metadata.json`: Structured metadata (if enabled)
 
 **Usage**:
@@ -140,14 +148,22 @@ python main.py --mode markitdown
 
 ### Mode 4: Mistral OCR Only (High Accuracy)
 
-**Best for**: Scanned documents, handwritten text, complex layouts
+**Best for**: When you want pure OCR analysis without MarkItDown or table extraction
 
 Features:
-- State-of-the-art OCR using Mistral AI
-- Automatic model selection (pixtral-large, codestral, mistral-ocr)
-- Per-page improvements for weak results
+- State-of-the-art OCR using Mistral AI's dedicated OCR model (mistral-ocr-latest)
+- **Works on ALL PDFs** (both scanned documents and text-based PDFs)
+- ~95% accuracy across diverse document types
+- Understands tables, equations, multi-column layouts, and complex formatting
+- Quality assessment of OCR results
 - Image extraction with base64 encoding
-- Files API for large documents (>4MB)
+- Files API with signed URLs for all documents
+
+**Why Use This Mode**:
+- You want Mistral AI's advanced document understanding
+- You need image extraction from documents
+- You want structured JSON metadata output
+- You prefer AI-powered analysis over traditional text extraction
 
 **Output Files**:
 - `<name>_mistral_ocr.md`: Page-by-page OCR results
@@ -260,9 +276,7 @@ MISTRAL_API_KEY="your_mistral_api_key_here"
 |--------|---------|-------------|
 | `MISTRAL_OCR_MODEL` | `mistral-ocr-latest` | OCR model to use |
 | `MISTRAL_INCLUDE_IMAGES` | `true` | Extract images from documents |
-| `MISTRAL_AUTO_MODEL_SELECTION` | `true` | Auto-select best model |
-| `MARKITDOWN_PARALLEL_PROCESSING` | `true` | Enable multi-threading |
-| `MARKITDOWN_WORKERS` | `4` | Number of worker threads |
+| `SAVE_MISTRAL_JSON` | `true` | Save OCR metadata JSON for quality assessment |
 | `CACHE_DURATION_HOURS` | `24` | Cache validity period |
 | `MAX_CONCURRENT_FILES` | `5` | Batch processing concurrency |
 | `GENERATE_TXT_OUTPUT` | `true` | Create .txt files |
@@ -300,12 +314,12 @@ Install Poppler and set `POPPLER_PATH` in `.env` (Windows only).
 
 ### Version 2.1 (Current)
 - ✅ 8 specialized conversion modes
-- ✅ Hybrid processing pipeline
+- ✅ Hybrid processing pipeline with OCR quality assessment
 - ✅ Intelligent caching system
-- ✅ Advanced table extraction
-- ✅ Automatic model selection
-- ✅ Comprehensive batch processing
-- ✅ Cross-platform support
+- ✅ Advanced table extraction (pdfplumber + camelot)
+- ✅ Automated OCR quality scoring and weak page re-processing
+- ✅ Comprehensive batch processing with metadata tracking
+- ✅ Cross-platform support (Windows, macOS, Linux)
 
 ---
 

@@ -46,8 +46,9 @@ def mode_hybrid(file_path: Path) -> Tuple[bool, str]:
     For PDFs:
     - MarkItDown text content
     - Extracted tables (pdfplumber + camelot)
-    - Full OCR analysis from Mistral (skipped for text-based PDFs)
-    - Creates <name>_combined.md
+    - Full OCR analysis from Mistral (ALWAYS runs for comprehensive analysis)
+    - Quality assessment to identify OCR issues
+    - Creates <name>_combined.md with all results and quality metrics
 
     Args:
         file_path: Path to file
@@ -63,83 +64,185 @@ def mode_hybrid(file_path: Path) -> Tuple[bool, str]:
     # Analyze file content to optimize processing strategy
     content_analysis = local_converter.analyze_file_content(file_path)
 
+    logger.info(
+        f"Content Analysis: text_based={content_analysis.get('is_text_based')}, "
+        f"has_tables={content_analysis.get('has_tables')}, "
+        f"pages={content_analysis.get('page_count')}"
+    )
+
     # Step 1: MarkItDown conversion
     logger.info("Step 1/3: Converting with MarkItDown...")
     md_success, md_content, md_error = local_converter.convert_with_markitdown(file_path)
 
     if md_success:
-        results.append("✓ MarkItDown conversion successful")
+        results.append("MarkItDown conversion successful")
     else:
-        results.append(f"✗ MarkItDown failed: {md_error}")
+        results.append(f"MarkItDown failed: {md_error}")
         has_errors = True
 
     # Step 2: Extract tables (PDF only)
     tables_extracted = []
+    table_count = 0
     if file_path.suffix.lower() == '.pdf':
         logger.info("Step 2/3: Extracting PDF tables...")
         table_result = local_converter.extract_all_tables(file_path)
+        table_count = table_result["table_count"]
 
-        if table_result["table_count"] > 0:
+        if table_count > 0:
             table_files = local_converter.save_tables_to_files(file_path, table_result["tables"])
-            results.append(f"✓ Extracted {table_result['table_count']} tables")
+            results.append(f"Extracted {table_count} tables")
             tables_extracted = table_result["tables"]
         else:
-            results.append("○ No tables found")
+            results.append("No tables found")
     else:
-        results.append("○ Table extraction skipped (not a PDF)")
+        results.append("Table extraction skipped (not a PDF)")
 
-    # Step 3: Mistral OCR (always runs in hybrid mode)
-    logger.info("Step 3/3: Processing with Mistral OCR...")
-    ocr_success, ocr_path, ocr_error = mistral_converter.convert_with_mistral_ocr(file_path)
+    # Step 3: Mistral OCR
+    # Mistral OCR works on ALL PDFs (both scanned and text-based)
+    # It achieves ~95% accuracy across diverse document types
+    ocr_quality = None
+    ocr_path = None
 
-    if ocr_success:
-        results.append("✓ Mistral OCR successful")
+    if not config.MISTRAL_API_KEY:
+        logger.info("Step 3/3: Skipped (no Mistral API key)")
+        results.append("Mistral OCR skipped (no API key)")
     else:
-        results.append(f"✗ Mistral OCR failed: {ocr_error}")
-        has_errors = True
+        logger.info("Step 3/3: Processing with Mistral OCR...")
+        ocr_success, ocr_path, ocr_error = mistral_converter.convert_with_mistral_ocr(file_path)
+
+        if ocr_success and ocr_path:
+            # Load OCR result to assess quality (informational only)
+            try:
+                # Read the OCR metadata if it exists
+                ocr_json_path = config.OUTPUT_MD_DIR / f"{file_path.stem}_ocr_metadata.json"
+                if ocr_json_path.exists():
+                    import json
+                    with open(ocr_json_path, 'r', encoding='utf-8') as f:
+                        ocr_result = json.load(f)
+                    ocr_quality = mistral_converter.assess_ocr_quality(ocr_result)
+
+                    results.append(f"Mistral OCR successful (quality: {ocr_quality['quality_score']:.0f}/100)")
+
+                    # Note: We keep the OCR in the output even if quality is low
+                    # Mistral OCR is designed to work on all PDFs and users paid for it
+                    if not ocr_quality["is_usable"]:
+                        logger.warning(
+                            f"OCR quality score is low ({ocr_quality['quality_score']:.0f}/100). "
+                            f"Issues: {', '.join(ocr_quality['issues'])}"
+                        )
+                else:
+                    results.append("Mistral OCR successful")
+            except Exception as e:
+                logger.warning(f"Could not assess OCR quality: {e}")
+                results.append("Mistral OCR successful")
+        else:
+            results.append(f"Mistral OCR failed: {ocr_error}")
+            has_errors = True
 
     # Combine results
     logger.info("Combining results into hybrid output...")
 
-    # Create combined output with its own frontmatter
+    # Build data quality summary
+    quality_summary = "## Data Quality Summary\n\n"
+    quality_summary += f"**File Analysis:**\n"
+    quality_summary += f"- Document type: {content_analysis.get('file_type', 'unknown').upper()}\n"
+    quality_summary += f"- Has text layer: {'Yes' if content_analysis.get('is_text_based') else 'No'}\n"
+    quality_summary += f"- Page count: {content_analysis.get('page_count', 'N/A')}\n"
+    quality_summary += f"- File size: {content_analysis.get('file_size_mb', 0):.2f} MB\n\n"
+
+    quality_summary += f"**Processing Results:**\n"
+    for result in results:
+        quality_summary += f"- {result}\n"
+    quality_summary += "\n"
+
+    if ocr_quality:
+        quality_summary += f"**OCR Quality Details:**\n"
+        quality_summary += f"- Quality score: {ocr_quality['quality_score']:.1f}/100\n"
+        quality_summary += f"- Usable: {'Yes' if ocr_quality['is_usable'] else 'No'}\n"
+        quality_summary += f"- Weak pages: {ocr_quality['weak_page_count']}/{ocr_quality['total_page_count']}\n"
+        if ocr_quality['issues']:
+            quality_summary += f"- Issues: {', '.join(ocr_quality['issues'])}\n"
+        quality_summary += "\n"
+
+    quality_summary += "---\n\n"
+
+    # Create combined output with frontmatter
     combined_frontmatter = utils.generate_yaml_frontmatter(
         title=f"Combined Analysis: {file_path.name}",
         file_name=file_path.name,
-        conversion_method="Hybrid Mode (MarkItDown + Table Extraction + Mistral OCR)",
+        conversion_method="Hybrid Mode (MarkItDown + Tables + Mistral OCR)",
         additional_fields={
-            "steps_completed": len([r for r in results if r.startswith("✓")]),
-            "total_steps": 3,
+            "text_based": content_analysis.get('is_text_based'),
+            "tables_extracted": table_count,
+            "ocr_used": ocr_path is not None,
+            "ocr_quality_score": ocr_quality['quality_score'] if ocr_quality else None,
         }
     )
 
     combined_content = combined_frontmatter + f"\n# Combined Analysis: {file_path.name}\n\n"
-    combined_content += f"**Processing Results:**\n"
-    for result in results:
-        combined_content += f"- {result}\n"
-    combined_content += "\n---\n\n"
 
-    # Add MarkItDown content (strip its frontmatter to avoid nesting)
+    # Add quality summary FIRST
+    combined_content += quality_summary
+
+    # PRIORITY ORDER: Tables > MarkItDown > OCR (only if high quality)
+
+    # Add extracted tables FIRST (highest priority for structured data)
+    if tables_extracted:
+        combined_content += f"## Extracted Tables ({len(tables_extracted)} total)\n\n"
+        combined_content += "**High-quality structured data extracted from PDF:**\n\n"
+        combined_content += f"See `{file_path.stem}_tables_all.md` for the full table extraction with all {len(tables_extracted)} tables.\n\n"
+        combined_content += "---\n\n"
+
+    # Add MarkItDown content (useful for prose/text, not tables)
     if md_success and md_content:
         combined_content += "## MarkItDown Conversion\n\n"
+        combined_content += "*Note: MarkItDown may flatten table structures. Refer to 'Extracted Tables' above for structured data.*\n\n"
         combined_content += utils.strip_yaml_frontmatter(md_content)
         combined_content += "\n\n---\n\n"
 
-    # Add table summary
-    if tables_extracted:
-        combined_content += f"## Extracted Tables ({len(tables_extracted)} total)\n\n"
-        combined_content += "Tables have been saved to separate files.\n\n"
-        combined_content += "See `{}_tables_all.md` for full table details.\n\n".format(file_path.stem)
-        combined_content += "---\n\n"
-
-    # Add Mistral OCR content (strip its frontmatter to avoid nesting)
-    if ocr_success and ocr_path:
+    # Add Mistral OCR Analysis
+    # Mistral OCR works on all PDFs (both scanned and text-based) with ~95% accuracy
+    if ocr_path and ocr_path.exists():
         combined_content += "## Mistral OCR Analysis\n\n"
+
+        # Add quality assessment banner
+        if ocr_quality:
+            combined_content += f"**OCR Quality Score: {ocr_quality['quality_score']:.1f}/100**\n\n"
+
+            if not ocr_quality["is_usable"]:
+                # Prominent warning for low-quality OCR
+                combined_content += "⚠️ **Quality Warning**: OCR quality is below the recommended threshold.\n\n"
+                combined_content += "**Detected Issues:**\n"
+                for issue in ocr_quality['issues']:
+                    combined_content += f"- {issue}\n"
+                combined_content += "\n**Recommendation**: For this text-based PDF, prioritize the 'Extracted Tables' "
+                combined_content += "and 'MarkItDown Conversion' sections above for higher accuracy.\n\n"
+                combined_content += f"**Detailed Metrics**: {ocr_quality['weak_page_count']}/{ocr_quality['total_page_count']} "
+                combined_content += f"weak pages, {ocr_quality['digit_count']} digits extracted, "
+                combined_content += f"{ocr_quality['uniqueness_ratio']:.1%} content uniqueness\n\n"
+                combined_content += "---\n\n"
+            else:
+                combined_content += f"✓ OCR quality is good. Extracted content from {ocr_quality['total_page_count']} page(s).\n\n"
+
         try:
             with open(ocr_path, 'r', encoding='utf-8') as f:
                 ocr_content = f.read()
-            combined_content += utils.strip_yaml_frontmatter(ocr_content)
-        except:
+
+            # Strip both YAML frontmatter AND markdown headers from OCR file
+            ocr_content = utils.strip_yaml_frontmatter(ocr_content)
+
+            # Remove the main title (# OCR Result: ...)
+            import re
+            ocr_content = re.sub(r'^#\s+OCR Result:.*?\n+', '', ocr_content, flags=re.MULTILINE)
+
+            # Remove section headers that duplicate our structure (## Full Text, ## OCR Content, ## Page-by-Page Content)
+            ocr_content = re.sub(r'^##\s+(Full Text|OCR Content.*?|Page-by-Page Content)\n+', '', ocr_content, flags=re.MULTILINE)
+
+            combined_content += ocr_content.strip()
+        except Exception as e:
+            logger.warning(f"Could not read OCR content: {e}")
             combined_content += "*OCR content available in separate file*\n"
+        combined_content += "\n\n---\n\n"
 
     # Save combined output
     combined_path = config.OUTPUT_MD_DIR / f"{file_path.stem}_combined.md"
@@ -149,7 +252,7 @@ def mode_hybrid(file_path: Path) -> Tuple[bool, str]:
 
     utils.save_text_output(combined_path, combined_content)
 
-    logger.info(f"Saved combined output: {combined_path.name}")
+    logger.info(f"Saved curated combined output: {combined_path.name}")
 
     status = "completed with warnings" if has_errors else "completed successfully"
     return not has_errors, f"HYBRID mode {status}"
@@ -417,11 +520,11 @@ def mode_system_status() -> Tuple[bool, str]:
 
     # Configuration Status
     print("Configuration:")
-    print(f"  ✓ Mistral API Key: {'Set' if config.MISTRAL_API_KEY else 'NOT SET'}")
-    print(f"  ✓ OpenAI API Key: {'Set' if config.OPENAI_API_KEY else 'Not set'}")
-    print(f"  ✓ Cache Duration: {config.CACHE_DURATION_HOURS} hours")
-    print(f"  ✓ Max Concurrent Files: {config.MAX_CONCURRENT_FILES}")
-    print(f"  ✓ MarkItDown Workers: {config.MARKITDOWN_WORKERS}")
+    print(f"  * Mistral API Key: {'Set' if config.MISTRAL_API_KEY else 'NOT SET'}")
+    print(f"  * OpenAI API Key: {'Set' if config.OPENAI_API_KEY else 'Not set'}")
+    print(f"  * Cache Duration: {config.CACHE_DURATION_HOURS} hours")
+    print(f"  * Max Concurrent Files: {config.MAX_CONCURRENT_FILES}")
+    print(f"  * Mistral OCR Model: {config.MISTRAL_OCR_MODEL}")
     print()
 
     # Cache Statistics
@@ -452,10 +555,12 @@ def mode_system_status() -> Tuple[bool, str]:
 
     # Model Information
     print("Configured Mistral Models:")
-    for model_id in config.MISTRAL_PREFERRED_MODELS[:3]:
+    # Show the primary OCR model and a few other notable models
+    key_models = ["mistral-ocr-latest", "pixtral-large-latest", "ministral-8b-latest"]
+    for model_id in key_models:
         if model_id in config.MISTRAL_MODELS:
             model_info = config.MISTRAL_MODELS[model_id]
-            print(f"  • {model_info['name']}: {model_info['description']}")
+            print(f"  * {model_info['name']}: {model_info['description']}")
     print()
 
     # System Recommendations
