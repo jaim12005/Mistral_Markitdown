@@ -1,8 +1,15 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Enhanced Document Converter v2.1 - macOS/Linux Quick Start Script
 # This script sets up the virtual environment, installs dependencies,
 # and launches the document converter.
+
+# Enforce bash
+if [ -z "$BASH_VERSION" ]; then
+    echo "ERROR: This script requires bash"
+    echo "Please run with: bash quick_start.sh"
+    exit 1
+fi
 
 set -e
 

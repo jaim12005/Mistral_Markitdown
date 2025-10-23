@@ -18,15 +18,18 @@ Documentation references:
 import base64
 import json
 import time
+import asyncio
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Tuple, Any, Callable
 
 try:
     from mistralai import Mistral
     from mistralai import models
+    from mistralai.utils import retries
 except ImportError:
     Mistral = None
     models = None
+    retries = None
 
 try:
     from PIL import Image
@@ -36,12 +39,38 @@ except ImportError:
 import config
 import utils
 import local_converter
+import schemas  # New: JSON schemas for structured extraction
 
 logger = utils.logger
 
 # ============================================================================
+# OCR Quality Assessment Constants
+# ============================================================================
+
+# Minimum text length for a valid OCR page result
+OCR_MIN_TEXT_LENGTH = 50
+
+# Minimum digit count for financial/data documents (low count suggests poor OCR)
+OCR_MIN_DIGIT_COUNT = 20
+
+# Minimum token uniqueness ratio (detects repetitive OCR artifacts)
+OCR_MIN_UNIQUENESS_RATIO = 0.3
+
+# Maximum allowed repetitions of the same phrase (detects header/footer artifacts)
+OCR_MAX_PHRASE_REPETITIONS = 5
+
+# Minimum average line length (very short lines suggest parsing issues)
+OCR_MIN_AVG_LINE_LENGTH = 10
+
+# Quality score thresholds (0-100 scale)
+OCR_QUALITY_THRESHOLD_EXCELLENT = 80
+OCR_QUALITY_THRESHOLD_GOOD = 60
+OCR_QUALITY_THRESHOLD_ACCEPTABLE = 40
+
+# ============================================================================
 # Mistral Client Initialization
 # ============================================================================
+
 
 def get_mistral_client() -> Optional[Mistral]:
     """
@@ -66,9 +95,125 @@ def get_mistral_client() -> Optional[Mistral]:
         logger.error(f"Error initializing Mistral client: {e}")
         return None
 
+
+# ============================================================================
+# Retry Configuration
+# ============================================================================
+
+
+def get_retry_config() -> Optional[Any]:
+    """
+    Create RetryConfig for Mistral API calls with exponential backoff.
+
+    Returns:
+        RetryConfig instance or None if retries module unavailable
+    """
+    if retries is None or config.MAX_RETRIES == 0:
+        return None
+
+    try:
+        backoff_strategy = retries.BackoffStrategy(
+            initial_interval=config.RETRY_INITIAL_INTERVAL_MS,
+            max_interval=config.RETRY_MAX_INTERVAL_MS,
+            exponent=config.RETRY_EXPONENT,
+            max_elapsed_time=config.RETRY_MAX_ELAPSED_TIME_MS,
+        )
+
+        retry_config = retries.RetryConfig(
+            strategy="backoff",
+            backoff=backoff_strategy,
+            retry_connection_errors=config.RETRY_CONNECTION_ERRORS,
+        )
+
+        logger.debug(
+            f"Retry config: {config.MAX_RETRIES} attempts, {config.RETRY_INITIAL_INTERVAL_MS}ms initial interval"
+        )
+        return retry_config
+
+    except Exception as e:
+        logger.warning(f"Error creating retry config: {e}")
+        return None
+
+
+# ============================================================================
+# Structured Output Configuration
+# ============================================================================
+
+
+def create_response_format(schema_dict: Dict[str, Any]) -> Optional[Any]:
+    """
+    Create ResponseFormat for structured extraction.
+
+    Args:
+        schema_dict: Schema definition from schemas.py
+
+    Returns:
+        ResponseFormat instance or None if models unavailable
+    """
+    if models is None or not config.MISTRAL_ENABLE_STRUCTURED_OUTPUT:
+        return None
+
+    try:
+        json_schema = models.JSONSchema(
+            name=schema_dict["name"],
+            schema=schema_dict["schema"],
+            description=schema_dict.get("description", ""),
+            strict=True,
+        )
+
+        response_format = models.ResponseFormat(
+            type="json_schema", json_schema=json_schema
+        )
+
+        logger.debug(f"Created ResponseFormat with schema: {schema_dict['name']}")
+        return response_format
+
+    except Exception as e:
+        logger.warning(f"Error creating ResponseFormat: {e}")
+        return None
+
+
+def get_bbox_annotation_format() -> Optional[Any]:
+    """
+    Get ResponseFormat for bounding box annotation.
+
+    Returns:
+        ResponseFormat for bbox extraction or None if disabled
+    """
+    if not config.MISTRAL_ENABLE_BBOX_ANNOTATION:
+        return None
+
+    bbox_schema = schemas.get_bbox_schema("structured")
+    return create_response_format(bbox_schema)
+
+
+def get_document_annotation_format(doc_type: str = "auto") -> Optional[Any]:
+    """
+    Get ResponseFormat for document-level annotation.
+
+    Args:
+        doc_type: Document type (invoice, financial_statement, form, generic, auto)
+
+    Returns:
+        ResponseFormat for document extraction or None if disabled
+    """
+    if not config.MISTRAL_ENABLE_DOCUMENT_ANNOTATION:
+        return None
+
+    # Auto-detect based on config if set to auto
+    if doc_type == "auto":
+        doc_type = config.MISTRAL_DOCUMENT_SCHEMA_TYPE
+        if doc_type == "auto":
+            doc_type = "generic"  # Default fallback
+
+    document_schema = schemas.get_document_schema(doc_type)
+    return create_response_format(document_schema)
+
+
 # ============================================================================
 # Image Optimization
 # ============================================================================
+
 
 def optimize_image(image_path: Path) -> Optional[Path]:
     """
@@ -104,15 +249,25 @@ def optimize_image(image_path: Path) -> Optional[Path]:
         img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
 
         # Save optimized image with format-appropriate parameters
-        optimized_path = image_path.parent / f"{image_path.stem}_optimized{image_path.suffix}"
+        optimized_path = (
+            image_path.parent / f"{image_path.stem}_optimized{image_path.suffix}"
+        )
 
         # Use different save parameters based on format
-        if img.format == 'PNG' or image_path.suffix.lower() == '.png':
+        if img.format == "PNG" or image_path.suffix.lower() == ".png":
             # PNG supports optimize and compress_level, not quality
-            img.save(optimized_path, format='PNG', optimize=True, compress_level=6)
-        elif img.format in ['JPEG', 'JPG'] or image_path.suffix.lower() in ['.jpg', '.jpeg']:
+            img.save(optimized_path, format="PNG", optimize=True, compress_level=6)
+        elif img.format in ["JPEG", "JPG"] or image_path.suffix.lower() in [
+            ".jpg",
+            ".jpeg",
+        ]:
             # JPEG supports quality parameter
-            img.save(optimized_path, format='JPEG', quality=config.MISTRAL_IMAGE_QUALITY_THRESHOLD, optimize=True)
+            img.save(
+                optimized_path,
+                format="JPEG",
+                quality=config.MISTRAL_IMAGE_QUALITY_THRESHOLD,
+                optimize=True,
+            )
         else:
             # For other formats, save with optimize only
             img.save(optimized_path, optimize=True)
@@ -123,6 +278,7 @@ def optimize_image(image_path: Path) -> Optional[Path]:
     except Exception as e:
         logger.warning(f"Error optimizing image {image_path.name}: {e}")
         return image_path
+
 
 def preprocess_image(image_path: Path) -> Optional[Path]:
     """
@@ -143,8 +299,8 @@ def preprocess_image(image_path: Path) -> Optional[Path]:
         img = Image.open(image_path)
 
         # Convert to RGB if needed
-        if img.mode != 'RGB':
-            img = img.convert('RGB')
+        if img.mode != "RGB":
+            img = img.convert("RGB")
 
         # Enhance contrast
         enhancer = ImageEnhance.Contrast(img)
@@ -155,7 +311,9 @@ def preprocess_image(image_path: Path) -> Optional[Path]:
         img = enhancer.enhance(1.3)
 
         # Save preprocessed image
-        preprocessed_path = image_path.parent / f"{image_path.stem}_preprocessed{image_path.suffix}"
+        preprocessed_path = (
+            image_path.parent / f"{image_path.stem}_preprocessed{image_path.suffix}"
+        )
         img.save(preprocessed_path, quality=95)
 
         logger.debug(f"Preprocessed image: {image_path.name}")
@@ -165,9 +323,11 @@ def preprocess_image(image_path: Path) -> Optional[Path]:
         logger.warning(f"Error preprocessing image {image_path.name}: {e}")
         return image_path
 
+
 # ============================================================================
 # Files API Integration
 # ============================================================================
+
 
 def upload_file_for_ocr(client: Mistral, file_path: Path) -> Optional[str]:
     """
@@ -185,7 +345,7 @@ def upload_file_for_ocr(client: Mistral, file_path: Path) -> Optional[str]:
     try:
         logger.info(f"Uploading file to Mistral: {file_path.name}")
 
-        with open(file_path, 'rb') as f:
+        with open(file_path, "rb") as f:
             file_content = f.read()
 
         # Upload with purpose="ocr"
@@ -194,10 +354,10 @@ def upload_file_for_ocr(client: Mistral, file_path: Path) -> Optional[str]:
                 "file_name": file_path.name,
                 "content": file_content,
             },
-            purpose="ocr"  # Critical: Must specify purpose="ocr"
+            purpose="ocr",  # Critical: Must specify purpose="ocr"
         )
 
-        if not hasattr(response, 'id'):
+        if not hasattr(response, "id"):
             logger.error("Upload response missing file ID")
             return None
 
@@ -207,10 +367,10 @@ def upload_file_for_ocr(client: Mistral, file_path: Path) -> Optional[str]:
         # The signed URL is required to process the file with OCR
         signed_url_response = client.files.get_signed_url(
             file_id=response.id,
-            expiry=1  # URL expires in 1 hour
+            expiry=1,  # URL expires in 1 hour
         )
 
-        if hasattr(signed_url_response, 'url'):
+        if hasattr(signed_url_response, "url"):
             logger.debug(f"Got signed URL for file {response.id}")
             return signed_url_response.url
         else:
@@ -221,15 +381,18 @@ def upload_file_for_ocr(client: Mistral, file_path: Path) -> Optional[str]:
         logger.error(f"Error uploading file: {e}")
         return None
 
+
 # ============================================================================
 # OCR Processing
 # ============================================================================
+
 
 def process_with_ocr(
     client: Mistral,
     file_path: Path,
     model: Optional[str] = None,
-    pages: Optional[List[int]] = None
+    pages: Optional[List[int]] = None,
+    progress_callback: Optional[Callable[[str, float], None]] = None,
 ) -> Tuple[bool, Optional[Dict[str, Any]], Optional[str]]:
     """
     Process file with Mistral OCR.
@@ -239,20 +402,30 @@ def process_with_ocr(
         file_path: Path to file
         model: Optional model override
         pages: Optional specific pages to process (0-indexed)
+        progress_callback: Optional callback for progress updates (message, progress_0_to_1)
 
     Returns:
         Tuple of (success, ocr_result_dict, error_message)
     """
+
+    def _report_progress(message: str, progress: float = 0.0):
+        """Report progress if callback is provided and streaming is enabled."""
+        if progress_callback and config.ENABLE_STREAMING:
+            progress_callback(message, progress)
+
     try:
+        _report_progress("Analyzing file...", 0.1)
         # Determine best model
         if model is None:
             content_analysis = local_converter.analyze_file_content(file_path)
             model = config.select_best_model(
-                file_type=file_path.suffix.lower().lstrip('.'),
-                content_analysis=content_analysis
+                file_type=file_path.suffix.lower().lstrip("."),
+                content_analysis=content_analysis,
             )
 
         logger.info(f"Processing with Mistral OCR using model: {model}")
+
+        _report_progress("Preparing document...", 0.2)
 
         # ALWAYS use Files API for better OCR quality (not base64)
         # The Files API produces significantly better results than base64 encoding
@@ -261,6 +434,7 @@ def process_with_ocr(
 
         # Prepare document - use dict format instead of model classes
         if use_files_api:
+            _report_progress(f"Uploading file ({file_size_mb:.1f} MB)...", 0.3)
             # Upload file and get signed URL
             # NOTE: The Mistral OCR API requires a signed HTTPS URL, not a file ID
             # After uploading, we must call get_signed_url() to get an HTTPS URL
@@ -268,32 +442,42 @@ def process_with_ocr(
             if not signed_url:
                 return False, None, "Failed to upload file"
 
+            _report_progress("Upload complete", 0.4)
             document = {
                 "type": "document_url",
-                "document_url": signed_url  # Use the signed HTTPS URL
+                "document_url": signed_url,  # Use the signed HTTPS URL
             }
         else:
             # Use base64 encoding for smaller files
-            with open(file_path, 'rb') as f:
-                file_content = base64.b64encode(f.read()).decode('utf-8')
+            with open(file_path, "rb") as f:
+                file_content = base64.b64encode(f.read()).decode("utf-8")
 
             # Determine MIME type
             mime_types = {
-                'pdf': 'application/pdf',
-                'png': 'image/png',
-                'jpg': 'image/jpeg',
-                'jpeg': 'image/jpeg',
-                'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                "pdf": "application/pdf",
+                "png": "image/png",
+                "jpg": "image/jpeg",
+                "jpeg": "image/jpeg",
+                "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
             }
 
-            ext = file_path.suffix.lower().lstrip('.')
-            mime_type = mime_types.get(ext, 'application/octet-stream')
+            ext = file_path.suffix.lower().lstrip(".")
+            mime_type = mime_types.get(ext, "application/octet-stream")
 
             document = {
                 "type": "document_url",
-                "document_url": f"data:{mime_type};base64,{file_content}"
+                "document_url": f"data:{mime_type};base64,{file_content}",
             }
+
+        # Get retry configuration
+        retry_config = get_retry_config()
+
+        # Get structured output formats if enabled
+        bbox_format = get_bbox_annotation_format()
+        doc_format = get_document_annotation_format()
+
+        _report_progress("Processing with Mistral OCR...", 0.5)
 
         # Process with OCR
         response = client.ocr.process(
@@ -301,6 +485,135 @@ def process_with_ocr(
             document=document,
             pages=pages,
             include_image_base64=config.MISTRAL_INCLUDE_IMAGES,
+            bbox_annotation_format=bbox_format,
+            document_annotation_format=doc_format,
+            retries=retry_config,
+        )
+
+        _report_progress("Parsing OCR response...", 0.8)
+
+        # Parse response
+        if response:
+            result = _parse_ocr_response(response, file_path)
+
+            # Validate that we got actual text content
+            if not result.get("full_text", "").strip():
+                error_msg = "Mistral OCR returned empty text. Your API key may not have OCR access. "
+                error_msg += "Try using Mode 3 (MarkItDown Only) instead, which works perfectly for text-based PDFs."
+                logger.warning(error_msg)
+                return False, None, error_msg
+
+            _report_progress("OCR processing complete", 1.0)
+            return True, result, None
+        else:
+            return False, None, "Empty response from Mistral OCR"
+
+    except Exception as e:
+        error_msg = f"Error processing with Mistral OCR: {e}"
+
+        # Check for specific error types
+        if "401" in str(e) or "Unauthorized" in str(e):
+            error_msg = "Mistral API authentication failed (401 Unauthorized). "
+            error_msg += "Please verify your API key has OCR access at https://console.mistral.ai/"
+        elif "403" in str(e) or "Forbidden" in str(e):
+            error_msg = "Access denied to Mistral OCR (403 Forbidden). This feature may require a paid plan."
+
+        logger.error(error_msg)
+        return False, None, error_msg
+
+
+async def process_with_ocr_async(
+    client: Mistral,
+    file_path: Path,
+    model: Optional[str] = None,
+    pages: Optional[List[int]] = None,
+    progress_callback: Optional[Callable[[str, float], None]] = None,
+) -> Tuple[bool, Optional[Dict[str, Any]], Optional[str]]:
+    """
+    Process file with Mistral OCR asynchronously.
+
+    Args:
+        client: Mistral client instance
+        file_path: Path to file
+        model: Optional model override
+        pages: Optional specific pages to process (0-indexed)
+        progress_callback: Optional callback for progress updates (message, progress_0_to_1)
+
+    Returns:
+        Tuple of (success, ocr_result_dict, error_message)
+    """
+
+    def _report_progress(message: str, progress: float = 0.0):
+        """Report progress if callback is provided and streaming is enabled."""
+        if progress_callback and config.ENABLE_STREAMING:
+            progress_callback(message, progress)
+
+    try:
+        _report_progress("Analyzing file (async)...", 0.1)
+        # Determine best model
+        if model is None:
+            content_analysis = local_converter.analyze_file_content(file_path)
+            model = config.select_best_model(
+                file_type=file_path.suffix.lower().lstrip("."),
+                content_analysis=content_analysis,
+            )
+
+        logger.info(f"Processing with Mistral OCR (async) using model: {model}")
+
+        # ALWAYS use Files API for better OCR quality
+        file_size_mb = file_path.stat().st_size / (1024 * 1024)
+        use_files_api = True  # Always use Files API for best quality
+
+        # Prepare document - use dict format instead of model classes
+        if use_files_api:
+            # Upload file and get signed URL
+            signed_url = upload_file_for_ocr(client, file_path)
+            if not signed_url:
+                return False, None, "Failed to upload file"
+
+            document = {
+                "type": "document_url",
+                "document_url": signed_url,
+            }
+        else:
+            # Use base64 encoding for smaller files
+            with open(file_path, "rb") as f:
+                file_content = base64.b64encode(f.read()).decode("utf-8")
+
+            # Determine MIME type
+            mime_types = {
+                "pdf": "application/pdf",
+                "png": "image/png",
+                "jpg": "image/jpeg",
+                "jpeg": "image/jpeg",
+                "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            }
+
+            ext = file_path.suffix.lower().lstrip(".")
+            mime_type = mime_types.get(ext, "application/octet-stream")
+
+            document = {
+                "type": "document_url",
+                "document_url": f"data:{mime_type};base64,{file_content}",
+            }
+
+        # Get retry configuration
+        retry_config = get_retry_config()
+
+        # Get structured output formats if enabled
+        bbox_format = get_bbox_annotation_format()
+        doc_format = get_document_annotation_format()
+
+        # Process with OCR (async)
+        response = await client.ocr.process_async(
+            model=model,
+            document=document,
+            pages=pages,
+            include_image_base64=config.MISTRAL_INCLUDE_IMAGES,
+            bbox_annotation_format=bbox_format,
+            document_annotation_format=doc_format,
+            retries=retry_config,
         )
 
         # Parse response
@@ -319,7 +632,7 @@ def process_with_ocr(
             return False, None, "Empty response from Mistral OCR"
 
     except Exception as e:
-        error_msg = f"Error processing with Mistral OCR: {e}"
+        error_msg = f"Error processing with Mistral OCR (async): {e}"
 
         # Check for specific error types
         if "401" in str(e) or "Unauthorized" in str(e):
@@ -330,6 +643,7 @@ def process_with_ocr(
 
         logger.error(error_msg)
         return False, None, error_msg
+
 
 def _parse_ocr_response(response: Any, file_path: Path) -> Dict[str, Any]:
     """
@@ -348,26 +662,47 @@ def _parse_ocr_response(response: Any, file_path: Path) -> Dict[str, Any]:
         "full_text": "",
         "images": [],
         "metadata": {},
+        "bbox_annotations": [],  # NEW: Structured bounding box data
+        "document_annotation": None,  # NEW: Structured document-level data
     }
 
     try:
+        # Extract structured outputs if present
+        if hasattr(response, "bbox_annotations") and response.bbox_annotations:
+            result["bbox_annotations"] = [
+                bbox.model_dump() if hasattr(bbox, "model_dump") else bbox
+                for bbox in response.bbox_annotations
+            ]
+            logger.debug(
+                f"Extracted {len(result['bbox_annotations'])} bbox annotations"
+            )
+
+        if hasattr(response, "document_annotation") and response.document_annotation:
+            result["document_annotation"] = (
+                response.document_annotation.model_dump()
+                if hasattr(response.document_annotation, "model_dump")
+                else response.document_annotation
+            )
+            logger.debug("Extracted document annotation")
         # Try different response formats
         # Format 1: response.pages (list of page objects)
-        if hasattr(response, 'pages') and response.pages:
+        if hasattr(response, "pages") and response.pages:
             logger.debug(f"Found {len(response.pages)} pages in response")
 
             for idx, page in enumerate(response.pages):
                 # Try different text attributes (markdown is the primary one for Mistral OCR)
                 page_text = ""
 
-                if hasattr(page, 'markdown') and page.markdown:
+                if hasattr(page, "markdown") and page.markdown:
                     page_text = page.markdown
-                elif hasattr(page, 'text') and page.text:
+                elif hasattr(page, "text") and page.text:
                     page_text = page.text
-                elif hasattr(page, 'content') and page.content:
+                elif hasattr(page, "content") and page.content:
                     page_text = page.content
                 elif isinstance(page, dict):
-                    page_text = page.get('markdown', page.get('text', page.get('content', '')))
+                    page_text = page.get(
+                        "markdown", page.get("text", page.get("content", ""))
+                    )
                 elif isinstance(page, str):
                     page_text = page
 
@@ -378,7 +713,9 @@ def _parse_ocr_response(response: Any, file_path: Path) -> Dict[str, Any]:
 
                 if cleaned_length < original_length:
                     reduction = original_length - cleaned_length
-                    logger.debug(f"Page {idx}: Cleaned {reduction} chars of consecutive duplicates.")
+                    logger.debug(
+                        f"Page {idx}: Cleaned {reduction} chars of consecutive duplicates."
+                    )
 
                 logger.debug(f"Page {idx}: {len(page_text)} chars extracted")
 
@@ -390,12 +727,14 @@ def _parse_ocr_response(response: Any, file_path: Path) -> Dict[str, Any]:
                 }
 
                 # Extract images from page
-                if hasattr(page, 'images') and page.images:
+                if hasattr(page, "images") and page.images:
                     logger.debug(f"Page {idx} has {len(page.images)} images")
                     for img in page.images:
                         image_data = {
-                            "bbox": getattr(img, 'bbox', None),
-                            "base64": getattr(img, 'base64', None) if config.MISTRAL_INCLUDE_IMAGES else None,
+                            "bbox": getattr(img, "bbox", None),
+                            "base64": getattr(img, "base64", None)
+                            if config.MISTRAL_INCLUDE_IMAGES
+                            else None,
                         }
                         page_data["images"].append(image_data)
 
@@ -404,85 +743,104 @@ def _parse_ocr_response(response: Any, file_path: Path) -> Dict[str, Any]:
                     result["full_text"] += page_text + "\n\n"
 
         # Format 2: response.markdown (Mistral OCR format)
-        elif hasattr(response, 'markdown') and response.markdown:
+        elif hasattr(response, "markdown") and response.markdown:
             cleaned_text = utils.clean_consecutive_duplicates(response.markdown)
             result["full_text"] = cleaned_text
-            result["pages"].append({
-                "page_number": 0,
-                "text": cleaned_text,
-                "images": [],
-            })
+            result["pages"].append(
+                {
+                    "page_number": 0,
+                    "text": cleaned_text,
+                    "images": [],
+                }
+            )
 
         # Format 3: response.text (direct text)
-        elif hasattr(response, 'text') and response.text:
+        elif hasattr(response, "text") and response.text:
             cleaned_text = utils.clean_consecutive_duplicates(response.text)
             result["full_text"] = cleaned_text
-            result["pages"].append({
-                "page_number": 0,
-                "text": cleaned_text,
-                "images": [],
-            })
+            result["pages"].append(
+                {
+                    "page_number": 0,
+                    "text": cleaned_text,
+                    "images": [],
+                }
+            )
 
         # Format 4: response.content
-        elif hasattr(response, 'content') and response.content:
+        elif hasattr(response, "content") and response.content:
             cleaned_text = utils.clean_consecutive_duplicates(response.content)
             result["full_text"] = cleaned_text
-            result["pages"].append({
-                "page_number": 0,
-                "text": cleaned_text,
-                "images": [],
-            })
+            result["pages"].append(
+                {
+                    "page_number": 0,
+                    "text": cleaned_text,
+                    "images": [],
+                }
+            )
 
         # Format 5: response as dict
         elif isinstance(response, dict):
-            if 'pages' in response:
-                for idx, page in enumerate(response['pages']):
-                    page_text = page.get('markdown', page.get('text', page.get('content', '')))
+            if "pages" in response:
+                for idx, page in enumerate(response["pages"]):
+                    page_text = page.get(
+                        "markdown", page.get("text", page.get("content", ""))
+                    )
                     # Apply cleaning to dict-based pages
                     page_text = utils.clean_consecutive_duplicates(page_text)
-                    result["pages"].append({
-                        "page_number": idx,  # Standardized numbering
-                        "text": page_text,
-                        "images": page.get('images', []),
-                    })
+                    result["pages"].append(
+                        {
+                            "page_number": idx,  # Standardized numbering
+                            "text": page_text,
+                            "images": page.get("images", []),
+                        }
+                    )
                     if page_text:
                         result["full_text"] += page_text + "\n\n"
-            elif 'markdown' in response:
-                cleaned_text = utils.clean_consecutive_duplicates(response['markdown'])
+            elif "markdown" in response:
+                cleaned_text = utils.clean_consecutive_duplicates(response["markdown"])
                 result["full_text"] = cleaned_text
-                result["pages"].append({
-                    "page_number": 0,
-                    "text": cleaned_text,
-                    "images": [],
-                })
-            elif 'text' in response:
-                cleaned_text = utils.clean_consecutive_duplicates(response['text'])
+                result["pages"].append(
+                    {
+                        "page_number": 0,
+                        "text": cleaned_text,
+                        "images": [],
+                    }
+                )
+            elif "text" in response:
+                cleaned_text = utils.clean_consecutive_duplicates(response["text"])
                 result["full_text"] = cleaned_text
-                result["pages"].append({
-                    "page_number": 0,
-                    "text": cleaned_text,
-                    "images": [],
-                })
+                result["pages"].append(
+                    {
+                        "page_number": 0,
+                        "text": cleaned_text,
+                        "images": [],
+                    }
+                )
 
         # Extract metadata
-        if hasattr(response, 'metadata'):
+        if hasattr(response, "metadata"):
             result["metadata"] = response.metadata
-        elif isinstance(response, dict) and 'metadata' in response:
-            result["metadata"] = response['metadata']
+        elif isinstance(response, dict) and "metadata" in response:
+            result["metadata"] = response["metadata"]
 
         # Log final result
-        logger.debug(f"Extracted {len(result['pages'])} pages, {len(result['full_text'])} chars")
+        logger.debug(
+            f"Extracted {len(result['pages'])} pages, {len(result['full_text'])} chars"
+        )
 
     except Exception as e:
         logger.error(f"Error parsing OCR response: {e}")
         import traceback
+
         logger.debug(f"Traceback: {traceback.format_exc()}")
 
     return result
 
+
 # ============================================================================
 # Per-Page OCR Improvements
 # ============================================================================
+
 
 def _is_weak_page(text: str) -> bool:
     """
@@ -503,13 +861,13 @@ def _is_weak_page(text: str) -> bool:
     if not text or len(text.strip()) < 10:
         return True
 
-    # Check 1: Very short text (original check)
-    if len(text.strip()) < 50:
+    # Check 1: Very short text
+    if len(text.strip()) < OCR_MIN_TEXT_LENGTH:
         return True
 
     # Check 2: Count digits (financial docs should have many numbers)
     digit_count = sum(1 for char in text if char.isdigit())
-    if digit_count < 20:  # Very few numbers for a data document
+    if digit_count < OCR_MIN_DIGIT_COUNT:
         return True
 
     # Check 3: Token uniqueness ratio (detect heavy repetition)
@@ -520,8 +878,7 @@ def _is_weak_page(text: str) -> bool:
     unique_tokens = set(tokens)
     uniqueness_ratio = len(unique_tokens) / len(tokens)
 
-    # If < 30% of tokens are unique, probably repetitive junk
-    if uniqueness_ratio < 0.3:
+    if uniqueness_ratio < OCR_MIN_UNIQUENESS_RATIO:
         logger.debug(f"Low uniqueness ratio: {uniqueness_ratio:.2f}")
         return True
 
@@ -529,24 +886,27 @@ def _is_weak_page(text: str) -> bool:
     # Count occurrences of common repeated strings
     common_phrases = [
         "5151 E Broadway",  # Example from SWE feedback
-        "Page 1", "Page 2", "Page 3",
+        "Page 1",
+        "Page 2",
+        "Page 3",
     ]
 
     for phrase in common_phrases:
         occurrences = text.count(phrase)
-        if occurrences > 5:  # Same phrase repeated many times
+        if occurrences > OCR_MAX_PHRASE_REPETITIONS:
             logger.debug(f"Repeated phrase '{phrase}' found {occurrences} times")
             return True
 
     # Check 5: Average line length (very short lines suggest parsing issues)
-    lines = [line.strip() for line in text.split('\n') if line.strip()]
+    lines = [line.strip() for line in text.split("\n") if line.strip()]
     if lines:
         avg_line_length = sum(len(line) for line in lines) / len(lines)
-        if avg_line_length < 10:  # Very short average line length
+        if avg_line_length < OCR_MIN_AVG_LINE_LENGTH:
             logger.debug(f"Short average line length: {avg_line_length:.1f}")
             return True
 
     return False
+
 
 def assess_ocr_quality(ocr_result: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -602,7 +962,9 @@ def assess_ocr_quality(ocr_result: Dict[str, Any]) -> Dict[str, Any]:
 
     # Deduct points for issues
     if assessment["weak_page_count"] > 0:
-        weak_ratio = assessment["weak_page_count"] / max(1, assessment["total_page_count"])
+        weak_ratio = assessment["weak_page_count"] / max(
+            1, assessment["total_page_count"]
+        )
         points_lost = weak_ratio * 50  # Up to 50 points for all weak pages
         assessment["quality_score"] -= points_lost
         assessment["issues"].append(
@@ -611,11 +973,15 @@ def assess_ocr_quality(ocr_result: Dict[str, Any]) -> Dict[str, Any]:
 
     if assessment["digit_count"] < 100:  # Low number count for financial docs
         assessment["quality_score"] -= 20
-        assessment["issues"].append(f"Low numerical content ({assessment['digit_count']} digits)")
+        assessment["issues"].append(
+            f"Low numerical content ({assessment['digit_count']} digits)"
+        )
 
     if assessment["uniqueness_ratio"] < 0.3:  # Highly repetitive
         assessment["quality_score"] -= 30
-        assessment["issues"].append(f"High repetition (uniqueness: {assessment['uniqueness_ratio']:.1%})")
+        assessment["issues"].append(
+            f"High repetition (uniqueness: {assessment['uniqueness_ratio']:.1%})"
+        )
 
     # Final verdict
     if assessment["quality_score"] < 40:
@@ -629,11 +995,9 @@ def assess_ocr_quality(ocr_result: Dict[str, Any]) -> Dict[str, Any]:
 
     return assessment
 
+
 def improve_weak_pages(
-    client: Mistral,
-    file_path: Path,
-    ocr_result: Dict[str, Any],
-    model: str
+    client: Mistral, file_path: Path, ocr_result: Dict[str, Any], model: str
 ) -> Dict[str, Any]:
     """
     Re-OCR weak pages with low confidence or short text.
@@ -678,10 +1042,7 @@ def improve_weak_pages(
     for page_idx in weak_pages:
         try:
             success, improved_result, error = process_with_ocr(
-                client,
-                file_path,
-                model=model,
-                pages=[page_idx]
+                client, file_path, model=model, pages=[page_idx]
             )
 
             if success and improved_result:
@@ -689,7 +1050,9 @@ def improve_weak_pages(
                 if improved_result.get("pages") and len(improved_result["pages"]) > 0:
                     improved_page = improved_result["pages"][0]
 
-                    if len(improved_page.get("text", "")) > len(ocr_result["pages"][page_idx].get("text", "")):
+                    if len(improved_page.get("text", "")) > len(
+                        ocr_result["pages"][page_idx].get("text", "")
+                    ):
                         logger.info(f"Improved page {page_idx + 1}")
                         ocr_result["pages"][page_idx] = improved_page
 
@@ -703,14 +1066,13 @@ def improve_weak_pages(
 
     return ocr_result
 
+
 # ============================================================================
 # Image Extraction and Saving
 # ============================================================================
 
-def save_extracted_images(
-    ocr_result: Dict[str, Any],
-    file_path: Path
-) -> List[Path]:
+
+def save_extracted_images(ocr_result: Dict[str, Any], file_path: Path) -> List[Path]:
     """
     Save extracted images from OCR result.
 
@@ -748,7 +1110,7 @@ def save_extracted_images(
                 image_count += 1
                 image_path = image_dir / f"page_{page_num}_image_{image_count}.png"
 
-                with open(image_path, 'wb') as f:
+                with open(image_path, "wb") as f:
                     f.write(image_data)
 
                 saved_images.append(image_path)
@@ -762,14 +1124,14 @@ def save_extracted_images(
 
     return saved_images
 
+
 # ============================================================================
 # Main Conversion Function
 # ============================================================================
 
+
 def convert_with_mistral_ocr(
-    file_path: Path,
-    use_cache: bool = True,
-    improve_weak: bool = True
+    file_path: Path, use_cache: bool = True, improve_weak: bool = True
 ) -> Tuple[bool, Optional[Path], Optional[str]]:
     """
     Convert file using Mistral OCR with full pipeline.
@@ -784,7 +1146,9 @@ def convert_with_mistral_ocr(
     """
     client = get_mistral_client()
     if client is None:
-        error_msg = "Mistral client not available. Please set MISTRAL_API_KEY in .env file"
+        error_msg = (
+            "Mistral client not available. Please set MISTRAL_API_KEY in .env file"
+        )
         logger.warning(error_msg)
         return False, None, error_msg
 
@@ -810,19 +1174,27 @@ def convert_with_mistral_ocr(
     ocr_result["quality_assessment"] = quality_assessment
 
     # Re-process weak pages if requested and quality is low
-    if improve_weak and ocr_result.get("pages") and quality_assessment.get("weak_page_count", 0) > 0:
-        logger.info(f"Attempting to improve {quality_assessment['weak_page_count']} weak pages...")
+    if (
+        improve_weak
+        and ocr_result.get("pages")
+        and quality_assessment.get("weak_page_count", 0) > 0
+    ):
+        logger.info(
+            f"Attempting to improve {quality_assessment['weak_page_count']} weak pages..."
+        )
         content_analysis = local_converter.analyze_file_content(file_path)
         model = config.select_best_model(
-            file_type=file_path.suffix.lower().lstrip('.'),
-            content_analysis=content_analysis
+            file_type=file_path.suffix.lower().lstrip("."),
+            content_analysis=content_analysis,
         )
         ocr_result = improve_weak_pages(client, file_path, ocr_result, model)
 
         # Re-assess quality after improvement
         improved_quality = assess_ocr_quality(ocr_result)
         ocr_result["quality_assessment"] = improved_quality
-        logger.info(f"Quality after improvement: {improved_quality['quality_score']:.1f}/100")
+        logger.info(
+            f"Quality after improvement: {improved_quality['quality_score']:.1f}/100"
+        )
 
     # Cache result
     if use_cache:
@@ -837,11 +1209,130 @@ def convert_with_mistral_ocr(
     # Save JSON metadata if requested
     if config.SAVE_MISTRAL_JSON:
         json_path = config.OUTPUT_MD_DIR / f"{file_path.stem}_ocr_metadata.json"
-        with open(json_path, 'w', encoding='utf-8') as f:
+        with open(json_path, "w", encoding="utf-8") as f:
             json.dump(ocr_result, f, indent=2, ensure_ascii=False)
         logger.info(f"Saved OCR metadata: {json_path.name}")
 
+    # Save structured outputs if they exist
+    _save_structured_outputs(file_path, ocr_result)
+
     return True, output_path, None
+
+
+async def convert_with_mistral_ocr_async(
+    file_path: Path, use_cache: bool = True, improve_weak: bool = True
+) -> Tuple[bool, Optional[Path], Optional[str]]:
+    """
+    Convert file using Mistral OCR with full pipeline (async version).
+
+    Args:
+        file_path: Path to file
+        use_cache: Use cached results if available
+        improve_weak: Re-process weak pages
+
+    Returns:
+        Tuple of (success, output_md_path, error_message)
+    """
+    client = get_mistral_client()
+    if client is None:
+        error_msg = (
+            "Mistral client not available. Please set MISTRAL_API_KEY in .env file"
+        )
+        logger.warning(error_msg)
+        return False, None, error_msg
+
+    # Check cache
+    if use_cache:
+        cached_result = utils.cache.get(file_path, cache_type="mistral_ocr")
+        if cached_result:
+            logger.info(f"Using cached Mistral OCR result for {file_path.name}")
+            ocr_result = cached_result
+            success = True
+            error = None
+        else:
+            success, ocr_result, error = await process_with_ocr_async(client, file_path)
+    else:
+        success, ocr_result, error = await process_with_ocr_async(client, file_path)
+
+    if not success or not ocr_result:
+        return False, None, error
+
+    # Assess OCR quality
+    logger.info("Assessing OCR quality...")
+    quality_assessment = assess_ocr_quality(ocr_result)
+    ocr_result["quality_assessment"] = quality_assessment
+
+    # Re-process weak pages if requested and quality is low
+    # Note: Weak page improvement is synchronous for now
+    if (
+        improve_weak
+        and ocr_result.get("pages")
+        and quality_assessment.get("weak_page_count", 0) > 0
+    ):
+        logger.info(
+            f"Attempting to improve {quality_assessment['weak_page_count']} weak pages..."
+        )
+        content_analysis = local_converter.analyze_file_content(file_path)
+        model = config.select_best_model(
+            file_type=file_path.suffix.lower().lstrip("."),
+            content_analysis=content_analysis,
+        )
+        ocr_result = improve_weak_pages(client, file_path, ocr_result, model)
+
+        # Re-assess quality after improvement
+        improved_quality = assess_ocr_quality(ocr_result)
+        ocr_result["quality_assessment"] = improved_quality
+        logger.info(
+            f"Quality after improvement: {improved_quality['quality_score']:.1f}/100"
+        )
+
+    # Cache result
+    if use_cache:
+        utils.cache.set(file_path, ocr_result, cache_type="mistral_ocr")
+
+    # Save extracted images
+    save_extracted_images(ocr_result, file_path)
+
+    # Generate markdown output
+    output_path = _create_markdown_output(file_path, ocr_result)
+
+    # Save JSON metadata if requested
+    if config.SAVE_MISTRAL_JSON:
+        json_path = config.OUTPUT_MD_DIR / f"{file_path.stem}_ocr_metadata.json"
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(ocr_result, f, indent=2, ensure_ascii=False)
+        logger.info(f"Saved OCR metadata: {json_path.name}")
+
+    # Save structured outputs if they exist
+    _save_structured_outputs(file_path, ocr_result)
+
+    return True, output_path, None
+
+
+def _save_structured_outputs(file_path: Path, ocr_result: Dict[str, Any]) -> None:
+    """
+    Save structured outputs from bbox and document annotations.
+
+    Args:
+        file_path: Original file path
+        ocr_result: OCR result dictionary containing structured outputs
+    """
+    # Save bounding box annotations if present
+    if "bbox_annotations" in ocr_result and ocr_result["bbox_annotations"]:
+        bbox_path = config.OUTPUT_MD_DIR / f"{file_path.stem}_bbox_annotations.json"
+        with open(bbox_path, "w", encoding="utf-8") as f:
+            json.dump(ocr_result["bbox_annotations"], f, indent=2, ensure_ascii=False)
+        logger.info(f"Saved bbox annotations: {bbox_path.name}")
+
+    # Save document annotations if present
+    if "document_annotation" in ocr_result and ocr_result["document_annotation"]:
+        doc_path = config.OUTPUT_MD_DIR / f"{file_path.stem}_document_annotation.json"
+        with open(doc_path, "w", encoding="utf-8") as f:
+            json.dump(
+                ocr_result["document_annotation"], f, indent=2, ensure_ascii=False
+            )
+        logger.info(f"Saved document annotation: {doc_path.name}")
+
 
 def _create_markdown_output(file_path: Path, ocr_result: Dict[str, Any]) -> Path:
     """
@@ -862,7 +1353,7 @@ def _create_markdown_output(file_path: Path, ocr_result: Dict[str, Any]) -> Path
         additional_fields={
             "page_count": len(ocr_result.get("pages", [])),
             "image_count": len(ocr_result.get("images", [])),
-        }
+        },
     )
 
     # Build markdown content
@@ -871,7 +1362,9 @@ def _create_markdown_output(file_path: Path, ocr_result: Dict[str, Any]) -> Path
     # Add page-by-page breakdown (no "Full Text" section to avoid duplication)
     if ocr_result.get("pages"):
         total_pages = len(ocr_result["pages"])
-        md_content += f"## OCR Content ({total_pages} page{'s' if total_pages != 1 else ''})\n\n"
+        md_content += (
+            f"## OCR Content ({total_pages} page{'s' if total_pages != 1 else ''})\n\n"
+        )
 
         # Iterate directly over pages. Since page_number is standardized to 0-based index in _parse_ocr_response,
         # we just need to add 1 for 1-based display (Page 1, Page 2, etc.)
@@ -892,7 +1385,7 @@ def _create_markdown_output(file_path: Path, ocr_result: Dict[str, Any]) -> Path
     # Save markdown
     output_path = config.OUTPUT_MD_DIR / f"{file_path.stem}_mistral_ocr.md"
 
-    with open(output_path, 'w', encoding='utf-8') as f:
+    with open(output_path, "w", encoding="utf-8") as f:
         f.write(md_content)
 
     # Save text version

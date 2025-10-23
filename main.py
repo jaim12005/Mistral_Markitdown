@@ -22,6 +22,7 @@ Documentation references:
 """
 
 import argparse
+import json
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -38,6 +39,7 @@ logger = utils.logger
 # ============================================================================
 # Mode 1: HYBRID Mode (Intelligent Processing)
 # ============================================================================
+
 
 def mode_hybrid(file_path: Path) -> Tuple[bool, str]:
     """
@@ -58,8 +60,16 @@ def mode_hybrid(file_path: Path) -> Tuple[bool, str]:
     """
     logger.info(f"HYBRID MODE: Processing {file_path.name}")
 
-    results = []
-    has_errors = False
+    # Initialize all variables at function start to avoid scope issues
+    results: List[str] = []
+    has_errors: bool = False
+    tables_extracted: List[List[List[str]]] = []
+    table_count: int = 0
+    ocr_quality: Optional[dict] = None
+    ocr_path: Optional[Path] = None
+    md_success: bool = False
+    md_content: Optional[str] = None
+    md_error: Optional[str] = None
 
     # Analyze file content to optimize processing strategy
     content_analysis = local_converter.analyze_file_content(file_path)
@@ -72,7 +82,9 @@ def mode_hybrid(file_path: Path) -> Tuple[bool, str]:
 
     # Step 1: MarkItDown conversion
     logger.info("Step 1/3: Converting with MarkItDown...")
-    md_success, md_content, md_error = local_converter.convert_with_markitdown(file_path)
+    md_success, md_content, md_error = local_converter.convert_with_markitdown(
+        file_path
+    )
 
     if md_success:
         results.append("MarkItDown conversion successful")
@@ -81,16 +93,19 @@ def mode_hybrid(file_path: Path) -> Tuple[bool, str]:
         has_errors = True
 
     # Step 2: Extract tables (PDF only)
-    tables_extracted = []
-    table_count = 0
-    if file_path.suffix.lower() == '.pdf':
+    if file_path.suffix.lower() == ".pdf":
         logger.info("Step 2/3: Extracting PDF tables...")
         table_result = local_converter.extract_all_tables(file_path)
         table_count = table_result["table_count"]
 
         if table_count > 0:
-            table_files = local_converter.save_tables_to_files(file_path, table_result["tables"])
-            results.append(f"Extracted {table_count} tables")
+            # Save tables to files and use the result for better logging
+            saved_table_files = local_converter.save_tables_to_files(
+                file_path, table_result["tables"]
+            )
+            results.append(
+                f"Extracted {table_count} tables to {len(saved_table_files)} files"
+            )
             tables_extracted = table_result["tables"]
         else:
             results.append("No tables found")
@@ -100,28 +115,30 @@ def mode_hybrid(file_path: Path) -> Tuple[bool, str]:
     # Step 3: Mistral OCR
     # Mistral OCR works on ALL PDFs (both scanned and text-based)
     # It achieves ~95% accuracy across diverse document types
-    ocr_quality = None
-    ocr_path = None
-
     if not config.MISTRAL_API_KEY:
         logger.info("Step 3/3: Skipped (no Mistral API key)")
         results.append("Mistral OCR skipped (no API key)")
     else:
         logger.info("Step 3/3: Processing with Mistral OCR...")
-        ocr_success, ocr_path, ocr_error = mistral_converter.convert_with_mistral_ocr(file_path)
+        ocr_success, ocr_path, ocr_error = mistral_converter.convert_with_mistral_ocr(
+            file_path
+        )
 
         if ocr_success and ocr_path:
             # Load OCR result to assess quality (informational only)
             try:
                 # Read the OCR metadata if it exists
-                ocr_json_path = config.OUTPUT_MD_DIR / f"{file_path.stem}_ocr_metadata.json"
+                ocr_json_path = (
+                    config.OUTPUT_MD_DIR / f"{file_path.stem}_ocr_metadata.json"
+                )
                 if ocr_json_path.exists():
-                    import json
-                    with open(ocr_json_path, 'r', encoding='utf-8') as f:
+                    with open(ocr_json_path, "r", encoding="utf-8") as f:
                         ocr_result = json.load(f)
                     ocr_quality = mistral_converter.assess_ocr_quality(ocr_result)
 
-                    results.append(f"Mistral OCR successful (quality: {ocr_quality['quality_score']:.0f}/100)")
+                    results.append(
+                        f"Mistral OCR successful (quality: {ocr_quality['quality_score']:.0f}/100)"
+                    )
 
                     # Note: We keep the OCR in the output even if quality is low
                     # Mistral OCR is designed to work on all PDFs and users paid for it
@@ -145,10 +162,14 @@ def mode_hybrid(file_path: Path) -> Tuple[bool, str]:
     # Build data quality summary
     quality_summary = "## Data Quality Summary\n\n"
     quality_summary += f"**File Analysis:**\n"
-    quality_summary += f"- Document type: {content_analysis.get('file_type', 'unknown').upper()}\n"
+    quality_summary += (
+        f"- Document type: {content_analysis.get('file_type', 'unknown').upper()}\n"
+    )
     quality_summary += f"- Has text layer: {'Yes' if content_analysis.get('is_text_based') else 'No'}\n"
     quality_summary += f"- Page count: {content_analysis.get('page_count', 'N/A')}\n"
-    quality_summary += f"- File size: {content_analysis.get('file_size_mb', 0):.2f} MB\n\n"
+    quality_summary += (
+        f"- File size: {content_analysis.get('file_size_mb', 0):.2f} MB\n\n"
+    )
 
     quality_summary += f"**Processing Results:**\n"
     for result in results:
@@ -160,7 +181,7 @@ def mode_hybrid(file_path: Path) -> Tuple[bool, str]:
         quality_summary += f"- Quality score: {ocr_quality['quality_score']:.1f}/100\n"
         quality_summary += f"- Usable: {'Yes' if ocr_quality['is_usable'] else 'No'}\n"
         quality_summary += f"- Weak pages: {ocr_quality['weak_page_count']}/{ocr_quality['total_page_count']}\n"
-        if ocr_quality['issues']:
+        if ocr_quality["issues"]:
             quality_summary += f"- Issues: {', '.join(ocr_quality['issues'])}\n"
         quality_summary += "\n"
 
@@ -172,14 +193,16 @@ def mode_hybrid(file_path: Path) -> Tuple[bool, str]:
         file_name=file_path.name,
         conversion_method="Hybrid Mode (MarkItDown + Tables + Mistral OCR)",
         additional_fields={
-            "text_based": content_analysis.get('is_text_based'),
+            "text_based": content_analysis.get("is_text_based"),
             "tables_extracted": table_count,
             "ocr_used": ocr_path is not None,
-            "ocr_quality_score": ocr_quality['quality_score'] if ocr_quality else None,
-        }
+            "ocr_quality_score": ocr_quality["quality_score"] if ocr_quality else None,
+        },
     )
 
-    combined_content = combined_frontmatter + f"\n# Combined Analysis: {file_path.name}\n\n"
+    combined_content = (
+        combined_frontmatter + f"\n# Combined Analysis: {file_path.name}\n\n"
+    )
 
     # Add quality summary FIRST
     combined_content += quality_summary
@@ -207,25 +230,31 @@ def mode_hybrid(file_path: Path) -> Tuple[bool, str]:
 
         # Add quality assessment banner
         if ocr_quality:
-            combined_content += f"**OCR Quality Score: {ocr_quality['quality_score']:.1f}/100**\n\n"
+            combined_content += (
+                f"**OCR Quality Score: {ocr_quality['quality_score']:.1f}/100**\n\n"
+            )
 
             if not ocr_quality["is_usable"]:
                 # Prominent warning for low-quality OCR
                 combined_content += "⚠️ **Quality Warning**: OCR quality is below the recommended threshold.\n\n"
                 combined_content += "**Detected Issues:**\n"
-                for issue in ocr_quality['issues']:
+                for issue in ocr_quality["issues"]:
                     combined_content += f"- {issue}\n"
                 combined_content += "\n**Recommendation**: For this text-based PDF, prioritize the 'Extracted Tables' "
                 combined_content += "and 'MarkItDown Conversion' sections above for higher accuracy.\n\n"
                 combined_content += f"**Detailed Metrics**: {ocr_quality['weak_page_count']}/{ocr_quality['total_page_count']} "
-                combined_content += f"weak pages, {ocr_quality['digit_count']} digits extracted, "
-                combined_content += f"{ocr_quality['uniqueness_ratio']:.1%} content uniqueness\n\n"
+                combined_content += (
+                    f"weak pages, {ocr_quality['digit_count']} digits extracted, "
+                )
+                combined_content += (
+                    f"{ocr_quality['uniqueness_ratio']:.1%} content uniqueness\n\n"
+                )
                 combined_content += "---\n\n"
             else:
                 combined_content += f"✓ OCR quality is good. Extracted content from {ocr_quality['total_page_count']} page(s).\n\n"
 
         try:
-            with open(ocr_path, 'r', encoding='utf-8') as f:
+            with open(ocr_path, "r", encoding="utf-8") as f:
                 ocr_content = f.read()
 
             # Strip both YAML frontmatter AND markdown headers from OCR file
@@ -233,10 +262,18 @@ def mode_hybrid(file_path: Path) -> Tuple[bool, str]:
 
             # Remove the main title (# OCR Result: ...)
             import re
-            ocr_content = re.sub(r'^#\s+OCR Result:.*?\n+', '', ocr_content, flags=re.MULTILINE)
+
+            ocr_content = re.sub(
+                r"^#\s+OCR Result:.*?\n+", "", ocr_content, flags=re.MULTILINE
+            )
 
             # Remove section headers that duplicate our structure (## Full Text, ## OCR Content, ## Page-by-Page Content)
-            ocr_content = re.sub(r'^##\s+(Full Text|OCR Content.*?|Page-by-Page Content)\n+', '', ocr_content, flags=re.MULTILINE)
+            ocr_content = re.sub(
+                r"^##\s+(Full Text|OCR Content.*?|Page-by-Page Content)\n+",
+                "",
+                ocr_content,
+                flags=re.MULTILINE,
+            )
 
             combined_content += ocr_content.strip()
         except Exception as e:
@@ -247,7 +284,7 @@ def mode_hybrid(file_path: Path) -> Tuple[bool, str]:
     # Save combined output
     combined_path = config.OUTPUT_MD_DIR / f"{file_path.stem}_combined.md"
 
-    with open(combined_path, 'w', encoding='utf-8') as f:
+    with open(combined_path, "w", encoding="utf-8") as f:
         f.write(combined_content)
 
     utils.save_text_output(combined_path, combined_content)
@@ -257,9 +294,11 @@ def mode_hybrid(file_path: Path) -> Tuple[bool, str]:
     status = "completed with warnings" if has_errors else "completed successfully"
     return not has_errors, f"HYBRID mode {status}"
 
+
 # ============================================================================
 # Mode 2: ENHANCED BATCH (Maximum Performance)
 # ============================================================================
+
 
 def mode_enhanced_batch(file_paths: List[Path]) -> Tuple[bool, str]:
     """
@@ -278,10 +317,7 @@ def mode_enhanced_batch(file_paths: List[Path]) -> Tuple[bool, str]:
     failed = 0
 
     with ThreadPoolExecutor(max_workers=config.MAX_CONCURRENT_FILES) as executor:
-        futures = {
-            executor.submit(mode_hybrid, fp): fp
-            for fp in file_paths
-        }
+        futures = {executor.submit(mode_hybrid, fp): fp for fp in file_paths}
 
         for i, future in enumerate(as_completed(futures), 1):
             file_path = futures[future]
@@ -298,12 +334,16 @@ def mode_enhanced_batch(file_paths: List[Path]) -> Tuple[bool, str]:
                     metadata.add_file(file_path.name, "success", processing_time)
                 else:
                     failed += 1
-                    metadata.add_file(file_path.name, "failed", processing_time, error=message)
+                    metadata.add_file(
+                        file_path.name, "failed", processing_time, error=message
+                    )
 
             except Exception as e:
                 processing_time = time.time() - start_time
                 failed += 1
-                metadata.add_file(file_path.name, "failed", processing_time, error=str(e))
+                metadata.add_file(
+                    file_path.name, "failed", processing_time, error=str(e)
+                )
                 logger.error(f"Error processing {file_path.name}: {e}")
 
     # Save metadata
@@ -313,9 +353,11 @@ def mode_enhanced_batch(file_paths: List[Path]) -> Tuple[bool, str]:
 
     return failed == 0, f"Processed {successful}/{len(file_paths)} files successfully"
 
+
 # ============================================================================
 # Mode 3: MarkItDown Only
 # ============================================================================
+
 
 def mode_markitdown_only(file_paths: List[Path]) -> Tuple[bool, str]:
     """
@@ -345,9 +387,11 @@ def mode_markitdown_only(file_paths: List[Path]) -> Tuple[bool, str]:
 
     return failed == 0, f"Processed {successful}/{len(file_paths)} files successfully"
 
+
 # ============================================================================
 # Mode 4: Mistral OCR Only
 # ============================================================================
+
 
 def mode_mistral_ocr_only(file_paths: List[Path]) -> Tuple[bool, str]:
     """
@@ -367,7 +411,9 @@ def mode_mistral_ocr_only(file_paths: List[Path]) -> Tuple[bool, str]:
     for i, file_path in enumerate(file_paths, 1):
         utils.print_progress(i, len(file_paths), "Processing files")
 
-        success, output_path, error = mistral_converter.convert_with_mistral_ocr(file_path)
+        success, output_path, error = mistral_converter.convert_with_mistral_ocr(
+            file_path
+        )
 
         if success:
             successful += 1
@@ -377,9 +423,11 @@ def mode_mistral_ocr_only(file_paths: List[Path]) -> Tuple[bool, str]:
 
     return failed == 0, f"Processed {successful}/{len(file_paths)} files successfully"
 
+
 # ============================================================================
 # Mode 5: Transcription (Audio/Video)
 # ============================================================================
+
 
 def mode_transcription(file_paths: List[Path]) -> Tuple[bool, str]:
     """
@@ -411,7 +459,7 @@ def mode_transcription(file_paths: List[Path]) -> Tuple[bool, str]:
             # Save with _transcription suffix
             output_path = config.OUTPUT_MD_DIR / f"{file_path.stem}_transcription.md"
 
-            with open(output_path, 'w', encoding='utf-8') as f:
+            with open(output_path, "w", encoding="utf-8") as f:
                 f.write(content)
 
             utils.save_text_output(output_path, content)
@@ -424,9 +472,11 @@ def mode_transcription(file_paths: List[Path]) -> Tuple[bool, str]:
 
     return failed == 0, f"Transcribed {successful}/{len(file_paths)} files successfully"
 
+
 # ============================================================================
 # Mode 6: Standard Batch Process
 # ============================================================================
+
 
 def mode_standard_batch(file_paths: List[Path]) -> Tuple[bool, str]:
     """
@@ -447,10 +497,12 @@ def mode_standard_batch(file_paths: List[Path]) -> Tuple[bool, str]:
         utils.print_progress(i, len(file_paths), "Processing files")
 
         # Determine processing method based on file type
-        ext = file_path.suffix.lower().lstrip('.')
+        ext = file_path.suffix.lower().lstrip(".")
 
         if ext in config.MISTRAL_OCR_SUPPORTED:
-            success, _, error = mistral_converter.convert_with_mistral_ocr(file_path, use_cache=True, improve_weak=False)
+            success, _, error = mistral_converter.convert_with_mistral_ocr(
+                file_path, use_cache=True, improve_weak=False
+            )
         else:
             success, _, error = local_converter.convert_with_markitdown(file_path)
 
@@ -462,9 +514,11 @@ def mode_standard_batch(file_paths: List[Path]) -> Tuple[bool, str]:
 
     return failed == 0, f"Processed {successful}/{len(file_paths)} files successfully"
 
+
 # ============================================================================
 # Mode 7: Convert PDFs to Images
 # ============================================================================
+
 
 def mode_pdf_to_images(file_paths: List[Path]) -> Tuple[bool, str]:
     """
@@ -485,7 +539,7 @@ def mode_pdf_to_images(file_paths: List[Path]) -> Tuple[bool, str]:
     for i, file_path in enumerate(file_paths, 1):
         utils.print_progress(i, len(file_paths), "Converting PDFs")
 
-        if file_path.suffix.lower() != '.pdf':
+        if file_path.suffix.lower() != ".pdf":
             logger.warning(f"Skipping non-PDF file: {file_path.name}")
             continue
 
@@ -501,9 +555,11 @@ def mode_pdf_to_images(file_paths: List[Path]) -> Tuple[bool, str]:
 
     return failed == 0, f"Converted {successful} PDFs ({total_pages} total pages)"
 
+
 # ============================================================================
 # Mode 8: Show System Status
 # ============================================================================
+
 
 def mode_system_status() -> Tuple[bool, str]:
     """
@@ -514,9 +570,9 @@ def mode_system_status() -> Tuple[bool, str]:
     """
     logger.info("SYSTEM STATUS MODE")
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("  ENHANCED DOCUMENT CONVERTER v2.1 - SYSTEM STATUS")
-    print("="*60 + "\n")
+    print("=" * 60 + "\n")
 
     # Configuration Status
     print("Configuration:")
@@ -550,7 +606,9 @@ def mode_system_status() -> Tuple[bool, str]:
 
     # Input Files
     input_files = list(config.INPUT_DIR.glob("*.*"))
-    print(f"Input Directory: {len([f for f in input_files if f.is_file()])} files ready")
+    print(
+        f"Input Directory: {len([f for f in input_files if f.is_file()])} files ready"
+    )
     print()
 
     # Model Information
@@ -570,7 +628,7 @@ def mode_system_status() -> Tuple[bool, str]:
     if not config.MISTRAL_API_KEY:
         recommendations.append("⚠ Set MISTRAL_API_KEY to enable OCR features")
 
-    if cache_stats['total_entries'] > 100:
+    if cache_stats["total_entries"] > 100:
         recommendations.append("💡 Consider clearing old cache entries")
 
     if config.AUTO_CLEAR_CACHE:
@@ -584,13 +642,15 @@ def mode_system_status() -> Tuple[bool, str]:
     for rec in recommendations:
         print(f"  {rec}")
 
-    print("\n" + "="*60 + "\n")
+    print("\n" + "=" * 60 + "\n")
 
     return True, "System status displayed"
+
 
 # ============================================================================
 # File Selection
 # ============================================================================
+
 
 def select_files() -> List[Path]:
     """
@@ -618,7 +678,9 @@ def select_files() -> List[Path]:
 
     while True:
         try:
-            choice = input("Select file(s) to process (comma-separated or single number): ").strip()
+            choice = input(
+                "Select file(s) to process (comma-separated or single number): "
+            ).strip()
 
             if choice == "0":
                 return []
@@ -645,15 +707,17 @@ def select_files() -> List[Path]:
         except (ValueError, IndexError):
             print("Invalid input. Please enter numbers separated by commas.\n")
 
+
 # ============================================================================
 # Interactive Menu
 # ============================================================================
 
+
 def show_menu():
     """Display the interactive menu."""
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("  ENHANCED DOCUMENT CONVERTER v2.1")
-    print("="*60)
+    print("=" * 60)
     print("\nSelect conversion mode:\n")
     print("  1. HYBRID Mode (Intelligent Processing)")
     print("     Combines MarkItDown + Mistral OCR for optimal results")
@@ -680,7 +744,8 @@ def show_menu():
     print("     Display cache statistics and system info")
     print()
     print("  0. Exit")
-    print("\n" + "="*60 + "\n")
+    print("\n" + "=" * 60 + "\n")
+
 
 def interactive_menu():
     """Run the interactive menu loop."""
@@ -768,9 +833,11 @@ def interactive_menu():
             print(f"\nError: {e}\n")
             input("Press Enter to continue...")
 
+
 # ============================================================================
 # Command-Line Interface
 # ============================================================================
+
 
 def main():
     """Main entry point."""
@@ -782,35 +849,38 @@ Examples:
   python main.py                    # Interactive menu
   python main.py --mode hybrid      # Run hybrid mode
   python main.py --test             # Test mode
-        """
+        """,
     )
 
     parser.add_argument(
         "--mode",
-        choices=["hybrid", "enhanced_batch", "markitdown", "mistral_ocr", "transcription", "batch", "pdf_to_images", "status"],
-        help="Run specific mode directly"
+        choices=[
+            "hybrid",
+            "enhanced_batch",
+            "markitdown",
+            "mistral_ocr",
+            "transcription",
+            "batch",
+            "pdf_to_images",
+            "status",
+        ],
+        help="Run specific mode directly",
     )
 
     parser.add_argument(
-        "--no-interactive",
-        action="store_true",
-        help="Disable interactive prompts"
+        "--no-interactive", action="store_true", help="Disable interactive prompts"
     )
 
-    parser.add_argument(
-        "--test",
-        action="store_true",
-        help="Run in test mode"
-    )
+    parser.add_argument("--test", action="store_true", help="Run in test mode")
 
     args = parser.parse_args()
 
     # Print header
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("  Enhanced Document Converter v2.1")
     print("  https://github.com/microsoft/markitdown")
     print("  https://docs.mistral.ai/capabilities/document_ai/basic_ocr/")
-    print("="*60 + "\n")
+    print("=" * 60 + "\n")
 
     # Show configuration issues
     issues = config.validate_configuration()
@@ -847,6 +917,7 @@ Examples:
 
     # Interactive menu
     interactive_menu()
+
 
 if __name__ == "__main__":
     main()

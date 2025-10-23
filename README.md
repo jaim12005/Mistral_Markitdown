@@ -15,6 +15,14 @@ A powerful, production-ready document conversion system that combines Microsoft'
 - **Multi-Format Support**: PDF, DOCX, PPTX, XLSX, images, audio/video
 - **Consecutive Duplicate Cleaning**: Removes OCR artifacts like repeated headers automatically
 
+### Advanced Features (NEW in v2.1)
+
+- **Structured Data Extraction**: JSON schema-based extraction for invoices, financial statements, forms
+- **Async Operations**: Non-blocking processing for better performance and responsiveness
+- **Retry Configuration**: Exponential backoff with configurable retry logic for API resilience
+- **Bounding Box Annotations**: Structured extraction of text regions, tables, and figures with metadata
+- **Document-Level Annotations**: Automatic extraction of document structure, metadata, and summaries
+
 ### Supported Formats
 
 | Category | Formats |
@@ -83,6 +91,48 @@ All Mistral OCR uses the **Files API with signed URLs** (not base64 encoding) fo
 - **Cache Hits**: $0 (reuses previous results)
 - **Weak Page Re-processing**: Automatic quality improvement (minimal additional cost)
 
+## Dependencies
+
+### Required Dependencies
+
+The core installation (`requirements.txt`) provides all essential features:
+
+```bash
+pip install -r requirements.txt
+```
+
+**Includes:**
+- ✓ MarkItDown document converter (PDF, DOCX, PPTX, XLSX, HTML, images)
+- ✓ Mistral AI OCR
+- ✓ Advanced table extraction (pdfplumber + camelot)
+- ✓ PDF to image conversion
+- ✓ All 8 conversion modes (except audio/YouTube transcription)
+
+### Optional Dependencies
+
+For extended features like audio transcription and YouTube support:
+
+```bash
+pip install -r requirements-optional.txt
+```
+
+**Adds:**
+- ✓ Audio/video transcription (MP3, WAV, M4A, FLAC)
+- ✓ YouTube transcript fetching
+- ✓ Azure Document Intelligence integration
+- ✓ Outlook MSG file support
+
+**Important:** Audio transcription requires:
+1. Installing optional packages: `pip install pydub SpeechRecognition`
+2. Installing ffmpeg binary (see [DEPENDENCIES.md](DEPENDENCIES.md))
+3. Setting `MARKITDOWN_ENABLE_PLUGINS=true` in `.env`
+
+### Complete Reference
+
+For detailed information about all dependencies, system requirements, and troubleshooting:
+
+📖 **See [DEPENDENCIES.md](DEPENDENCIES.md)** for the complete dependency guide.
+
 ## Quick Start
 
 ### Windows
@@ -119,6 +169,9 @@ source env/bin/activate
 
 # Install dependencies
 pip install -r requirements.txt
+
+# Optional: Install extended features (audio, YouTube, Azure)
+pip install -r requirements-optional.txt
 
 # Configure environment
 cp .env.example .env
@@ -461,6 +514,242 @@ MISTRAL_API_KEY="your_mistral_api_key_here"
 | `GENERATE_TXT_OUTPUT` | `true` | Create .txt files |
 
 See `.env.example` for 40+ configuration options.
+
+## Advanced Features Guide
+
+### Structured Data Extraction
+
+Extract structured data from documents using predefined JSON schemas.
+
+#### Available Schemas
+
+1. **Invoice Extraction** - Vendor, line items, totals, payment terms
+2. **Financial Statements** - Accounts, balances, periods, company info
+3. **Form Extraction** - Field names, values, signatures, dates
+4. **Generic Documents** - Sections, tables, figures, metadata
+
+#### Configuration
+
+```ini
+# Enable structured outputs
+MISTRAL_ENABLE_STRUCTURED_OUTPUT=true
+
+# Select schema type: invoice, financial_statement, form, generic, auto
+MISTRAL_DOCUMENT_SCHEMA_TYPE="auto"
+
+# Enable bounding box annotations (text regions, tables, figures)
+MISTRAL_ENABLE_BBOX_ANNOTATION=false
+
+# Enable document-level annotations (structure, metadata, summary)
+MISTRAL_ENABLE_DOCUMENT_ANNOTATION=false
+```
+
+#### Output Files
+
+When structured extraction is enabled, you'll get:
+- `<filename>_document_annotation.json` - Structured document data
+- `<filename>_bbox_annotations.json` - Structured bounding box data
+
+#### Example: Invoice Extraction
+
+```json
+{
+  "document_type": "invoice",
+  "vendor": {
+    "name": "Acme Corp",
+    "address": "123 Main St"
+  },
+  "invoice_details": {
+    "invoice_number": "INV-2024-001",
+    "invoice_date": "2024-01-15"
+  },
+  "line_items": [
+    {
+      "description": "Product A",
+      "quantity": 10,
+      "unit_price": 50.00,
+      "amount": 500.00
+    }
+  ],
+  "totals": {
+    "subtotal": 500.00,
+    "tax": 50.00,
+    "total": 550.00,
+    "currency": "USD"
+  }
+}
+```
+
+---
+
+### Async Operations
+
+Asynchronous processing for better performance and non-blocking operations.
+
+#### Benefits
+
+- **3-5x Faster**: Process multiple files concurrently
+- **Non-Blocking**: UI remains responsive during processing
+- **Better Resource Utilization**: Efficient use of system resources
+
+#### Configuration
+
+```ini
+# Enable async operations (recommended)
+ENABLE_ASYNC_OPERATIONS=true
+```
+
+#### How It Works
+
+When enabled, the system uses `async`/`await` for:
+- Mistral API calls (`process_with_ocr_async`)
+- File uploads
+- Batch processing
+
+**Note**: Async operations are automatically used in batch modes when enabled.
+
+---
+
+### Retry Configuration
+
+Exponential backoff retry logic for API resilience.
+
+#### Configuration
+
+```ini
+# Number of retry attempts
+MAX_RETRIES=3
+
+# Initial retry interval (milliseconds)
+RETRY_INITIAL_INTERVAL_MS=1000
+
+# Maximum retry interval (milliseconds)
+RETRY_MAX_INTERVAL_MS=10000
+
+# Exponential backoff multiplier
+RETRY_EXPONENT=2.0
+
+# Maximum total time for retries (milliseconds)
+RETRY_MAX_ELAPSED_TIME_MS=60000
+
+# Retry on connection errors
+RETRY_CONNECTION_ERRORS=true
+```
+
+#### Retry Strategy
+
+**Exponential Backoff Example:**
+- Attempt 1: Fails → Wait 1 second
+- Attempt 2: Fails → Wait 2 seconds (1s × 2.0)
+- Attempt 3: Fails → Wait 4 seconds (2s × 2.0)
+- Attempt 4: Success or give up after 60 seconds total
+
+#### Benefits
+
+- **Resilience**: Automatic recovery from transient failures
+- **Rate Limiting**: Prevents API throttling
+- **Cost Optimization**: Reduces failed requests
+
+---
+
+### Bounding Box Annotations
+
+Structured extraction of individual content regions with metadata.
+
+#### What It Extracts
+
+For each bounding box (text region, table, figure):
+- **Type**: text, table, figure, heading, list
+- **Content**: Extracted text
+- **Confidence**: OCR confidence score (0-1)
+- **Language**: Detected language
+- **Formatting**: Bold, italic, font size, font family
+- **Table Structure**: Rows, columns, headers
+- **Metadata**: Page number, position (header/body/footer)
+
+#### Configuration
+
+```ini
+MISTRAL_ENABLE_BBOX_ANNOTATION=true
+```
+
+#### Output Format
+
+```json
+[
+  {
+    "bbox_type": "table",
+    "text_content": "Q1 Revenue...",
+    "confidence": 0.95,
+    "table_structure": {
+      "rows": 5,
+      "columns": 3,
+      "has_header": true
+    },
+    "metadata": {
+      "page_number": 1,
+      "position": "body"
+    }
+  }
+]
+```
+
+---
+
+### Document-Level Annotations
+
+Automatic extraction of document structure and metadata.
+
+#### What It Extracts
+
+- **Document Type**: Report, contract, invoice, etc.
+- **Title**: Document title
+- **Authors**: Document creators
+- **Sections**: Headings and structure
+- **Tables**: Table summaries
+- **Figures**: Chart/diagram descriptions
+- **Metadata**: Language, page count, keywords, summary
+
+#### Configuration
+
+```ini
+MISTRAL_ENABLE_DOCUMENT_ANNOTATION=true
+
+# Schema types: invoice, financial_statement, form, generic
+MISTRAL_DOCUMENT_SCHEMA_TYPE="generic"
+```
+
+#### Use Cases
+
+- **Document Classification**: Auto-categorize documents
+- **Metadata Extraction**: Build search indexes
+- **Compliance**: Extract required fields from forms
+- **Analytics**: Aggregate data from financial statements
+
+---
+
+### Custom JSON Schemas
+
+Advanced users can create custom schemas in `schemas.py`.
+
+#### Example: Custom Schema
+
+```python
+CUSTOM_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "field_name": {
+            "type": "string",
+            "description": "Field description"
+        }
+    },
+    "required": ["field_name"]
+}
+```
+
+See `schemas.py` for complete schema definitions and examples.
+
+---
 
 ## Troubleshooting
 

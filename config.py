@@ -41,6 +41,7 @@ METADATA_DIR = LOGS_DIR / "metadata"
 # Directory Creation
 # ============================================================================
 
+
 def ensure_directories() -> None:
     """Create all required directories if they don't exist."""
     directories = [
@@ -55,6 +56,7 @@ def ensure_directories() -> None:
 
     for directory in directories:
         directory.mkdir(parents=True, exist_ok=True)
+
 
 # ============================================================================
 # API Configuration
@@ -77,18 +79,44 @@ MISTRAL_OCR_MODEL = os.getenv("MISTRAL_OCR_MODEL", "mistral-ocr-latest")
 
 # OCR options
 MISTRAL_INCLUDE_IMAGES = os.getenv("MISTRAL_INCLUDE_IMAGES", "true").lower() == "true"
-SAVE_MISTRAL_JSON = os.getenv("SAVE_MISTRAL_JSON", "true").lower() == "true"  # Default true for quality assessment
+SAVE_MISTRAL_JSON = (
+    os.getenv("SAVE_MISTRAL_JSON", "true").lower() == "true"
+)  # Default true for quality assessment
 
-# Advanced features
-MISTRAL_ENABLE_FUNCTIONS = os.getenv("MISTRAL_ENABLE_FUNCTIONS", "false").lower() == "true"
-MISTRAL_ENABLE_STRUCTURED_OUTPUT = os.getenv("MISTRAL_ENABLE_STRUCTURED_OUTPUT", "false").lower() == "true"
-MISTRAL_STRUCTURED_SCHEMA_TYPE = os.getenv("MISTRAL_STRUCTURED_SCHEMA_TYPE", "auto")
+# Advanced features - Structured Outputs
+MISTRAL_ENABLE_FUNCTIONS = (
+    os.getenv("MISTRAL_ENABLE_FUNCTIONS", "false").lower() == "true"
+)
+MISTRAL_ENABLE_STRUCTURED_OUTPUT = (
+    os.getenv("MISTRAL_ENABLE_STRUCTURED_OUTPUT", "true").lower()
+    == "true"  # NOW ENABLED
+)
+
+# Schema selection for structured extraction
+# Options: invoice, financial_statement, form, generic, auto
+MISTRAL_DOCUMENT_SCHEMA_TYPE = os.getenv("MISTRAL_DOCUMENT_SCHEMA_TYPE", "auto")
+
+# Enable bounding box structured extraction
+MISTRAL_ENABLE_BBOX_ANNOTATION = (
+    os.getenv("MISTRAL_ENABLE_BBOX_ANNOTATION", "false").lower() == "true"
+)
+
+# Enable document-level structured extraction
+MISTRAL_ENABLE_DOCUMENT_ANNOTATION = (
+    os.getenv("MISTRAL_ENABLE_DOCUMENT_ANNOTATION", "false").lower() == "true"
+)
 
 # Image optimization
-MISTRAL_ENABLE_IMAGE_OPTIMIZATION = os.getenv("MISTRAL_ENABLE_IMAGE_OPTIMIZATION", "true").lower() == "true"
-MISTRAL_ENABLE_IMAGE_PREPROCESSING = os.getenv("MISTRAL_ENABLE_IMAGE_PREPROCESSING", "false").lower() == "true"
+MISTRAL_ENABLE_IMAGE_OPTIMIZATION = (
+    os.getenv("MISTRAL_ENABLE_IMAGE_OPTIMIZATION", "true").lower() == "true"
+)
+MISTRAL_ENABLE_IMAGE_PREPROCESSING = (
+    os.getenv("MISTRAL_ENABLE_IMAGE_PREPROCESSING", "false").lower() == "true"
+)
 MISTRAL_MAX_IMAGE_DIMENSION = int(os.getenv("MISTRAL_MAX_IMAGE_DIMENSION", "2048"))
-MISTRAL_IMAGE_QUALITY_THRESHOLD = int(os.getenv("MISTRAL_IMAGE_QUALITY_THRESHOLD", "70"))
+MISTRAL_IMAGE_QUALITY_THRESHOLD = int(
+    os.getenv("MISTRAL_IMAGE_QUALITY_THRESHOLD", "70")
+)
 
 # ============================================================================
 # MarkItDown Configuration
@@ -97,7 +125,9 @@ MISTRAL_IMAGE_QUALITY_THRESHOLD = int(os.getenv("MISTRAL_IMAGE_QUALITY_THRESHOLD
 # LLM integration
 MARKITDOWN_USE_LLM = os.getenv("MARKITDOWN_USE_LLM", "false").lower() == "true"
 MARKITDOWN_LLM_MODEL = os.getenv("MARKITDOWN_LLM_MODEL", "gpt-4-vision-preview")
-MARKITDOWN_ENABLE_PLUGINS = os.getenv("MARKITDOWN_ENABLE_PLUGINS", "false").lower() == "true"
+MARKITDOWN_ENABLE_PLUGINS = (
+    os.getenv("MARKITDOWN_ENABLE_PLUGINS", "false").lower() == "true"
+)
 
 # File size limit (for determining when to use Mistral Files API)
 MARKITDOWN_MAX_FILE_SIZE_MB = int(os.getenv("MARKITDOWN_MAX_FILE_SIZE_MB", "100"))
@@ -121,8 +151,24 @@ VERBOSE_PROGRESS = os.getenv("VERBOSE_PROGRESS", "true").lower() == "true"
 
 # Performance
 MAX_CONCURRENT_FILES = int(os.getenv("MAX_CONCURRENT_FILES", "5"))
+
+# Async operations
+ENABLE_ASYNC_OPERATIONS = os.getenv("ENABLE_ASYNC_OPERATIONS", "true").lower() == "true"
+
+# Streaming (real-time progress feedback)
+ENABLE_STREAMING = os.getenv("ENABLE_STREAMING", "false").lower() == "true"
+
+# Retry Configuration (for Mistral API calls)
 MAX_RETRIES = int(os.getenv("MAX_RETRIES", "3"))
-RETRY_DELAY = int(os.getenv("RETRY_DELAY", "1"))
+RETRY_INITIAL_INTERVAL_MS = int(
+    os.getenv("RETRY_INITIAL_INTERVAL_MS", "1000")
+)  # 1 second
+RETRY_MAX_INTERVAL_MS = int(os.getenv("RETRY_MAX_INTERVAL_MS", "10000"))  # 10 seconds
+RETRY_EXPONENT = float(os.getenv("RETRY_EXPONENT", "2.0"))  # Exponential backoff
+RETRY_MAX_ELAPSED_TIME_MS = int(
+    os.getenv("RETRY_MAX_ELAPSED_TIME_MS", "60000")
+)  # 1 minute
+RETRY_CONNECTION_ERRORS = os.getenv("RETRY_CONNECTION_ERRORS", "true").lower() == "true"
 
 # ============================================================================
 # Output Configuration
@@ -137,7 +183,8 @@ ENABLE_BATCH_METADATA = os.getenv("ENABLE_BATCH_METADATA", "true").lower() == "t
 # Mistral Model Configuration
 # ============================================================================
 
-# Latest Mistral models (as of August 2025)
+# Latest Mistral models (as of January 2025)
+# NOTE: Model availability and specifications may change. Verify at https://docs.mistral.ai/
 MISTRAL_MODELS = {
     "mistral-medium-latest": {
         "name": "Mistral Medium 2508",
@@ -183,10 +230,8 @@ MISTRAL_MODELS = {
     },
 }
 
-def select_best_model(
-    file_type: str,
-    content_analysis: Optional[dict] = None
-) -> str:
+
+def select_best_model(file_type: str, content_analysis: Optional[dict] = None) -> str:
     """
     Select Mistral model for OCR processing.
 
@@ -204,21 +249,46 @@ def select_best_model(
     # Never substitute with pixtral, codestral, or other models
     return MISTRAL_OCR_MODEL
 
+
 # ============================================================================
 # File Type Configuration
 # ============================================================================
 
 # Supported file extensions
 MARKITDOWN_SUPPORTED = {
-    "docx", "doc", "pptx", "ppt", "xlsx", "xls",
-    "html", "htm", "csv", "json", "xml", "epub",
-    "pdf", "png", "jpg", "jpeg", "gif", "bmp",
-    "mp3", "wav", "m4a", "flac",  # Audio (requires plugins)
+    "docx",
+    "doc",
+    "pptx",
+    "ppt",
+    "xlsx",
+    "xls",
+    "html",
+    "htm",
+    "csv",
+    "json",
+    "xml",
+    "epub",
+    "pdf",
+    "png",
+    "jpg",
+    "jpeg",
+    "gif",
+    "bmp",
+    "mp3",
+    "wav",
+    "m4a",
+    "flac",  # Audio (requires plugins)
 }
 
 MISTRAL_OCR_SUPPORTED = {
-    "pdf", "png", "jpg", "jpeg", "gif", "bmp",
-    "docx", "pptx",
+    "pdf",
+    "png",
+    "jpg",
+    "jpeg",
+    "gif",
+    "bmp",
+    "docx",
+    "pptx",
 }
 
 PDF_EXTENSIONS = {"pdf"}
@@ -228,6 +298,7 @@ OFFICE_EXTENSIONS = {"docx", "doc", "pptx", "ppt", "xlsx", "xls"}
 # ============================================================================
 # Validation
 # ============================================================================
+
 
 def validate_configuration() -> List[str]:
     """
@@ -240,7 +311,9 @@ def validate_configuration() -> List[str]:
 
     # Check required API key
     if not MISTRAL_API_KEY:
-        issues.append("WARNING: MISTRAL_API_KEY not set. Mistral OCR features will not work.")
+        issues.append(
+            "WARNING: MISTRAL_API_KEY not set. Mistral OCR features will not work."
+        )
 
     # Check LLM configuration
     if MARKITDOWN_USE_LLM and not OPENAI_API_KEY:
@@ -248,9 +321,12 @@ def validate_configuration() -> List[str]:
 
     # Check Poppler on Windows
     if sys.platform == "win32" and not POPPLER_PATH:
-        issues.append("INFO: POPPLER_PATH not set. PDF to image conversion may not work on Windows.")
+        issues.append(
+            "INFO: POPPLER_PATH not set. PDF to image conversion may not work on Windows."
+        )
 
     return issues
+
 
 # ============================================================================
 # Initialization

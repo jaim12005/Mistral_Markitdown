@@ -1,33 +1,94 @@
-# Core dependencies
+# ============================================================================
+# Enhanced Document Converter v2.1 - Core Dependencies
+# ============================================================================
+# This file contains REQUIRED dependencies for the converter to function.
+# For OPTIONAL MarkItDown features, see requirements-optional.txt
+# For DEVELOPMENT dependencies, see requirements-dev.txt
+# ============================================================================
+
+# ----------------------------------------------------------------------------
+# Core Document Processing
+# ----------------------------------------------------------------------------
+
+# MarkItDown - Microsoft's document-to-markdown converter
+# Includes: PDF, DOCX, PPTX, XLSX, HTML, images, and more
+# Core dependencies (beautifulsoup4, requests, etc.) are auto-installed
 markitdown>=0.1.3
+
+# Mistral AI SDK - For OCR and document AI capabilities
 mistralai>=1.0.0
+
+# Environment Configuration
 python-dotenv>=1.0.0
+
+# ----------------------------------------------------------------------------
+# Enhanced PDF Table Extraction (Beyond MarkItDown)
+# ----------------------------------------------------------------------------
+
+# pdfplumber - Fast PDF table extraction (baseline method)
 pdfplumber>=0.10.0
+
+# Camelot - Advanced table extraction with lattice & stream modes
+# [cv] extra includes OpenCV for image processing
 camelot-py[cv]>=0.11.0
+
+# OpenCV - Required by camelot[cv] for visual table detection
+opencv-python>=4.8.0
+
+# ----------------------------------------------------------------------------
+# PDF to Image Conversion
+# ----------------------------------------------------------------------------
+
+# pdf2image - Convert PDF pages to PNG images
+# Requires Poppler binaries (see .env.example for POPPLER_PATH)
 pdf2image>=1.16.0
+
+# Pillow - Image processing and optimization
 Pillow>=10.0.0
 
-# Enhanced document processing
-beautifulsoup4>=4.12.0
+# ----------------------------------------------------------------------------
+# Office Document Processing (MarkItDown Extras)
+# ----------------------------------------------------------------------------
+# NOTE: These could be replaced by markitdown[all], but listed explicitly
+# for transparency and version control.
+
+# DOCX support - mammoth is used by MarkItDown (NOT python-docx)
 lxml>=4.9.0
-python-docx>=1.1.0
+
+# PowerPoint support
 python-pptx>=0.6.23
+
+# Excel support (modern .xlsx and legacy .xls)
 xlrd>=2.0.1
 openpyxl>=3.1.2
 
-# Performance enhancements
+# ----------------------------------------------------------------------------
+# Performance & Async Operations
+# ----------------------------------------------------------------------------
+
+# HTTP requests (if not already installed by markitdown)
 requests>=2.31.0
 urllib3>=2.0.0
+
+# Async file I/O for concurrent batch processing
 aiofiles>=23.0.0
+
+# System resource monitoring
 psutil>=5.9.0
 
-# Audio/Video processing (optional)
-ffmpeg-python>=0.2.0
+# ----------------------------------------------------------------------------
+# Additional Utilities
+# ----------------------------------------------------------------------------
 
-# Table extraction
-opencv-python>=4.8.0
-ghostscript>=0.7
-
-# Additional utilities
-PyPDF2>=3.0.0
+# Table formatting for console output
 tabulate>=0.9.0
+
+# ============================================================================
+# REMOVED PACKAGES (and why):
+# ============================================================================
+# - python-docx: MarkItDown uses 'mammoth' instead (auto-installed)
+# - PyPDF2: MarkItDown uses 'pdfminer-six' instead (auto-installed)
+# - beautifulsoup4: Already included as MarkItDown core dependency
+# - ghostscript: Not a Python package (system binary only)
+# - ffmpeg-python: Moved to requirements-optional.txt (audio features)
+# ============================================================================

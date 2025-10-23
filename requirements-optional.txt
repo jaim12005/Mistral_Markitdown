@@ -1,0 +1,110 @@
+# ============================================================================
+# Enhanced Document Converter v2.1 - Optional Dependencies
+# ============================================================================
+# This file contains OPTIONAL dependencies for extended MarkItDown features.
+# These are NOT required for basic operation but enable additional capabilities.
+#
+# INSTALLATION OPTIONS:
+# 1. Install specific feature:
+#    pip install pydub SpeechRecognition
+#
+# 2. Install all optional features:
+#    pip install -r requirements-optional.txt
+#
+# 3. Use MarkItDown's bundled extras (alternative approach):
+#    pip install markitdown[all]
+#
+# NOTE: Some features require system binaries (ffmpeg, etc.) - see docs below
+# ============================================================================
+
+# ----------------------------------------------------------------------------
+# Audio Transcription (Mode 5: Transcription)
+# ----------------------------------------------------------------------------
+# Enables: Audio/video file transcription (MP3, WAV, M4A, FLAC)
+# Requires: MARKITDOWN_ENABLE_PLUGINS=true in .env
+# System requirement: ffmpeg binary must be installed
+#   - Windows: Download from https://www.gyan.dev/ffmpeg/builds/
+#   - macOS: brew install ffmpeg
+#   - Linux: apt-get install ffmpeg
+# MarkItDown extras equivalent: pip install markitdown[audio-transcription]
+
+pydub>=0.25.1
+SpeechRecognition>=3.10.0
+
+# FFmpeg Python wrapper (optional - for advanced audio processing)
+# Note: Requires ffmpeg binary installed on system
+ffmpeg-python>=0.2.0
+
+# ----------------------------------------------------------------------------
+# YouTube Transcription
+# ----------------------------------------------------------------------------
+# Enables: Fetching transcripts from YouTube videos
+# Requires: MARKITDOWN_ENABLE_PLUGINS=true in .env
+# MarkItDown extras equivalent: pip install markitdown[youtube-transcription]
+
+youtube-transcript-api>=0.6.1
+
+# ----------------------------------------------------------------------------
+# Azure Document Intelligence Integration
+# ----------------------------------------------------------------------------
+# Enables: Azure AI Document Intelligence for enhanced PDF processing
+# Requires: AZURE_DOC_INTEL_ENDPOINT and AZURE_DOC_INTEL_KEY in .env
+# MarkItDown extras equivalent: pip install markitdown[az-doc-intel]
+# Setup: https://portal.azure.com/ (create Document Intelligence resource)
+
+azure-ai-documentintelligence>=1.0.0
+azure-identity>=1.15.0
+
+# ----------------------------------------------------------------------------
+# Outlook Message File Support
+# ----------------------------------------------------------------------------
+# Enables: Converting Outlook .msg files to markdown
+# MarkItDown extras equivalent: pip install markitdown[outlook]
+
+olefile>=0.47
+
+# ----------------------------------------------------------------------------
+# Advanced DOCX Processing
+# ----------------------------------------------------------------------------
+# Enables: Better equation and formatting support in Word documents
+# Note: MarkItDown uses 'mammoth' by default (auto-installed)
+# These are auto-installed with markitdown[docx] but listed for clarity
+
+# lxml>=4.9.0  # Already in requirements.txt
+# mammoth>=1.8.0  # Auto-installed by MarkItDown
+
+# ----------------------------------------------------------------------------
+# Enhanced Excel Support
+# ----------------------------------------------------------------------------
+# Note: These are already in requirements.txt for our table extraction
+# Listed here for reference to MarkItDown extras mapping:
+# - markitdown[xlsx] → openpyxl, pandas
+# - markitdown[xls] → xlrd, pandas
+
+# pandas>=2.0.0  # Needed for both modern and legacy Excel
+# openpyxl>=3.1.0  # Already in requirements.txt
+# xlrd>=2.0.1  # Already in requirements.txt
+
+# ----------------------------------------------------------------------------
+# Enhanced PDF Processing
+# ----------------------------------------------------------------------------
+# Note: MarkItDown uses pdfminer-six for PDF text extraction
+# This is auto-installed with markitdown[pdf]
+# We use pdfplumber and camelot for advanced table extraction (in requirements.txt)
+
+# pdfminer-six>=20221105  # Auto-installed by MarkItDown
+
+# ============================================================================
+# FEATURE MATRIX
+# ============================================================================
+# Feature                    | Required Packages              | Config Setting
+# ---------------------------|--------------------------------|----------------------------
+# Audio Transcription        | pydub, SpeechRecognition       | MARKITDOWN_ENABLE_PLUGINS=true
+# YouTube Transcription      | youtube-transcript-api         | MARKITDOWN_ENABLE_PLUGINS=true
+# Azure Document Intel       | azure-ai-*, azure-identity     | AZURE_DOC_INTEL_ENDPOINT/KEY
+# Outlook MSG Files          | olefile                        | (automatic)
+# Advanced DOCX             | lxml, mammoth                  | (automatic - in requirements.txt)
+# Excel (modern)            | openpyxl, pandas               | (automatic - in requirements.txt)
+# Excel (legacy)            | xlrd, pandas                   | (automatic - in requirements.txt)
+# Enhanced PDF              | pdfminer-six                   | (automatic - via MarkItDown)
+# ============================================================================
