@@ -1,5 +1,5 @@
 """
-Enhanced Document Converter v2.1 - Mistral AI Integration Module
+Enhanced Document Converter v2.1.1 - Mistral AI Integration Module
 
 This module handles Mistral OCR processing including:
 - Files API integration with purpose="ocr"
@@ -329,6 +329,52 @@ def preprocess_image(image_path: Path) -> Optional[Path]:
 # ============================================================================
 
 
+def cleanup_uploaded_files(client: Mistral, days_old: Optional[int] = None) -> int:
+    """
+    Clean up old files uploaded to Mistral Files API.
+    
+    Args:
+        client: Mistral client instance
+        days_old: Delete files older than N days (default: from config)
+    
+    Returns:
+        Number of files deleted
+    """
+    if days_old is None:
+        days_old = config.UPLOAD_RETENTION_DAYS
+    
+    try:
+        from datetime import datetime, timedelta
+        
+        # List all OCR files
+        files_list = client.files.list(purpose="ocr")
+        cutoff_date = datetime.now() - timedelta(days=days_old)
+        deleted = 0
+        
+        for file in files_list:
+            try:
+                # Parse created_at timestamp
+                if hasattr(file, 'created_at'):
+                    file_created = datetime.fromisoformat(file.created_at.replace('Z', '+00:00'))
+                    
+                    if file_created < cutoff_date:
+                        client.files.delete(file_id=file.id)
+                        deleted += 1
+                        logger.debug(f"Deleted old file: {file.id} (created {file_created})")
+            except Exception as e:
+                logger.debug(f"Error processing file {file.id}: {e}")
+                continue
+        
+        if deleted > 0:
+            logger.info(f"Cleaned up {deleted} old uploaded files (older than {days_old} days)")
+        
+        return deleted
+        
+    except Exception as e:
+        logger.warning(f"Error cleaning up uploaded files: {e}")
+        return 0
+
+
 def upload_file_for_ocr(client: Mistral, file_path: Path) -> Optional[str]:
     """
     Upload file to Mistral using Files API with purpose="ocr" and get signed URL.
@@ -479,16 +525,28 @@ def process_with_ocr(
 
         _report_progress("Processing with Mistral OCR...", 0.5)
 
+        # Build OCR request parameters
+        ocr_params = {
+            "model": model,
+            "document": document,
+            "include_image_base64": config.MISTRAL_INCLUDE_IMAGES,
+            "bbox_annotation_format": bbox_format,
+            "document_annotation_format": doc_format,
+            "retries": retry_config,
+        }
+        
+        # Add optional parameters
+        if pages is not None:
+            ocr_params["pages"] = pages
+        if config.MISTRAL_OCR_TEMPERATURE is not None:
+            ocr_params["temperature"] = config.MISTRAL_OCR_TEMPERATURE
+        if config.MISTRAL_OCR_MAX_TOKENS:
+            ocr_params["max_tokens"] = config.MISTRAL_OCR_MAX_TOKENS
+        if config.MISTRAL_OCR_LANGUAGE and config.MISTRAL_OCR_LANGUAGE != "auto":
+            ocr_params["language"] = config.MISTRAL_OCR_LANGUAGE
+
         # Process with OCR
-        response = client.ocr.process(
-            model=model,
-            document=document,
-            pages=pages,
-            include_image_base64=config.MISTRAL_INCLUDE_IMAGES,
-            bbox_annotation_format=bbox_format,
-            document_annotation_format=doc_format,
-            retries=retry_config,
-        )
+        response = client.ocr.process(**ocr_params)
 
         _report_progress("Parsing OCR response...", 0.8)
 
@@ -605,16 +663,28 @@ async def process_with_ocr_async(
         bbox_format = get_bbox_annotation_format()
         doc_format = get_document_annotation_format()
 
+        # Build OCR request parameters
+        ocr_params = {
+            "model": model,
+            "document": document,
+            "include_image_base64": config.MISTRAL_INCLUDE_IMAGES,
+            "bbox_annotation_format": bbox_format,
+            "document_annotation_format": doc_format,
+            "retries": retry_config,
+        }
+        
+        # Add optional parameters
+        if pages is not None:
+            ocr_params["pages"] = pages
+        if config.MISTRAL_OCR_TEMPERATURE is not None:
+            ocr_params["temperature"] = config.MISTRAL_OCR_TEMPERATURE
+        if config.MISTRAL_OCR_MAX_TOKENS:
+            ocr_params["max_tokens"] = config.MISTRAL_OCR_MAX_TOKENS
+        if config.MISTRAL_OCR_LANGUAGE and config.MISTRAL_OCR_LANGUAGE != "auto":
+            ocr_params["language"] = config.MISTRAL_OCR_LANGUAGE
+
         # Process with OCR (async)
-        response = await client.ocr.process_async(
-            model=model,
-            document=document,
-            pages=pages,
-            include_image_base64=config.MISTRAL_INCLUDE_IMAGES,
-            bbox_annotation_format=bbox_format,
-            document_annotation_format=doc_format,
-            retries=retry_config,
-        )
+        response = await client.ocr.process_async(**ocr_params)
 
         # Parse response
         if response:

@@ -1,5 +1,5 @@
 """
-Enhanced Document Converter v2.1 - Local Conversion Module
+Enhanced Document Converter v2.1.1 - Local Conversion Module
 
 This module handles MarkItDown integration, PDF table extraction using pdfplumber
 and camelot, and PDF to image conversion.
@@ -100,15 +100,32 @@ def convert_with_markitdown(file_path: Path) -> Tuple[bool, Optional[str], Optio
         if result and hasattr(result, 'text_content'):
             markdown_content = result.text_content
 
-            # Add YAML frontmatter
+            # Extract document metadata if available
+            doc_metadata = {
+                "file_size_bytes": file_path.stat().st_size,
+                "file_extension": file_path.suffix.lower(),
+            }
+            
+            # Try to extract document properties from MarkItDown result
+            if hasattr(result, 'metadata') and result.metadata:
+                metadata = result.metadata
+                if isinstance(metadata, dict):
+                    # Add common document properties
+                    for key in ['title', 'author', 'subject', 'creator', 'producer',
+                               'created', 'modified', 'pages', 'words']:
+                        if key in metadata and metadata[key]:
+                            doc_metadata[f"doc_{key}"] = metadata[key]
+            
+            # If no title in metadata, use filename
+            if 'doc_title' not in doc_metadata:
+                doc_metadata['doc_title'] = file_path.stem
+
+            # Add YAML frontmatter with enriched metadata
             frontmatter = utils.generate_yaml_frontmatter(
-                title=file_path.stem,
+                title=doc_metadata.get('doc_title', file_path.stem),
                 file_name=file_path.name,
                 conversion_method="MarkItDown",
-                additional_fields={
-                    "file_size_bytes": file_path.stat().st_size,
-                    "file_extension": file_path.suffix.lower(),
-                }
+                additional_fields=doc_metadata
             )
 
             full_content = frontmatter + markdown_content
@@ -214,6 +231,22 @@ def extract_tables_camelot(
             )
 
         for table in table_list:
+            # Quality filtering - skip low-accuracy tables
+            if hasattr(table, 'accuracy') and table.accuracy < config.CAMELOT_MIN_ACCURACY:
+                logger.debug(
+                    f"Skipping low-accuracy table: {table.accuracy:.1f}% "
+                    f"(threshold: {config.CAMELOT_MIN_ACCURACY}%)"
+                )
+                continue
+            
+            # Whitespace filtering - skip tables with too much empty space
+            if hasattr(table, 'whitespace') and table.whitespace > config.CAMELOT_MAX_WHITESPACE:
+                logger.debug(
+                    f"Skipping high-whitespace table: {table.whitespace:.1f}% "
+                    f"(threshold: {config.CAMELOT_MAX_WHITESPACE}%)"
+                )
+                continue
+            
             # Convert DataFrame to list of lists
             table_data = table.df.values.tolist()
 
@@ -221,7 +254,17 @@ def extract_tables_camelot(
                 # Post-process: fix merged currency cells
                 table_data = _fix_merged_currency_cells(table_data)
                 tables.append(table_data)
-                logger.debug(f"Camelot extracted table with {len(table_data)} rows")
+                
+                # Log quality metrics
+                quality_info = ""
+                if hasattr(table, 'accuracy'):
+                    quality_info += f" (accuracy: {table.accuracy:.1f}%"
+                if hasattr(table, 'whitespace'):
+                    quality_info += f", whitespace: {table.whitespace:.1f}%)"
+                else:
+                    quality_info += ")" if quality_info else ""
+                
+                logger.debug(f"Camelot extracted table with {len(table_data)} rows{quality_info}")
 
     except Exception as e:
         logger.error(f"Error extracting tables with camelot ({flavor}): {e}")
@@ -459,15 +502,15 @@ def save_tables_to_files(
 def convert_pdf_to_images(
     pdf_path: Path,
     output_dir: Optional[Path] = None,
-    dpi: int = 200
+    dpi: Optional[int] = None
 ) -> Tuple[bool, List[Path], Optional[str]]:
     """
-    Convert PDF pages to PNG images using pdf2image.
+    Convert PDF pages to PNG/JPEG images using pdf2image.
 
     Args:
         pdf_path: Path to PDF file
         output_dir: Optional output directory (default: output_images/<pdf_name>_pages/)
-        dpi: Image resolution (default: 200)
+        dpi: Image resolution (default: from config)
 
     Returns:
         Tuple of (success, list_of_image_paths, error_message)
@@ -482,29 +525,48 @@ def convert_pdf_to_images(
 
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        logger.info(f"Converting PDF to images: {pdf_path.name}")
+        # Use config defaults if not specified
+        if dpi is None:
+            dpi = config.PDF_IMAGE_DPI
+
+        logger.info(f"Converting PDF to images: {pdf_path.name} (DPI: {dpi}, Format: {config.PDF_IMAGE_FORMAT})")
 
         # Configure poppler path for Windows
         poppler_path = config.POPPLER_PATH if sys.platform == "win32" else None
 
+        # Build conversion parameters
+        convert_params = {
+            'pdf_path': str(pdf_path),
+            'dpi': dpi,
+            'output_folder': str(output_dir),
+            'fmt': config.PDF_IMAGE_FORMAT,
+            'poppler_path': poppler_path,
+            'thread_count': config.PDF_IMAGE_THREAD_COUNT,
+            'use_pdftocairo': config.PDF_IMAGE_USE_PDFTOCAIRO,
+        }
+
         # Convert PDF to images
-        images = convert_from_path(
-            str(pdf_path),
-            dpi=dpi,
-            output_folder=str(output_dir),
-            fmt='png',
-            poppler_path=poppler_path
-        )
+        images = convert_from_path(**convert_params)
 
         # Save images
         image_paths = []
+        file_extension = 'jpg' if config.PDF_IMAGE_FORMAT == 'jpeg' else config.PDF_IMAGE_FORMAT
+        
         for i, image in enumerate(images, 1):
-            image_path = output_dir / f"page_{i:03d}.png"
-            image.save(str(image_path), 'PNG')
+            image_path = output_dir / f"page_{i:03d}.{file_extension}"
+            
+            # Save with format-specific options
+            if config.PDF_IMAGE_FORMAT == 'jpeg':
+                image.save(str(image_path), 'JPEG', quality=85, optimize=True, progressive=True)
+            elif config.PDF_IMAGE_FORMAT == 'png':
+                image.save(str(image_path), 'PNG', optimize=True)
+            else:
+                image.save(str(image_path), config.PDF_IMAGE_FORMAT.upper())
+            
             image_paths.append(image_path)
             logger.debug(f"Saved page {i} to {image_path.name}")
 
-        logger.info(f"Converted {len(image_paths)} pages to images")
+        logger.info(f"Converted {len(image_paths)} pages to {config.PDF_IMAGE_FORMAT.upper()} images")
         return True, image_paths, None
 
     except Exception as e:

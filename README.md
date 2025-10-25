@@ -76,6 +76,19 @@ All Mistral OCR uses the **Files API with signed URLs** (not base64 encoding) fo
 
 **Example Savings**: Processing 100 PDFs twice in one day - first run uses API, second run is FREE (cached).
 
+### Automatic File Cleanup
+
+- **Automated Cleanup** - Removes old uploaded files from Mistral Files API
+- **Configurable Retention** - Default: 7 days (prevents unnecessary storage costs)
+- **Runs on System Status** - Automatically cleans up when you check Mode 8
+- **Cost Savings** - Prevents accumulation of unused files in cloud storage
+
+Configure in `.env`:
+```ini
+CLEANUP_OLD_UPLOADS=true
+UPLOAD_RETENTION_DAYS=7
+```
+
 ### When to Use Each Mode
 
 | Mode | Cost | Speed | Best For |
@@ -365,14 +378,30 @@ python main.py --mode batch
 **Best for**: Page rendering, image extraction, thumbnails
 
 Features:
-- Renders each PDF page to PNG
-- Configurable DPI
+- Renders each PDF page to PNG/JPEG/TIFF
+- Configurable DPI and format
+- Multi-threaded conversion (4 threads default)
+- High-quality rendering with pdftocairo
+- Optimized output (progressive JPEG, optimized PNG)
 - Requires Poppler
 
+**Advanced Options** (NEW):
+```ini
+PDF_IMAGE_FORMAT=png           # png, jpeg, ppm, tiff
+PDF_IMAGE_DPI=200              # Resolution (150-300 recommended)
+PDF_IMAGE_THREAD_COUNT=4       # Concurrent threads
+PDF_IMAGE_USE_PDFTOCAIRO=true  # Better quality rendering
+```
+
 **Output Files**:
-- `output_images/<pdf_name>_pages/page_001.png`
+- `output_images/<pdf_name>_pages/page_001.png` (or .jpg, .tiff)
 - `output_images/<pdf_name>_pages/page_002.png`
 - etc.
+
+**Format Comparison**:
+- **PNG**: Best quality, lossless, larger files (~2-5MB/page)
+- **JPEG**: Smaller files (~200-500KB/page), slight quality loss
+- **TIFF**: Professional use, very large files
 
 **Usage**:
 ```bash
@@ -445,7 +474,25 @@ Issues detected:
 
 ### Enterprise-Grade Table Extraction
 
-The table extraction pipeline includes sophisticated post-processing:
+The table extraction pipeline includes sophisticated post-processing and quality filtering:
+
+#### Quality Filtering (NEW)
+
+**Automatic Quality Assessment:**
+- **Accuracy Threshold** - Only accepts tables above `CAMELOT_MIN_ACCURACY` (default: 75%)
+- **Whitespace Filtering** - Rejects tables with excessive empty cells (> `CAMELOT_MAX_WHITESPACE`)
+- **Quality Metrics Logging** - Reports accuracy and whitespace percentages for each table
+
+**Benefits:**
+- Eliminates false positives from table detection
+- Reduces noise in output (no more poorly extracted tables)
+- Configurable thresholds for different use cases
+
+Configure in `.env`:
+```ini
+CAMELOT_MIN_ACCURACY=75.0    # Minimum accuracy % to accept
+CAMELOT_MAX_WHITESPACE=30.0  # Maximum whitespace % to accept
+```
 
 #### Financial Document Optimization
 
@@ -472,6 +519,7 @@ After:  "$ 1,234.56" | "$ 5,678.90"  (two cells)
 - Normalize headers (detect month columns)
 - Clean page artifacts (footers, page numbers)
 - Remove consecutive duplicate lines
+- **Quality filtering** (new - removes low-quality tables)
 
 ### Consecutive Duplicate Cleaning
 
@@ -507,15 +555,125 @@ MISTRAL_API_KEY="your_mistral_api_key_here"
 | Option | Default | Description |
 |--------|---------|-------------|
 | `MISTRAL_OCR_MODEL` | `mistral-ocr-latest` | OCR model to use |
+| `MISTRAL_OCR_TEMPERATURE` | `0.0` | Temperature for deterministic results |
+| `MISTRAL_OCR_LANGUAGE` | `auto` | Language hint (auto, en, es, fr, de, etc.) |
 | `MISTRAL_INCLUDE_IMAGES` | `true` | Extract images from documents |
 | `SAVE_MISTRAL_JSON` | `true` | Save OCR metadata JSON for quality assessment |
+| `CLEANUP_OLD_UPLOADS` | `true` | Auto-delete old uploaded files |
+| `UPLOAD_RETENTION_DAYS` | `7` | Days to keep uploaded files |
+| `CAMELOT_MIN_ACCURACY` | `75.0` | Minimum table extraction accuracy (%) |
+| `PDF_IMAGE_FORMAT` | `png` | Output format for PDF conversion (png, jpeg) |
+| `PDF_IMAGE_DPI` | `200` | Image resolution for PDF conversion |
 | `CACHE_DURATION_HOURS` | `24` | Cache validity period |
 | `MAX_CONCURRENT_FILES` | `5` | Batch processing concurrency |
 | `GENERATE_TXT_OUTPUT` | `true` | Create .txt files |
 
-See `.env.example` for 40+ configuration options.
+See `.env.example` for 50+ configuration options with detailed explanations.
 
 ## Advanced Features Guide
+
+### Advanced OCR Parameters (NEW)
+
+#### Temperature Control for Deterministic Results
+
+Control OCR consistency with temperature settings:
+
+```ini
+# In .env
+MISTRAL_OCR_TEMPERATURE=0.0  # Default: Fully deterministic
+```
+
+**Benefits:**
+- **Temperature 0.0** (default) = Identical results every time you process the same document
+- **Consistency** = Critical for version control, testing, and reproducible workflows
+- **Reliability** = Same document always produces same output
+
+**Use Cases:**
+- Document comparison and diff tracking
+- Automated testing and CI/CD pipelines
+- Compliance and audit requirements
+
+#### Language Optimization
+
+Improve OCR accuracy by specifying document language:
+
+```ini
+# In .env
+MISTRAL_OCR_LANGUAGE=auto  # Default: Auto-detect
+```
+
+**Supported Languages:**
+- `auto` - Automatic detection (default, works well for most cases)
+- `en` - English
+- `es` - Spanish
+- `fr` - French
+- `de` - German
+- `it` - Italian
+- `pt` - Portuguese
+- `nl` - Dutch
+- `pl` - Polish
+- `ru` - Russian
+- `ja` - Japanese
+- `ko` - Korean
+- `zh` - Chinese
+- `ar` - Arabic
+
+**When to Use:**
+- Multi-language documents - specify primary language
+- Specialized terminology - helps with context
+- Non-English documents - significant accuracy improvement
+
+#### Token Limits
+
+Control maximum output length:
+
+```ini
+# In .env
+MISTRAL_OCR_MAX_TOKENS=16384  # Default: 16,384 tokens
+```
+
+**Benefits:**
+- Prevents truncation on large documents
+- Configurable based on document size
+- Balance between completeness and performance
+
+### Enhanced Document Metadata Extraction (NEW)
+
+MarkItDown now automatically extracts and includes document properties in YAML frontmatter:
+
+**Automatically Extracted:**
+- **Title** - Document title from metadata
+- **Author** - Document author/creator
+- **Subject** - Document subject
+- **Creator** - Application that created the document
+- **Producer** - PDF producer/converter used
+- **Created Date** - Document creation timestamp
+- **Modified Date** - Last modification timestamp
+- **Page Count** - Total number of pages
+- **Word Count** - Approximate word count (when available)
+
+**Example Output:**
+```yaml
+---
+title: "Financial Report Q4 2024"
+source_file: "report.pdf"
+conversion_method: "MarkItDown"
+converted_at: "2025-01-15T10:30:00"
+converter_version: "2.1"
+doc_title: "Financial Report Q4 2024"
+doc_author: "John Smith"
+doc_subject: "Quarterly Financial Analysis"
+doc_pages: 25
+doc_created: "2024-12-31T09:00:00"
+doc_modified: "2025-01-05T14:30:00"
+---
+```
+
+**Benefits:**
+- **Search and Indexing** - Rich metadata for document management systems
+- **Audit Trails** - Track document provenance and modifications
+- **Automation** - Script document processing based on metadata
+- **Organization** - Sort and filter documents by properties
 
 ### Structured Data Extraction
 
@@ -863,7 +1021,18 @@ pip install markitdown
 
 ## Latest Updates
 
-### Version 2.1 (Current)
+### Version 2.1.1 (Current - Enhanced)
+
+**New Features:**
+- ✅ **Advanced OCR Parameters** - Temperature control, language hints, token limits
+- ✅ **Automatic File Cleanup** - Removes old uploads from Mistral API (prevents storage costs)
+- ✅ **Table Quality Filtering** - Accuracy and whitespace thresholds for better extraction
+- ✅ **Enhanced Metadata Extraction** - Automatic extraction of document properties (author, dates, etc.)
+- ✅ **Advanced PDF to Image** - Multi-threaded, multiple formats (PNG/JPEG/TIFF), optimized output
+- ✅ **50+ Configuration Options** - Comprehensive `.env.example` with detailed explanations
+- ✅ **Deterministic OCR** - Temperature 0.0 for reproducible results
+
+### Version 2.1 (Previous)
 - ✅ 8 specialized conversion modes
 - ✅ Hybrid processing pipeline with OCR quality assessment
 - ✅ Intelligent caching system (24-hour persistence)
@@ -876,4 +1045,17 @@ pip install markitdown
 
 ---
 
-**Enhanced Document Converter v2.1** - Combining the best of local and cloud processing for optimal document conversion.
+## Summary of Improvements (v2.1.1)
+
+| Feature | Before | After | Benefit |
+|---------|--------|-------|---------|
+| **OCR Consistency** | Variable results | Deterministic (temp=0.0) | Reproducible workflows |
+| **File Cleanup** | Manual | Automatic | Cost savings, no orphaned files |
+| **Table Quality** | All tables accepted | Quality filtered (75%+ accuracy) | Cleaner output, fewer errors |
+| **Document Metadata** | Basic filename only | Full properties (author, dates, etc.) | Better organization & search |
+| **PDF to Image** | PNG only, single-threaded | Multi-format, 4 threads | Faster, flexible output |
+| **Configuration** | ~40 options | 50+ detailed options | More control & customization |
+
+---
+
+**Enhanced Document Converter v2.1.1** - Combining the best of local and cloud processing for optimal document conversion with maximum efficiency and quality.

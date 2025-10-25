@@ -1,5 +1,5 @@
 """
-Enhanced Document Converter v2.1 - Utility Functions
+Enhanced Document Converter v2.1.1 - Utility Functions
 
 This module provides helper functions for logging, caching, file operations,
 and metadata tracking.
@@ -728,7 +728,7 @@ def generate_yaml_frontmatter(
         "source_file": file_name,
         "conversion_method": conversion_method,
         "converted_at": datetime.now().isoformat(),
-        "converter_version": "2.1",
+        "converter_version": "2.1.1",
     }
 
     if additional_fields:

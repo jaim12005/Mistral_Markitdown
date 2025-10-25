@@ -1,5 +1,5 @@
 """
-Enhanced Document Converter v2.1 - Main Application
+Enhanced Document Converter v2.1.1 - Main Application
 
 Interactive CLI for document conversion with 8 conversion modes:
 1. HYBRID Mode - Intelligent combined processing
@@ -571,7 +571,7 @@ def mode_system_status() -> Tuple[bool, str]:
     logger.info("SYSTEM STATUS MODE")
 
     print("\n" + "=" * 60)
-    print("  ENHANCED DOCUMENT CONVERTER v2.1 - SYSTEM STATUS")
+    print("  ENHANCED DOCUMENT CONVERTER v2.1.1 - SYSTEM STATUS")
     print("=" * 60 + "\n")
 
     # Configuration Status
@@ -635,6 +635,17 @@ def mode_system_status() -> Tuple[bool, str]:
         cleared = utils.cache.clear_old_entries()
         if cleared > 0:
             recommendations.append(f"✓ Cleared {cleared} expired cache entries")
+
+    # Clean up old uploaded files from Mistral
+    if config.CLEANUP_OLD_UPLOADS and config.MISTRAL_API_KEY:
+        try:
+            client = mistral_converter.get_mistral_client()
+            if client:
+                deleted = mistral_converter.cleanup_uploaded_files(client)
+                if deleted > 0:
+                    recommendations.append(f"✓ Cleaned up {deleted} old uploaded files from Mistral")
+        except Exception as e:
+            logger.debug(f"Could not clean up uploads: {e}")
 
     if not recommendations:
         recommendations.append("✓ All systems operational")
@@ -716,7 +727,7 @@ def select_files() -> List[Path]:
 def show_menu():
     """Display the interactive menu."""
     print("\n" + "=" * 60)
-    print("  ENHANCED DOCUMENT CONVERTER v2.1")
+    print("  ENHANCED DOCUMENT CONVERTER v2.1.1")
     print("=" * 60)
     print("\nSelect conversion mode:\n")
     print("  1. HYBRID Mode (Intelligent Processing)")
@@ -842,7 +853,7 @@ def interactive_menu():
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
-        description="Enhanced Document Converter v2.1",
+        description="Enhanced Document Converter v2.1.1",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -877,7 +888,7 @@ Examples:
 
     # Print header
     print("\n" + "=" * 60)
-    print("  Enhanced Document Converter v2.1")
+    print("  Enhanced Document Converter v2.1.1")
     print("  https://github.com/microsoft/markitdown")
     print("  https://docs.mistral.ai/capabilities/document_ai/basic_ocr/")
     print("=" * 60 + "\n")

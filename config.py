@@ -1,5 +1,5 @@
 """
-Enhanced Document Converter v2.1 - Configuration Module
+Enhanced Document Converter v2.1.1 - Configuration Module
 
 This module handles all configuration settings for the document converter,
 including environment variables, directory setup, and model configuration.
@@ -83,6 +83,15 @@ SAVE_MISTRAL_JSON = (
     os.getenv("SAVE_MISTRAL_JSON", "true").lower() == "true"
 )  # Default true for quality assessment
 
+# Advanced OCR parameters
+MISTRAL_OCR_TEMPERATURE = float(os.getenv("MISTRAL_OCR_TEMPERATURE", "0.0"))  # 0.0 = deterministic
+MISTRAL_OCR_MAX_TOKENS = int(os.getenv("MISTRAL_OCR_MAX_TOKENS", "16384"))
+MISTRAL_OCR_LANGUAGE = os.getenv("MISTRAL_OCR_LANGUAGE", "auto")  # auto, en, es, fr, de, etc.
+
+# File upload management
+CLEANUP_OLD_UPLOADS = os.getenv("CLEANUP_OLD_UPLOADS", "true").lower() == "true"
+UPLOAD_RETENTION_DAYS = int(os.getenv("UPLOAD_RETENTION_DAYS", "7"))  # Delete files older than N days
+
 # Advanced features - Structured Outputs
 MISTRAL_ENABLE_FUNCTIONS = (
     os.getenv("MISTRAL_ENABLE_FUNCTIONS", "false").lower() == "true"
@@ -131,6 +140,23 @@ MARKITDOWN_ENABLE_PLUGINS = (
 
 # File size limit (for determining when to use Mistral Files API)
 MARKITDOWN_MAX_FILE_SIZE_MB = int(os.getenv("MARKITDOWN_MAX_FILE_SIZE_MB", "100"))
+
+# ============================================================================
+# Table Extraction Configuration
+# ============================================================================
+
+# Camelot quality thresholds
+CAMELOT_MIN_ACCURACY = float(os.getenv("CAMELOT_MIN_ACCURACY", "75.0"))  # Minimum accuracy % to accept table
+CAMELOT_MAX_WHITESPACE = float(os.getenv("CAMELOT_MAX_WHITESPACE", "30.0"))  # Maximum whitespace % to accept
+
+# ============================================================================
+# PDF to Image Configuration
+# ============================================================================
+
+PDF_IMAGE_FORMAT = os.getenv("PDF_IMAGE_FORMAT", "png")  # png, jpeg, ppm, tiff
+PDF_IMAGE_DPI = int(os.getenv("PDF_IMAGE_DPI", "200"))  # Image resolution
+PDF_IMAGE_THREAD_COUNT = int(os.getenv("PDF_IMAGE_THREAD_COUNT", "4"))  # Concurrent conversion threads
+PDF_IMAGE_USE_PDFTOCAIRO = os.getenv("PDF_IMAGE_USE_PDFTOCAIRO", "true").lower() == "true"  # Better quality
 
 # ============================================================================
 # System Configuration
