@@ -80,35 +80,62 @@ echo Installed package versions saved to logs\installed_versions.txt
 
 echo.
 echo ============================================================
-echo   Setup complete! Launching Document Converter...
+echo   Setup complete!
 echo ============================================================
 echo.
 
 REM Check for .env file
 if not exist ".env" (
+    echo.
+    echo ============================================================
+    echo   CONFIGURATION REQUIRED
+    echo ============================================================
+    echo.
     echo WARNING: .env file not found
+    echo.
+    echo The converter needs a .env file with your configuration.
     echo.
     echo Please create a .env file with your configuration:
     echo   1. Create a new file named .env in this directory
     echo   2. Add your MISTRAL_API_KEY and other settings
     echo   3. See README.md for complete configuration options
     echo.
-    echo Would you like to create a basic .env file now? (Y/N)
-    set /p create_env=
+    echo ============================================================
+    echo.
+    set /p "create_env=Would you like to create a basic .env file now? (Y/N): "
+    echo.
+    
     if /i "!create_env!"=="Y" (
+        echo Creating basic .env file...
         echo # Enhanced Document Converter Configuration > .env
         echo # Add your API key below: >> .env
         echo MISTRAL_API_KEY="" >> .env
         echo # See README.md for all configuration options >> .env
         echo.
-        echo Basic .env file created. Please edit it with your API keys.
-        echo Opening .env file in notepad...
+        echo Basic .env file created successfully!
+        echo.
+        echo Opening .env file in notepad for you to add your API key...
+        echo Please add your MISTRAL_API_KEY and save the file.
+        echo.
         notepad .env
         echo.
-        echo After saving your changes, press any key to continue...
-        pause >nul
+        echo Configuration saved.
+        pause
+    ) else (
+        echo.
+        echo Skipping .env creation.
+        echo NOTE: You will need to create a .env file manually before using
+        echo       Mistral OCR features. See README.md for details.
+        echo.
+        pause
     )
 )
+
+echo.
+echo ============================================================
+echo   Launching Document Converter...
+echo ============================================================
+echo.
 
 REM Launch the application
 env\Scripts\python.exe main.py %*
