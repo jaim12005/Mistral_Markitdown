@@ -879,7 +879,7 @@ Examples:
     )
 
     parser.add_argument(
-        "--no-interactive", action="store_true", help="Disable interactive prompts"
+        "--no-interactive", action="store_true", help="Disable interactive prompts and process all files in input directory"
     )
 
     parser.add_argument("--test", action="store_true", help="Run in test mode")
@@ -908,9 +908,19 @@ Examples:
 
     # Direct mode execution
     if args.mode:
-        files = select_files()
-        if not files:
-            return
+        # Handle non-interactive mode
+        if args.no_interactive:
+            # Process all files in input directory
+            input_files = [f for f in config.INPUT_DIR.glob("*.*") if f.is_file()]
+            if not input_files:
+                print(f"No files found in {config.INPUT_DIR}")
+                return
+            files = input_files
+            print(f"Non-interactive mode: Processing {len(files)} files from input directory")
+        else:
+            files = select_files()
+            if not files:
+                return
 
         mode_map = {
             "hybrid": lambda: [mode_hybrid(f) for f in files],

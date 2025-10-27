@@ -74,19 +74,26 @@ echo ""
 
 # Check for .env file
 if [ ! -f ".env" ]; then
-    if [ -f ".env.example" ]; then
-        echo "WARNING: .env file not found"
-        echo "Please copy .env.example to .env and configure your API keys"
+    echo "WARNING: .env file not found"
+    echo ""
+    echo "Please create a .env file with your configuration:"
+    echo "  1. Create a new file named .env in this directory"
+    echo "  2. Add your MISTRAL_API_KEY and other settings"
+    echo "  3. See README.md for complete configuration options"
+    echo ""
+    read -p "Would you like to create a basic .env file now? (y/n) " -n 1 -r
+    echo ""
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        cat > .env << 'EOF'
+# Enhanced Document Converter Configuration
+# Add your API key below:
+MISTRAL_API_KEY=""
+# See README.md for all configuration options
+EOF
+        echo ".env file created. Please edit it with your API keys."
         echo ""
-        read -p "Would you like to create .env from .env.example now? (y/n) " -n 1 -r
-        echo ""
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            cp .env.example .env
-            echo ".env file created. Please edit it with your API keys."
-            echo ""
-            echo "Opening .env file in default editor..."
-            ${EDITOR:-nano} .env
-        fi
+        echo "Opening .env file in default editor..."
+        ${EDITOR:-nano} .env
     fi
 fi
 

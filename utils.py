@@ -43,7 +43,7 @@ def setup_logging(log_file: Optional[str] = None) -> logging.Logger:
 
     # Console handler with formatting
     console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.INFO)
+    console_handler.setLevel(getattr(logging, config.LOG_LEVEL, logging.INFO))
     console_format = logging.Formatter(
         '%(levelname)s: %(message)s'
     )

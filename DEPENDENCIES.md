@@ -383,6 +383,6 @@ python -c "from mistralai import Mistral; print('Mistral SDK OK')"
 ---
 
 **Last Updated:** 2025-01-15  
-**Version:** 2.1.0
+**Version:** 2.1.1
 
 For more information, see [README.md](README.md) and [CONTRIBUTING.md](CONTRIBUTING.md).

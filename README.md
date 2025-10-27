@@ -1,4 +1,4 @@
-# Enhanced Document Converter v2.1
+# Enhanced Document Converter v2.1.1
 
 A powerful, production-ready document conversion system that combines Microsoft's **MarkItDown** with **Mistral AI's OCR** capabilities for optimal document processing. Features 8 specialized conversion modes, advanced table extraction, intelligent caching, and comprehensive batch processing.
 
@@ -187,7 +187,8 @@ pip install -r requirements.txt
 pip install -r requirements-optional.txt
 
 # Configure environment
-cp .env.example .env
+# Note: Create a .env file based on the configuration options in this README
+# or reference the comprehensive configuration sections below
 # Edit .env with your API keys
 
 # Run converter
@@ -746,9 +747,9 @@ Asynchronous processing for better performance and non-blocking operations.
 
 #### Benefits
 
-- **3-5x Faster**: Process multiple files concurrently
-- **Non-Blocking**: UI remains responsive during processing
 - **Better Resource Utilization**: Efficient use of system resources
+- **Non-Blocking**: UI remains responsive during processing
+- **Concurrent File I/O**: Async file operations reduce wait times
 
 #### Configuration
 
@@ -757,14 +758,14 @@ Asynchronous processing for better performance and non-blocking operations.
 ENABLE_ASYNC_OPERATIONS=true
 ```
 
-#### How It Works
+#### Current Implementation
 
 When enabled, the system uses `async`/`await` for:
-- Mistral API calls (`process_with_ocr_async`)
-- File uploads
-- Batch processing
+- Async file I/O operations (`aiofiles`)
+- Concurrent batch processing with ThreadPoolExecutor
+- Non-blocking file uploads
 
-**Note**: Async operations are automatically used in batch modes when enabled.
+**Note**: Full async OCR processing integration is available in the codebase (`process_with_ocr_async`, `convert_with_mistral_ocr_async`) and can be integrated into batch modes for further performance improvements. Current batch modes use ThreadPoolExecutor for concurrent file processing.
 
 ---
 
