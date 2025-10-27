@@ -83,10 +83,13 @@ SAVE_MISTRAL_JSON = (
     os.getenv("SAVE_MISTRAL_JSON", "true").lower() == "true"
 )  # Default true for quality assessment
 
-# Advanced OCR parameters
-MISTRAL_OCR_TEMPERATURE = float(os.getenv("MISTRAL_OCR_TEMPERATURE", "0.0"))  # 0.0 = deterministic
-MISTRAL_OCR_MAX_TOKENS = int(os.getenv("MISTRAL_OCR_MAX_TOKENS", "16384"))
-MISTRAL_OCR_LANGUAGE = os.getenv("MISTRAL_OCR_LANGUAGE", "auto")  # auto, en, es, fr, de, etc.
+# NOTE: The following OCR parameters are NOT supported by the Mistral OCR API
+# They are kept in config for potential future use or documentation purposes only
+# The Mistral OCR endpoint does not accept temperature, max_tokens, or language parameters
+# OCR results are always deterministic and language is auto-detected
+MISTRAL_OCR_TEMPERATURE = float(os.getenv("MISTRAL_OCR_TEMPERATURE", "0.0"))  # NOT USED - OCR is deterministic
+MISTRAL_OCR_MAX_TOKENS = int(os.getenv("MISTRAL_OCR_MAX_TOKENS", "16384"))    # NOT USED - OCR handles all text
+MISTRAL_OCR_LANGUAGE = os.getenv("MISTRAL_OCR_LANGUAGE", "auto")               # NOT USED - OCR auto-detects
 
 # File upload management
 CLEANUP_OLD_UPLOADS = os.getenv("CLEANUP_OLD_UPLOADS", "true").lower() == "true"

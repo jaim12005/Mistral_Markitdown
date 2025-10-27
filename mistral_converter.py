@@ -526,24 +526,25 @@ def process_with_ocr(
         _report_progress("Processing with Mistral OCR...", 0.5)
 
         # Build OCR request parameters
+        # Note: Mistral OCR API only accepts: model, document, include_image_base64,
+        # pages (optional), bbox_annotation_format, document_annotation_format, retries
+        # Parameters like temperature, max_tokens, language are NOT supported by OCR endpoint
         ocr_params = {
             "model": model,
             "document": document,
             "include_image_base64": config.MISTRAL_INCLUDE_IMAGES,
-            "bbox_annotation_format": bbox_format,
-            "document_annotation_format": doc_format,
             "retries": retry_config,
         }
         
-        # Add optional parameters
+        # Add optional parameters (only those supported by OCR API)
         if pages is not None:
             ocr_params["pages"] = pages
-        if config.MISTRAL_OCR_TEMPERATURE is not None:
-            ocr_params["temperature"] = config.MISTRAL_OCR_TEMPERATURE
-        if config.MISTRAL_OCR_MAX_TOKENS:
-            ocr_params["max_tokens"] = config.MISTRAL_OCR_MAX_TOKENS
-        if config.MISTRAL_OCR_LANGUAGE and config.MISTRAL_OCR_LANGUAGE != "auto":
-            ocr_params["language"] = config.MISTRAL_OCR_LANGUAGE
+        
+        # Add structured output formats if they were successfully created
+        if bbox_format is not None:
+            ocr_params["bbox_annotation_format"] = bbox_format
+        if doc_format is not None:
+            ocr_params["document_annotation_format"] = doc_format
 
         # Process with OCR
         response = client.ocr.process(**ocr_params)
@@ -664,24 +665,25 @@ async def process_with_ocr_async(
         doc_format = get_document_annotation_format()
 
         # Build OCR request parameters
+        # Note: Mistral OCR API only accepts: model, document, include_image_base64,
+        # pages (optional), bbox_annotation_format, document_annotation_format, retries
+        # Parameters like temperature, max_tokens, language are NOT supported by OCR endpoint
         ocr_params = {
             "model": model,
             "document": document,
             "include_image_base64": config.MISTRAL_INCLUDE_IMAGES,
-            "bbox_annotation_format": bbox_format,
-            "document_annotation_format": doc_format,
             "retries": retry_config,
         }
         
-        # Add optional parameters
+        # Add optional parameters (only those supported by OCR API)
         if pages is not None:
             ocr_params["pages"] = pages
-        if config.MISTRAL_OCR_TEMPERATURE is not None:
-            ocr_params["temperature"] = config.MISTRAL_OCR_TEMPERATURE
-        if config.MISTRAL_OCR_MAX_TOKENS:
-            ocr_params["max_tokens"] = config.MISTRAL_OCR_MAX_TOKENS
-        if config.MISTRAL_OCR_LANGUAGE and config.MISTRAL_OCR_LANGUAGE != "auto":
-            ocr_params["language"] = config.MISTRAL_OCR_LANGUAGE
+        
+        # Add structured output formats if they were successfully created
+        if bbox_format is not None:
+            ocr_params["bbox_annotation_format"] = bbox_format
+        if doc_format is not None:
+            ocr_params["document_annotation_format"] = doc_format
 
         # Process with OCR (async)
         response = await client.ocr.process_async(**ocr_params)

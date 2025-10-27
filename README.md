@@ -573,70 +573,36 @@ See `.env.example` for 50+ configuration options with detailed explanations.
 
 ## Advanced Features Guide
 
-### Advanced OCR Parameters (NEW)
+### OCR Configuration Options
 
-#### Temperature Control for Deterministic Results
-
-Control OCR consistency with temperature settings:
+The Mistral OCR API provides dedicated OCR capabilities optimized for document processing:
 
 ```ini
 # In .env
-MISTRAL_OCR_TEMPERATURE=0.0  # Default: Fully deterministic
+MISTRAL_OCR_MODEL="mistral-ocr-latest"  # Dedicated OCR model
+MISTRAL_INCLUDE_IMAGES=true              # Extract images from documents
+SAVE_MISTRAL_JSON=true                   # Save detailed OCR metadata
 ```
 
-**Benefits:**
-- **Temperature 0.0** (default) = Identical results every time you process the same document
-- **Consistency** = Critical for version control, testing, and reproducible workflows
-- **Reliability** = Same document always produces same output
+**Available Options:**
+- **Model Selection**: Use `mistral-ocr-latest` (dedicated OCR service)
+- **Image Extraction**: Extract embedded images alongside text
+- **Metadata Saving**: Save detailed OCR results and quality metrics
+- **Page Selection**: Process specific pages for targeted extraction
 
-**Use Cases:**
-- Document comparison and diff tracking
-- Automated testing and CI/CD pipelines
-- Compliance and audit requirements
+**Note on Advanced Parameters:**
+The Mistral OCR endpoint is a specialized service that differs from the chat completion API. Parameters like `temperature`, `max_tokens`, and `language` are **not supported** by the OCR endpoint. The OCR service automatically:
+- Detects document language
+- Extracts all text deterministically (consistent results)
+- Handles documents of any reasonable size
 
-#### Language Optimization
-
-Improve OCR accuracy by specifying document language:
-
-```ini
-# In .env
-MISTRAL_OCR_LANGUAGE=auto  # Default: Auto-detect
-```
-
-**Supported Languages:**
-- `auto` - Automatic detection (default, works well for most cases)
-- `en` - English
-- `es` - Spanish
-- `fr` - French
-- `de` - German
-- `it` - Italian
-- `pt` - Portuguese
-- `nl` - Dutch
-- `pl` - Polish
-- `ru` - Russian
-- `ja` - Japanese
-- `ko` - Korean
-- `zh` - Chinese
-- `ar` - Arabic
-
-**When to Use:**
-- Multi-language documents - specify primary language
-- Specialized terminology - helps with context
-- Non-English documents - significant accuracy improvement
-
-#### Token Limits
-
-Control maximum output length:
-
-```ini
-# In .env
-MISTRAL_OCR_MAX_TOKENS=16384  # Default: 16,384 tokens
-```
-
-**Benefits:**
-- Prevents truncation on large documents
-- Configurable based on document size
-- Balance between completeness and performance
+**Supported OCR Parameters:**
+- `model` - OCR model to use (`mistral-ocr-latest`)
+- `document` - Document to process (file or URL)
+- `include_image_base64` - Whether to extract images
+- `pages` - Optional list of specific pages to process
+- `bbox_annotation_format` - Optional structured bounding box extraction
+- `document_annotation_format` - Optional structured document-level extraction
 
 ### Enhanced Document Metadata Extraction (NEW)
 
