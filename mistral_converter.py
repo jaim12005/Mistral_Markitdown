@@ -379,7 +379,11 @@ def upload_file_for_ocr(client: Mistral, file_path: Path) -> Optional[str]:
     """
     Upload file to Mistral using Files API with purpose="ocr" and get signed URL.
 
-    Required for files >4MB or when preferred for large files.
+    For PDFs, this uploads directly. For images, preprocessing is applied first if enabled.
+    Temporary files created during preprocessing are automatically cleaned up after upload.
+    
+    Note: Image preprocessing (optimization/enhancement) only works on individual image files,
+    NOT on PDFs. PDFs are processed as-is by Mistral OCR which handles them natively.
 
     Args:
         client: Mistral client instance
@@ -388,16 +392,43 @@ def upload_file_for_ocr(client: Mistral, file_path: Path) -> Optional[str]:
     Returns:
         Signed URL if successful, None otherwise
     """
+    # Track temporary files to clean up
+    temp_files_to_cleanup = []
+    
     try:
-        logger.info(f"Uploading file to Mistral: {file_path.name}")
+        # Apply preprocessing to images (if enabled)
+        # Note: This does NOT work for PDFs - only for standalone image files
+        processed_file_path = file_path
+        if file_path.suffix.lower() in ['.png', '.jpg', '.jpeg', '.gif', '.bmp']:
+            logger.debug(f"Image file detected: {file_path.suffix}")
+            
+            # Apply image preprocessing if enabled (contrast, sharpness)
+            if config.MISTRAL_ENABLE_IMAGE_PREPROCESSING:
+                preprocessed_path = preprocess_image(file_path)
+                if preprocessed_path and preprocessed_path != file_path:
+                    processed_file_path = preprocessed_path
+                    temp_files_to_cleanup.append(preprocessed_path)  # Track for cleanup
+                    logger.info(f"Image preprocessed: {processed_file_path.name}")
+            
+            # Apply image optimization if enabled (resize, compress)
+            if config.MISTRAL_ENABLE_IMAGE_OPTIMIZATION:
+                optimized_path = optimize_image(processed_file_path)
+                if optimized_path and optimized_path != processed_file_path:
+                    processed_file_path = optimized_path
+                    temp_files_to_cleanup.append(optimized_path)  # Track for cleanup
+                    logger.info(f"Image optimized: {processed_file_path.name}")
+        else:
+            logger.debug(f"PDF/document file - preprocessing skipped (not applicable)")
+        
+        logger.info(f"Uploading file to Mistral: {processed_file_path.name}")
 
-        with open(file_path, "rb") as f:
+        with open(processed_file_path, "rb") as f:
             file_content = f.read()
 
         # Upload with purpose="ocr"
         response = client.files.upload(
             file={
-                "file_name": file_path.name,
+                "file_name": file_path.name,  # Use original name
                 "content": file_content,
             },
             purpose="ocr",  # Critical: Must specify purpose="ocr"
@@ -405,6 +436,8 @@ def upload_file_for_ocr(client: Mistral, file_path: Path) -> Optional[str]:
 
         if not hasattr(response, "id"):
             logger.error("Upload response missing file ID")
+            # Clean up temp files before returning
+            _cleanup_temp_files(temp_files_to_cleanup)
             return None
 
         logger.info(f"File uploaded successfully: {response.id}")
@@ -418,14 +451,39 @@ def upload_file_for_ocr(client: Mistral, file_path: Path) -> Optional[str]:
 
         if hasattr(signed_url_response, "url"):
             logger.debug(f"Got signed URL for file {response.id}")
+            # Clean up temp files after successful upload
+            _cleanup_temp_files(temp_files_to_cleanup)
             return signed_url_response.url
         else:
             logger.error("Failed to get signed URL for uploaded file")
+            # Clean up temp files before returning
+            _cleanup_temp_files(temp_files_to_cleanup)
             return None
 
     except Exception as e:
         logger.error(f"Error uploading file: {e}")
+        # Clean up temp files on error
+        _cleanup_temp_files(temp_files_to_cleanup)
         return None
+
+
+def _cleanup_temp_files(temp_files: List[Path]) -> None:
+    """
+    Clean up temporary files created during image preprocessing.
+    
+    Args:
+        temp_files: List of temporary file paths to delete
+    """
+    if not temp_files:
+        return
+    
+    for temp_file in temp_files:
+        try:
+            if temp_file and temp_file.exists():
+                temp_file.unlink()
+                logger.debug(f"Deleted temporary file: {temp_file.name}")
+        except Exception as e:
+            logger.warning(f"Could not delete temporary file {temp_file.name}: {e}")
 
 
 # ============================================================================

@@ -293,9 +293,10 @@ Install via `requirements-dev.txt` for development and testing.
 #### "MISTRAL_API_KEY not set"
 
 **Solution:**
-1. Copy `.env.example` to `.env`
+1. Create a `.env` file in the project root
 2. Get API key from https://console.mistral.ai/api-keys/
-3. Set `MISTRAL_API_KEY` in `.env`
+3. Add `MISTRAL_API_KEY="your_key"` to `.env`
+4. See [CONFIGURATION.md](CONFIGURATION.md) for all options
 
 #### "pdf2image: Unable to get page count" (Windows)
 
@@ -385,4 +386,8 @@ python -c "from mistralai import Mistral; print('Mistral SDK OK')"
 **Last Updated:** 2025-01-15  
 **Version:** 2.1.1
 
-For more information, see [README.md](README.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
+For more information, see:
+- [README.md](README.md) - Complete feature documentation
+- [QUICKSTART.md](QUICKSTART.md) - Getting started guide
+- [CONFIGURATION.md](CONFIGURATION.md) - Configuration reference
+- [CONTRIBUTING.md](CONTRIBUTING.md) - Development guidelines

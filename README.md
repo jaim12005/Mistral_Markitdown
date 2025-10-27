@@ -158,7 +158,7 @@ run_converter.bat
 The script will:
 1. Create virtual environment
 2. Install all dependencies
-3. Check configuration
+3. Prompt for .env configuration
 4. Launch interactive menu
 
 ### macOS/Linux
@@ -542,9 +542,11 @@ This feature runs automatically on all OCR results - no configuration needed.
 
 ## Configuration
 
-All configuration is done via `.env` file. See `.env.example` for all options.
+All configuration is done via a `.env` file in the project root. 
 
-### Required Configuration
+📖 **See [CONFIGURATION.md](CONFIGURATION.md)** for the complete configuration reference with all 50+ options organized by category.
+
+### Quick Configuration
 
 ```ini
 # REQUIRED: Get your API key from https://console.mistral.ai/
@@ -556,8 +558,6 @@ MISTRAL_API_KEY="your_mistral_api_key_here"
 | Option | Default | Description |
 |--------|---------|-------------|
 | `MISTRAL_OCR_MODEL` | `mistral-ocr-latest` | OCR model to use |
-| `MISTRAL_OCR_TEMPERATURE` | `0.0` | Temperature for deterministic results |
-| `MISTRAL_OCR_LANGUAGE` | `auto` | Language hint (auto, en, es, fr, de, etc.) |
 | `MISTRAL_INCLUDE_IMAGES` | `true` | Extract images from documents |
 | `SAVE_MISTRAL_JSON` | `true` | Save OCR metadata JSON for quality assessment |
 | `CLEANUP_OLD_UPLOADS` | `true` | Auto-delete old uploaded files |
@@ -569,7 +569,7 @@ MISTRAL_API_KEY="your_mistral_api_key_here"
 | `MAX_CONCURRENT_FILES` | `5` | Batch processing concurrency |
 | `GENERATE_TXT_OUTPUT` | `true` | Create .txt files |
 
-See `.env.example` for 50+ configuration options with detailed explanations.
+**Configuration Options:** This README documents all 50+ configuration options. Create a `.env` file with your settings based on the examples throughout this documentation.
 
 ## Advanced Features Guide
 
@@ -881,9 +881,10 @@ See `schemas.py` for complete schema definitions and examples.
 ### "MISTRAL_API_KEY not set"
 
 **Solution:**
-1. Copy `.env.example` to `.env`
+1. Create a `.env` file in the project root
 2. Get API key from https://console.mistral.ai/api-keys/
-3. Set `MISTRAL_API_KEY` in `.env`
+3. Add `MISTRAL_API_KEY="your_key_here"` to `.env`
+4. See configuration sections below for additional options
 
 ### "Mistral OCR returned empty text"
 
@@ -969,60 +970,48 @@ pip install markitdown
 - **Configurable**: Set `MAX_CONCURRENT_FILES` in `.env`
 - **Recommended**: 3-10 workers depending on system resources
 
-## Documentation Links
+## Documentation
 
-### Core Dependencies
+### Getting Started
+- 📖 **[QUICKSTART.md](QUICKSTART.md)** - 5-minute getting started guide
+- 📖 **[CONFIGURATION.md](CONFIGURATION.md)** - Complete configuration reference (all 50+ options)
+- 📖 **[DEPENDENCIES.md](DEPENDENCIES.md)** - Dependency guide and troubleshooting
+
+### Development & Support
+- 📖 **[CONTRIBUTING.md](CONTRIBUTING.md)** - Contribution guidelines and development setup
+- 📖 **[KNOWN_ISSUES.md](KNOWN_ISSUES.md)** - Known issues and limitations
+
+### External Documentation
 - **MarkItDown**: https://github.com/microsoft/markitdown
-- **Mistral Document AI**: https://docs.mistral.ai/capabilities/document_ai/basic_ocr/
+- **Mistral Document AI**: https://docs.mistral.ai/capabilities/document_ai/
 - **Mistral Python SDK**: https://github.com/mistralai/client-python
-
-### Advanced Documentation
-- **Mistral OCR Endpoint**: https://github.com/mistralai/client-python/blob/main/docs/sdks/ocr/README.md
-- **Mistral Files API**: https://github.com/mistralai/client-python/blob/main/docs/sdks/files/README.md
 - **Camelot (Table Extraction)**: https://camelot-py.readthedocs.io/
 - **pdf2image**: https://github.com/Belval/pdf2image
 
 ### API Management
 - **Get Mistral API Key**: https://console.mistral.ai/api-keys/
-- **Verify Access Levels**: https://console.mistral.ai/
+- **Mistral Console**: https://console.mistral.ai/
 
 ## Latest Updates
 
-### Version 2.1.1 (Current - Enhanced)
+### Version 2.1.1 (Current)
 
-**New Features:**
-- ✅ **Advanced OCR Parameters** - Temperature control, language hints, token limits
-- ✅ **Automatic File Cleanup** - Removes old uploads from Mistral API (prevents storage costs)
-- ✅ **Table Quality Filtering** - Accuracy and whitespace thresholds for better extraction
-- ✅ **Enhanced Metadata Extraction** - Automatic extraction of document properties (author, dates, etc.)
-- ✅ **Advanced PDF to Image** - Multi-threaded, multiple formats (PNG/JPEG/TIFF), optimized output
-- ✅ **50+ Configuration Options** - Comprehensive `.env.example` with detailed explanations
-- ✅ **Deterministic OCR** - Temperature 0.0 for reproducible results
-
-### Version 2.1 (Previous)
-- ✅ 8 specialized conversion modes
-- ✅ Hybrid processing pipeline with OCR quality assessment
-- ✅ Intelligent caching system (24-hour persistence)
-- ✅ Advanced table extraction with financial document tuning
-- ✅ Automated OCR quality scoring (0-100) and weak page re-processing
-- ✅ Consecutive duplicate cleaning for OCR artifacts
-- ✅ Files API with signed URLs for all Mistral OCR
-- ✅ Comprehensive batch processing with metadata tracking
-- ✅ Cross-platform support (Windows, macOS, Linux)
+**Key Features:**
+- ✅ **8 Specialized Conversion Modes** - From simple MarkItDown to advanced HYBRID pipelines
+- ✅ **Dual-Engine Processing** - Local (MarkItDown) + Cloud (Mistral OCR) for optimal results
+- ✅ **Intelligent Caching** - 24-hour persistence, second run = $0 API costs
+- ✅ **Advanced Table Extraction** - pdfplumber + camelot with quality filtering (75%+ accuracy)
+- ✅ **OCR Quality Assessment** - Automated 0-100 scoring with weak page detection
+- ✅ **Image Preprocessing** - Optimization and enhancement for standalone image files
+- ✅ **Automatic File Cleanup** - Removes old uploads from Mistral API (cost savings)
+- ✅ **Enhanced Metadata** - Automatic extraction of document properties (author, dates, etc.)
+- ✅ **Multi-Threaded PDF to Image** - 4x faster with multiple format support
+- ✅ **Comprehensive Configuration** - 50+ documented options in dedicated guide
+- ✅ **CI/CD Integration** - GitHub Actions for automated testing and linting
+- ✅ **Cross-Platform** - Windows, macOS, Linux support
 
 ---
 
-## Summary of Improvements (v2.1.1)
+## Summary
 
-| Feature | Before | After | Benefit |
-|---------|--------|-------|---------|
-| **OCR Consistency** | Variable results | Deterministic (temp=0.0) | Reproducible workflows |
-| **File Cleanup** | Manual | Automatic | Cost savings, no orphaned files |
-| **Table Quality** | All tables accepted | Quality filtered (75%+ accuracy) | Cleaner output, fewer errors |
-| **Document Metadata** | Basic filename only | Full properties (author, dates, etc.) | Better organization & search |
-| **PDF to Image** | PNG only, single-threaded | Multi-format, 4 threads | Faster, flexible output |
-| **Configuration** | ~40 options | 50+ detailed options | More control & customization |
-
----
-
-**Enhanced Document Converter v2.1.1** - Combining the best of local and cloud processing for optimal document conversion with maximum efficiency and quality.
+**Enhanced Document Converter v2.1.1** combines the best of local (MarkItDown) and cloud (Mistral AI OCR) processing for optimal document conversion. Features include 8 specialized modes, intelligent caching, quality assessment, and comprehensive configuration options - all designed for production use with cost optimization in mind.

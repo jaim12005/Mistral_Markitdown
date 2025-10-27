@@ -13,9 +13,9 @@ Thank you for your interest in contributing! This document provides guidelines a
 ### Quick Start
 
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/mistral-markitdown.git
-cd mistral-markitdown
+# Clone the repository (replace with your fork URL)
+git clone https://github.com/your-username/Mistral_Markitdown.git
+cd Mistral_Markitdown
 
 # Create and activate virtual environment
 python -m venv env
@@ -177,30 +177,48 @@ Common fixtures are available in `tests/conftest.py`:
 ## Project Structure
 
 ```
-mistral-markitdown/
+Mistral_Markitdown/
 ├── main.py                  # Main application entry point
 ├── config.py                # Configuration management
-├── local_converter.py       # MarkItDown integration
-├── mistral_converter.py     # Mistral AI OCR
-├── utils.py                 # Utility functions
-├── requirements.txt         # Production dependencies
-├── requirements-optional.txt # Optional MarkItDown features
-├── requirements-dev.txt     # Development dependencies
-├── DEPENDENCIES.md          # Complete dependency guide
+├── local_converter.py       # MarkItDown integration & table extraction
+├── mistral_converter.py     # Mistral AI OCR integration
+├── utils.py                 # Utility functions (caching, logging, formatting)
+├── schemas.py               # JSON schemas for structured extraction
+│
+├── requirements.txt         # Core dependencies (required)
+├── requirements-optional.txt # Optional features (audio, YouTube, Azure)
+├── requirements-dev.txt     # Development dependencies (testing, linting)
+│
+├── README.md                # Complete user guide
+├── QUICKSTART.md            # 5-minute getting started guide
+├── DEPENDENCIES.md          # Dependency reference and troubleshooting
+├── CONTRIBUTING.md          # Development guidelines (this file)
+├── LICENSE                  # MIT License
+│
+├── run_converter.bat        # Windows quick start script
+├── quick_start.sh           # Linux/macOS quick start script
+├── Makefile                 # Development commands (make test, make lint, etc.)
+├── pyproject.toml           # Tool configuration (black, isort, pytest)
+├── mypy.ini                 # Type checking configuration
+├── .gitignore               # Git ignore patterns
+│
 ├── tests/                   # Test suite
 │   ├── __init__.py
 │   ├── conftest.py          # Pytest fixtures
-│   ├── test_config.py
-│   ├── test_utils.py
-│   └── test_*.py
-├── .github/workflows/       # CI/CD pipelines
-│   ├── test.yml
-│   └── lint.yml
-├── .flake8                  # Flake8 configuration
-├── mypy.ini                 # Mypy configuration
-├── pyproject.toml           # Black, isort, pytest config
-├── Makefile                 # Development commands
-└── .gitignore               # Git ignore rules
+│   ├── test_config.py       # Configuration tests
+│   └── test_utils.py        # Utility function tests
+│
+├── .github/workflows/       # CI/CD automation
+│   ├── test.yml            # Multi-platform testing
+│   └── lint.yml            # Code quality checks
+│
+├── input/                   # Place files to convert here
+├── output_md/               # Markdown output
+├── output_txt/              # Plain text output
+├── output_images/           # Extracted images and PDF renders
+├── cache/                   # OCR result cache
+└── logs/                    # Processing logs
+    └── metadata/            # Batch processing metadata
 ```
 
 ## Common Tasks
