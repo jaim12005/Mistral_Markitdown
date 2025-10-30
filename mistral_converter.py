@@ -140,62 +140,53 @@ def get_retry_config() -> Optional[Any]:
 # ============================================================================
 
 
-def create_response_format(schema_dict: Dict[str, Any]) -> Optional[Any]:
+def get_raw_schema(schema_dict: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
-    Create ResponseFormat for structured extraction.
+    Get raw schema for OCR annotation formats.
+
+    Note: OCR API expects raw JSON schema dicts, NOT ResponseFormat objects.
+    ResponseFormat is for chat completion API with structured outputs.
 
     Args:
         schema_dict: Schema definition from schemas.py
 
     Returns:
-        ResponseFormat instance or None if models unavailable
+        Raw schema dict or None if structured output disabled
     """
-    if models is None or not config.MISTRAL_ENABLE_STRUCTURED_OUTPUT:
+    if not config.MISTRAL_ENABLE_STRUCTURED_OUTPUT:
         return None
 
     try:
-        json_schema = models.JSONSchema(
-            name=schema_dict["name"],
-            schema=schema_dict["schema"],
-            description=schema_dict.get("description", ""),
-            strict=True,
-        )
-
-        response_format = models.ResponseFormat(
-            type="json_schema", json_schema=json_schema
-        )
-
-        logger.debug(f"Created ResponseFormat with schema: {schema_dict['name']}")
-        return response_format
-
+        # Return just the schema portion - OCR API expects this format
+        return schema_dict.get("schema")
     except Exception as e:
-        logger.warning(f"Error creating ResponseFormat: {e}")
+        logger.warning(f"Error getting raw schema: {e}")
         return None
 
 
-def get_bbox_annotation_format() -> Optional[Any]:
+def get_bbox_annotation_format() -> Optional[Dict[str, Any]]:
     """
-    Get ResponseFormat for bounding box annotation.
+    Get raw schema dict for bounding box annotation.
 
     Returns:
-        ResponseFormat for bbox extraction or None if disabled
+        Raw JSON schema dict for bbox extraction or None if disabled
     """
     if not config.MISTRAL_ENABLE_BBOX_ANNOTATION:
         return None
 
     bbox_schema = schemas.get_bbox_schema("structured")
-    return create_response_format(bbox_schema)
+    return get_raw_schema(bbox_schema)
 
 
-def get_document_annotation_format(doc_type: str = "auto") -> Optional[Any]:
+def get_document_annotation_format(doc_type: str = "auto") -> Optional[Dict[str, Any]]:
     """
-    Get ResponseFormat for document-level annotation.
+    Get raw schema dict for document-level annotation.
 
     Args:
         doc_type: Document type (invoice, financial_statement, form, generic, auto)
 
     Returns:
-        ResponseFormat for document extraction or None if disabled
+        Raw JSON schema dict for document extraction or None if disabled
     """
     if not config.MISTRAL_ENABLE_DOCUMENT_ANNOTATION:
         return None
@@ -207,7 +198,7 @@ def get_document_annotation_format(doc_type: str = "auto") -> Optional[Any]:
             doc_type = "generic"  # Default fallback
 
     document_schema = schemas.get_document_schema(doc_type)
-    return create_response_format(document_schema)
+    return get_raw_schema(document_schema)
 
 
 # ============================================================================
@@ -332,31 +323,42 @@ def preprocess_image(image_path: Path) -> Optional[Path]:
 def cleanup_uploaded_files(client: Mistral, days_old: Optional[int] = None) -> int:
     """
     Clean up old files uploaded to Mistral Files API.
-    
+
     Args:
         client: Mistral client instance
         days_old: Delete files older than N days (default: from config)
-    
+
     Returns:
         Number of files deleted
     """
     if days_old is None:
         days_old = config.UPLOAD_RETENTION_DAYS
-    
+
     try:
-        from datetime import datetime, timedelta
-        
+        from datetime import datetime, timedelta, timezone
+
         # List all OCR files
         files_list = client.files.list(purpose="ocr")
-        cutoff_date = datetime.now() - timedelta(days=days_old)
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=days_old)
         deleted = 0
-        
+
         for file in files_list:
             try:
-                # Parse created_at timestamp
+                # Handle created_at as either string or datetime object
                 if hasattr(file, 'created_at'):
-                    file_created = datetime.fromisoformat(file.created_at.replace('Z', '+00:00'))
-                    
+                    if isinstance(file.created_at, str):
+                        # Parse ISO format string
+                        file_created = datetime.fromisoformat(file.created_at.replace('Z', '+00:00'))
+                    elif hasattr(file.created_at, 'replace'):
+                        # Already a datetime object
+                        file_created = file.created_at
+                        # Ensure timezone-aware
+                        if file_created.tzinfo is None:
+                            file_created = file_created.replace(tzinfo=timezone.utc)
+                    else:
+                        logger.debug(f"Unexpected created_at type for file {file.id}: {type(file.created_at)}")
+                        continue
+
                     if file_created < cutoff_date:
                         client.files.delete(file_id=file.id)
                         deleted += 1
@@ -364,12 +366,12 @@ def cleanup_uploaded_files(client: Mistral, days_old: Optional[int] = None) -> i
             except Exception as e:
                 logger.debug(f"Error processing file {file.id}: {e}")
                 continue
-        
+
         if deleted > 0:
             logger.info(f"Cleaned up {deleted} old uploaded files (older than {days_old} days)")
-        
+
         return deleted
-        
+
     except Exception as e:
         logger.warning(f"Error cleaning up uploaded files: {e}")
         return 0
@@ -521,11 +523,7 @@ def process_with_ocr(
         _report_progress("Analyzing file...", 0.1)
         # Determine best model
         if model is None:
-            content_analysis = local_converter.analyze_file_content(file_path)
-            model = config.select_best_model(
-                file_type=file_path.suffix.lower().lstrip("."),
-                content_analysis=content_analysis,
-            )
+            model = config.get_ocr_model()
 
         logger.info(f"Processing with Mistral OCR using model: {model}")
 
@@ -669,11 +667,7 @@ async def process_with_ocr_async(
         _report_progress("Analyzing file (async)...", 0.1)
         # Determine best model
         if model is None:
-            content_analysis = local_converter.analyze_file_content(file_path)
-            model = config.select_best_model(
-                file_type=file_path.suffix.lower().lstrip("."),
-                content_analysis=content_analysis,
-            )
+            model = config.get_ocr_model()
 
         logger.info(f"Processing with Mistral OCR (async) using model: {model}")
 

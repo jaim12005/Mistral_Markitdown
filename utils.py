@@ -74,7 +74,12 @@ class IntelligentCache:
     Hash-based caching system for OCR results to avoid reprocessing.
 
     Uses file content hashing to detect changes and cache invalidation.
+    Statistics are tracked at class level to persist across instances.
     """
+
+    # Class-level statistics (shared across all instances)
+    _total_hits = 0
+    _total_misses = 0
 
     def __init__(self, cache_dir: Path = config.CACHE_DIR):
         """
@@ -85,8 +90,6 @@ class IntelligentCache:
         """
         self.cache_dir = cache_dir
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        self.hits = 0
-        self.misses = 0
 
     def _get_file_hash(self, file_path: Path) -> str:
         """
@@ -125,7 +128,7 @@ class IntelligentCache:
             cache_path = self._get_cache_path(file_hash)
 
             if not cache_path.exists():
-                self.misses += 1
+                IntelligentCache._total_misses += 1
                 return None
 
             # Load cache data
@@ -139,21 +142,21 @@ class IntelligentCache:
             if datetime.now() - cached_time > max_age:
                 logger.debug(f"Cache expired for {file_path.name}")
                 cache_path.unlink()  # Remove expired cache
-                self.misses += 1
+                IntelligentCache._total_misses += 1
                 return None
 
             # Check cache type
             if cache_data.get("type") != cache_type:
-                self.misses += 1
+                IntelligentCache._total_misses += 1
                 return None
 
-            self.hits += 1
+            IntelligentCache._total_hits += 1
             logger.info(f"Cache hit for {file_path.name}")
             return cache_data.get("data")
 
         except Exception as e:
             logger.warning(f"Error reading cache for {file_path.name}: {e}")
-            self.misses += 1
+            IntelligentCache._total_misses += 1
             return None
 
     def set(
@@ -229,12 +232,14 @@ class IntelligentCache:
         cache_files = list(self.cache_dir.glob("*.json"))
         total_size = sum(f.stat().st_size for f in cache_files)
 
+        total_requests = IntelligentCache._total_hits + IntelligentCache._total_misses
+
         return {
             "total_entries": len(cache_files),
             "total_size_mb": total_size / (1024 * 1024),
-            "cache_hits": self.hits,
-            "cache_misses": self.misses,
-            "hit_rate": (self.hits / (self.hits + self.misses) * 100) if (self.hits + self.misses) > 0 else 0,
+            "cache_hits": IntelligentCache._total_hits,
+            "cache_misses": IntelligentCache._total_misses,
+            "hit_rate": (IntelligentCache._total_hits / total_requests * 100) if total_requests > 0 else 0,
         }
 
 # Global cache instance

@@ -156,6 +156,18 @@ def mode_hybrid(file_path: Path) -> Tuple[bool, str]:
             results.append(f"Mistral OCR failed: {ocr_error}")
             has_errors = True
 
+    # Improve weak pages if OCR quality assessment indicates issues
+    if ocr_quality and ocr_quality.get('weak_page_count', 0) > 0:
+        logger.info(
+            f"Attempting to improve {ocr_quality['weak_page_count']} weak pages..."
+        )
+        try:
+            client = mistral_converter.get_mistral_client()
+            model = config.get_ocr_model()
+            ocr_result = improve_weak_pages(client, file_path, ocr_result, model)
+        except Exception as e:
+            logger.warning(f"Failed to improve weak pages: {e}")
+
     # Combine results
     logger.info("Combining results into hybrid output...")
 
@@ -580,7 +592,7 @@ def mode_system_status() -> Tuple[bool, str]:
     print(f"  * OpenAI API Key: {'Set' if config.OPENAI_API_KEY else 'Not set'}")
     print(f"  * Cache Duration: {config.CACHE_DURATION_HOURS} hours")
     print(f"  * Max Concurrent Files: {config.MAX_CONCURRENT_FILES}")
-    print(f"  * Mistral OCR Model: {config.MISTRAL_OCR_MODEL}")
+    print(f"  * Mistral OCR Model: {config.get_ocr_model()}")
     print()
 
     # Cache Statistics

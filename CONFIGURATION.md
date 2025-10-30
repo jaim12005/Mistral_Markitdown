@@ -90,6 +90,86 @@ MISTRAL_INCLUDE_IMAGES=true
 SAVE_MISTRAL_JSON=true
 ```
 
+### OCR Quality Assessment Thresholds
+
+Control when OCR results are considered usable based on quality scoring (0-100 scale).
+
+#### OCR_QUALITY_THRESHOLD_EXCELLENT
+- **Type:** Integer
+- **Default:** `80`
+- **Description:** Score above this is considered excellent quality
+
+```ini
+OCR_QUALITY_THRESHOLD_EXCELLENT=80
+```
+
+#### OCR_QUALITY_THRESHOLD_GOOD
+- **Type:** Integer
+- **Default:** `60`
+- **Description:** Score above this is considered good quality
+
+```ini
+OCR_QUALITY_THRESHOLD_GOOD=60
+```
+
+#### OCR_QUALITY_THRESHOLD_ACCEPTABLE
+- **Type:** Integer
+- **Default:** `40`
+- **Description:** Minimum score for acceptable quality
+
+```ini
+OCR_QUALITY_THRESHOLD_ACCEPTABLE=40
+```
+
+### OCR Quality Detection Thresholds
+
+Fine-tune the heuristics used to detect weak OCR pages.
+
+#### OCR_MIN_TEXT_LENGTH
+- **Type:** Integer
+- **Default:** `50`
+- **Description:** Minimum characters for valid page
+
+```ini
+OCR_MIN_TEXT_LENGTH=50
+```
+
+#### OCR_MIN_DIGIT_COUNT
+- **Type:** Integer
+- **Default:** `20`
+- **Description:** Minimum digits for financial documents
+
+```ini
+OCR_MIN_DIGIT_COUNT=20
+```
+
+#### OCR_MIN_UNIQUENESS_RATIO
+- **Type:** Float
+- **Default:** `0.3`
+- **Description:** Minimum unique token ratio (0-1)
+
+```ini
+OCR_MIN_UNIQUENESS_RATIO=0.3
+```
+
+#### OCR_MAX_PHRASE_REPETITIONS
+- **Type:** Integer
+- **Default:** `5`
+- **Description:** Maximum repetitions before flagging as artifact
+
+```ini
+OCR_MAX_PHRASE_REPETITIONS=5
+```
+
+#### OCR_MIN_AVG_LINE_LENGTH
+- **Type:** Integer
+- **Default:** `10`
+- **Description:** Minimum average line length
+
+```ini
+OCR_MIN_AVG_LINE_LENGTH=10
+```
+
 ---
 
 ## File Upload Management
@@ -623,29 +703,6 @@ VERBOSE_PROGRESS=true
 
 ---
 
-## Unsupported Parameters
-
-The following parameters exist in the configuration but are **NOT actually used** by the Mistral OCR API:
-
-### ❌ MISTRAL_OCR_TEMPERATURE
-- **Status:** NOT SUPPORTED by OCR endpoint
-- **Why:** OCR is deterministic by design
-- **Can remove from .env**
-
-### ❌ MISTRAL_OCR_MAX_TOKENS
-- **Status:** NOT SUPPORTED by OCR endpoint
-- **Why:** OCR processes full documents without limits
-- **Can remove from .env**
-
-### ❌ MISTRAL_OCR_LANGUAGE
-- **Status:** NOT SUPPORTED by OCR endpoint
-- **Why:** OCR auto-detects all languages
-- **Can remove from .env**
-
-These variables exist in `config.py` but are ignored by the OCR processing functions. They were originally added based on chat completion API parameters but don't apply to the OCR endpoint.
-
----
-
 ## Environment Variable Reference
 
 | Variable | Type | Default | Required | Section |
@@ -676,4 +733,3 @@ See README.md for complete feature documentation.
 
 **Last Updated:** 2025-01-27  
 **Version:** 2.1.1
-

@@ -83,17 +83,21 @@ SAVE_MISTRAL_JSON = (
     os.getenv("SAVE_MISTRAL_JSON", "true").lower() == "true"
 )  # Default true for quality assessment
 
-# NOTE: The following OCR parameters are NOT supported by the Mistral OCR API
-# They are kept in config for potential future use or documentation purposes only
-# The Mistral OCR endpoint does not accept temperature, max_tokens, or language parameters
-# OCR results are always deterministic and language is auto-detected
-MISTRAL_OCR_TEMPERATURE = float(os.getenv("MISTRAL_OCR_TEMPERATURE", "0.0"))  # NOT USED - OCR is deterministic
-MISTRAL_OCR_MAX_TOKENS = int(os.getenv("MISTRAL_OCR_MAX_TOKENS", "16384"))    # NOT USED - OCR handles all text
-MISTRAL_OCR_LANGUAGE = os.getenv("MISTRAL_OCR_LANGUAGE", "auto")               # NOT USED - OCR auto-detects
-
 # File upload management
 CLEANUP_OLD_UPLOADS = os.getenv("CLEANUP_OLD_UPLOADS", "true").lower() == "true"
 UPLOAD_RETENTION_DAYS = int(os.getenv("UPLOAD_RETENTION_DAYS", "7"))  # Delete files older than N days
+
+# OCR Quality Assessment Thresholds (0-100 scale)
+OCR_QUALITY_THRESHOLD_EXCELLENT = int(os.getenv("OCR_QUALITY_THRESHOLD_EXCELLENT", "80"))
+OCR_QUALITY_THRESHOLD_GOOD = int(os.getenv("OCR_QUALITY_THRESHOLD_GOOD", "60"))
+OCR_QUALITY_THRESHOLD_ACCEPTABLE = int(os.getenv("OCR_QUALITY_THRESHOLD_ACCEPTABLE", "40"))
+
+# OCR Quality Detection Thresholds
+OCR_MIN_TEXT_LENGTH = int(os.getenv("OCR_MIN_TEXT_LENGTH", "50"))
+OCR_MIN_DIGIT_COUNT = int(os.getenv("OCR_MIN_DIGIT_COUNT", "20"))
+OCR_MIN_UNIQUENESS_RATIO = float(os.getenv("OCR_MIN_UNIQUENESS_RATIO", "0.3"))
+OCR_MAX_PHRASE_REPETITIONS = int(os.getenv("OCR_MAX_PHRASE_REPETITIONS", "5"))
+OCR_MIN_AVG_LINE_LENGTH = int(os.getenv("OCR_MIN_AVG_LINE_LENGTH", "10"))
 
 # Advanced features - Structured Outputs
 MISTRAL_ENABLE_FUNCTIONS = (
@@ -260,22 +264,16 @@ MISTRAL_MODELS = {
 }
 
 
-def select_best_model(file_type: str, content_analysis: Optional[dict] = None) -> str:
+def get_ocr_model() -> str:
     """
-    Select Mistral model for OCR processing.
+    Get the configured OCR model.
 
-    ALWAYS returns mistral-ocr-latest for OCR tasks.
-    This is the dedicated OCR model and should never be substituted.
-
-    Args:
-        file_type: The type of file being processed (pdf, image, docx, etc.)
-        content_analysis: Optional dict with keys like 'has_images', 'has_code', etc.
+    Always returns MISTRAL_OCR_MODEL (mistral-ocr-latest).
+    This is the dedicated OCR service and should never be substituted.
 
     Returns:
-        Model identifier string (always mistral-ocr-latest for OCR)
+        Model identifier string (mistral-ocr-latest)
     """
-    # ALWAYS use mistral-ocr-latest for OCR tasks
-    # Never substitute with pixtral, codestral, or other models
     return MISTRAL_OCR_MODEL
 
 
