@@ -1307,10 +1307,7 @@ def convert_with_mistral_ocr(
             f"Attempting to improve {quality_assessment['weak_page_count']} weak pages..."
         )
         content_analysis = local_converter.analyze_file_content(file_path)
-        model = config.select_best_model(
-            file_type=file_path.suffix.lower().lstrip("."),
-            content_analysis=content_analysis,
-        )
+        model = config.get_ocr_model()
         ocr_result = improve_weak_pages(client, file_path, ocr_result, model)
 
         # Re-assess quality after improvement
@@ -1397,10 +1394,7 @@ async def convert_with_mistral_ocr_async(
             f"Attempting to improve {quality_assessment['weak_page_count']} weak pages..."
         )
         content_analysis = local_converter.analyze_file_content(file_path)
-        model = config.select_best_model(
-            file_type=file_path.suffix.lower().lstrip("."),
-            content_analysis=content_analysis,
-        )
+        model = config.get_ocr_model()
         ocr_result = improve_weak_pages(client, file_path, ocr_result, model)
 
         # Re-assess quality after improvement

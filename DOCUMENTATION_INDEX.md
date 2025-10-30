@@ -12,7 +12,7 @@ This project includes comprehensive documentation organized by use case:
 | **QUICKSTART.md** | New users | Get started in 5 minutes | 5 min |
 | **CONFIGURATION.md** | Power users | All 50+ configuration options | 10 min |
 | **DEPENDENCIES.md** | Technical users | Dependency reference | 10 min |
-| **KNOWN_ISSUES.md** | Troubleshooting | Current limitations | 5 min |
+| **KNOWN_ISSUES.md** | Troubleshooting | Known issues and limitations | 15 min |
 | **CONTRIBUTING.md** | Developers | Development setup | 10 min |
 | **LICENSE** | Legal/compliance | MIT License terms | 2 min |
 
@@ -129,8 +129,15 @@ This project includes comprehensive documentation organized by use case:
 - MarkItDown plugins require additional setup
 - Mistral OCR requires paid API
 - Large batch processing considerations
+- Concurrent processing limits
 
-**Best for:** Understanding current limitations and when to use alternative approaches.
+**Includes:**
+- Complete troubleshooting guide
+- Mode selection recommendations
+- Performance expectations
+- Common error solutions
+
+**Best for:** Understanding current limitations, troubleshooting errors, and choosing the right mode for your use case.
 
 ---
 

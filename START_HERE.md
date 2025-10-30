@@ -170,7 +170,7 @@ See [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for complete troubleshooting.
 
 **Next Step:** Open [QUICKSTART.md](QUICKSTART.md) and follow the 5-minute guide!
 
-**Questions?** Check [ANSWERS_TO_YOUR_QUESTIONS.md](ANSWERS_TO_YOUR_QUESTIONS.md) for detailed explanations.
+**Questions?** Check [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for troubleshooting and [CONFIGURATION.md](CONFIGURATION.md) for detailed configuration options.
 
 ---
 

@@ -164,7 +164,7 @@ def mode_hybrid(file_path: Path) -> Tuple[bool, str]:
         try:
             client = mistral_converter.get_mistral_client()
             model = config.get_ocr_model()
-            ocr_result = improve_weak_pages(client, file_path, ocr_result, model)
+            ocr_result = mistral_converter.improve_weak_pages(client, file_path, ocr_result, model)
         except Exception as e:
             logger.warning(f"Failed to improve weak pages: {e}")
 

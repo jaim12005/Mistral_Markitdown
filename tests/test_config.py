@@ -51,24 +51,12 @@ class TestConfigurationValidation:
 class TestModelSelection:
     """Test model selection functionality."""
 
-    def test_select_best_model_always_returns_ocr(self):
-        """Test that select_best_model always returns OCR model."""
+    def test_get_ocr_model_returns_correct_model(self):
+        """Test that get_ocr_model returns the OCR model."""
         # Should always return mistral-ocr-latest for OCR tasks
-        model = config.select_best_model("pdf")
+        model = config.get_ocr_model()
         assert model == config.MISTRAL_OCR_MODEL
-
-        model = config.select_best_model("png")
-        assert model == config.MISTRAL_OCR_MODEL
-
-        model = config.select_best_model("docx")
-        assert model == config.MISTRAL_OCR_MODEL
-
-    def test_select_best_model_with_analysis(self):
-        """Test model selection with content analysis."""
-        content_analysis = {"has_images": True, "has_code": False, "is_complex": True}
-
-        model = config.select_best_model("pdf", content_analysis)
-        assert model == config.MISTRAL_OCR_MODEL
+        assert model == "mistral-ocr-latest"
 
 
 class TestFileTypeConfiguration:
