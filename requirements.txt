@@ -13,13 +13,14 @@
 # MarkItDown - Microsoft's document-to-markdown converter
 # Includes: PDF, DOCX, PPTX, XLSX, HTML, images, and more
 # Core dependencies (beautifulsoup4, requests, etc.) are auto-installed
-markitdown>=0.1.3
+markitdown[all]>=0.1.3
 
 # Mistral AI SDK - For OCR and document AI capabilities
 mistralai>=1.0.0
 
 # Environment Configuration
 python-dotenv>=1.0.0
+openai>=1.0.0
 
 # ----------------------------------------------------------------------------
 # Enhanced PDF Table Extraction (Beyond MarkItDown)

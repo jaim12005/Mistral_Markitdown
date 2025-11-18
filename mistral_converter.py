@@ -1249,6 +1249,74 @@ def save_extracted_images(ocr_result: Dict[str, Any], file_path: Path) -> List[P
     return saved_images
 
 
+def _process_ocr_result_pipeline(
+    client: Mistral,
+    file_path: Path,
+    ocr_result: Dict[str, Any],
+    use_cache: bool = True,
+    improve_weak: bool = True,
+) -> Tuple[bool, Optional[Path], Optional[str]]:
+    """
+    Common pipeline for processing OCR results (quality check, improvement, saving).
+
+    Args:
+        client: Mistral client instance
+        file_path: Path to file
+        ocr_result: OCR result dictionary
+        use_cache: Whether to cache the result
+        improve_weak: Whether to improve weak pages
+
+    Returns:
+        Tuple of (success, output_md_path, error_message)
+    """
+    # Assess OCR quality
+    logger.info("Assessing OCR quality...")
+    quality_assessment = assess_ocr_quality(ocr_result)
+    ocr_result["quality_assessment"] = quality_assessment
+
+    # Re-process weak pages if requested and quality is low
+    if (
+        improve_weak
+        and ocr_result.get("pages")
+        and quality_assessment.get("weak_page_count", 0) > 0
+    ):
+        logger.info(
+            f"Attempting to improve {quality_assessment['weak_page_count']} weak pages..."
+        )
+        model = config.get_ocr_model()
+        # Note: improve_weak_pages is synchronous
+        ocr_result = improve_weak_pages(client, file_path, ocr_result, model)
+
+        # Re-assess quality after improvement
+        improved_quality = assess_ocr_quality(ocr_result)
+        ocr_result["quality_assessment"] = improved_quality
+        logger.info(
+            f"Quality after improvement: {improved_quality['quality_score']:.1f}/100"
+        )
+
+    # Cache result
+    if use_cache:
+        utils.cache.set(file_path, ocr_result, cache_type="mistral_ocr")
+
+    # Save extracted images
+    save_extracted_images(ocr_result, file_path)
+
+    # Generate markdown output
+    output_path = _create_markdown_output(file_path, ocr_result)
+
+    # Save JSON metadata if requested
+    if config.SAVE_MISTRAL_JSON:
+        json_path = config.OUTPUT_MD_DIR / f"{file_path.stem}_ocr_metadata.json"
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(ocr_result, f, indent=2, ensure_ascii=False)
+        logger.info(f"Saved OCR metadata: {json_path.name}")
+
+    # Save structured outputs if they exist
+    _save_structured_outputs(file_path, ocr_result)
+
+    return True, output_path, None
+
+
 # ============================================================================
 # Main Conversion Function
 # ============================================================================
@@ -1292,52 +1360,13 @@ def convert_with_mistral_ocr(
     if not success or not ocr_result:
         return False, None, error
 
-    # Assess OCR quality
-    logger.info("Assessing OCR quality...")
-    quality_assessment = assess_ocr_quality(ocr_result)
-    ocr_result["quality_assessment"] = quality_assessment
+    if not success or not ocr_result:
+        return False, None, error
 
-    # Re-process weak pages if requested and quality is low
-    if (
-        improve_weak
-        and ocr_result.get("pages")
-        and quality_assessment.get("weak_page_count", 0) > 0
-    ):
-        logger.info(
-            f"Attempting to improve {quality_assessment['weak_page_count']} weak pages..."
-        )
-        content_analysis = local_converter.analyze_file_content(file_path)
-        model = config.get_ocr_model()
-        ocr_result = improve_weak_pages(client, file_path, ocr_result, model)
-
-        # Re-assess quality after improvement
-        improved_quality = assess_ocr_quality(ocr_result)
-        ocr_result["quality_assessment"] = improved_quality
-        logger.info(
-            f"Quality after improvement: {improved_quality['quality_score']:.1f}/100"
-        )
-
-    # Cache result
-    if use_cache:
-        utils.cache.set(file_path, ocr_result, cache_type="mistral_ocr")
-
-    # Save extracted images
-    save_extracted_images(ocr_result, file_path)
-
-    # Generate markdown output
-    output_path = _create_markdown_output(file_path, ocr_result)
-
-    # Save JSON metadata if requested
-    if config.SAVE_MISTRAL_JSON:
-        json_path = config.OUTPUT_MD_DIR / f"{file_path.stem}_ocr_metadata.json"
-        with open(json_path, "w", encoding="utf-8") as f:
-            json.dump(ocr_result, f, indent=2, ensure_ascii=False)
-        logger.info(f"Saved OCR metadata: {json_path.name}")
-
-    # Save structured outputs if they exist
-    _save_structured_outputs(file_path, ocr_result)
-
-    return True, output_path, None
+    # Process result using common pipeline
+    return _process_ocr_result_pipeline(
+        client, file_path, ocr_result, use_cache, improve_weak
+    )
 
 
 async def convert_with_mistral_ocr_async(
@@ -1378,53 +1407,13 @@ async def convert_with_mistral_ocr_async(
     if not success or not ocr_result:
         return False, None, error
 
-    # Assess OCR quality
-    logger.info("Assessing OCR quality...")
-    quality_assessment = assess_ocr_quality(ocr_result)
-    ocr_result["quality_assessment"] = quality_assessment
+    if not success or not ocr_result:
+        return False, None, error
 
-    # Re-process weak pages if requested and quality is low
-    # Note: Weak page improvement is synchronous for now
-    if (
-        improve_weak
-        and ocr_result.get("pages")
-        and quality_assessment.get("weak_page_count", 0) > 0
-    ):
-        logger.info(
-            f"Attempting to improve {quality_assessment['weak_page_count']} weak pages..."
-        )
-        content_analysis = local_converter.analyze_file_content(file_path)
-        model = config.get_ocr_model()
-        ocr_result = improve_weak_pages(client, file_path, ocr_result, model)
-
-        # Re-assess quality after improvement
-        improved_quality = assess_ocr_quality(ocr_result)
-        ocr_result["quality_assessment"] = improved_quality
-        logger.info(
-            f"Quality after improvement: {improved_quality['quality_score']:.1f}/100"
-        )
-
-    # Cache result
-    if use_cache:
-        utils.cache.set(file_path, ocr_result, cache_type="mistral_ocr")
-
-    # Save extracted images
-    save_extracted_images(ocr_result, file_path)
-
-    # Generate markdown output
-    output_path = _create_markdown_output(file_path, ocr_result)
-
-    # Save JSON metadata if requested
-    if config.SAVE_MISTRAL_JSON:
-        json_path = config.OUTPUT_MD_DIR / f"{file_path.stem}_ocr_metadata.json"
-        with open(json_path, "w", encoding="utf-8") as f:
-            json.dump(ocr_result, f, indent=2, ensure_ascii=False)
-        logger.info(f"Saved OCR metadata: {json_path.name}")
-
-    # Save structured outputs if they exist
-    _save_structured_outputs(file_path, ocr_result)
-
-    return True, output_path, None
+    # Process result using common pipeline
+    return _process_ocr_result_pipeline(
+        client, file_path, ocr_result, use_cache, improve_weak
+    )
 
 
 def _save_structured_outputs(file_path: Path, ocr_result: Dict[str, Any]) -> None:

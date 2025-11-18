@@ -99,10 +99,7 @@ OCR_MIN_UNIQUENESS_RATIO = float(os.getenv("OCR_MIN_UNIQUENESS_RATIO", "0.3"))
 OCR_MAX_PHRASE_REPETITIONS = int(os.getenv("OCR_MAX_PHRASE_REPETITIONS", "5"))
 OCR_MIN_AVG_LINE_LENGTH = int(os.getenv("OCR_MIN_AVG_LINE_LENGTH", "10"))
 
-# Advanced features - Structured Outputs
-MISTRAL_ENABLE_FUNCTIONS = (
-    os.getenv("MISTRAL_ENABLE_FUNCTIONS", "false").lower() == "true"
-)
+
 MISTRAL_ENABLE_STRUCTURED_OUTPUT = (
     os.getenv("MISTRAL_ENABLE_STRUCTURED_OUTPUT", "true").lower()
     == "true"  # NOW ENABLED
