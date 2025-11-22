@@ -100,8 +100,8 @@ class IntelligentCache:
         """
         hasher = hashlib.sha256()
         with open(file_path, 'rb') as f:
-            # Read in chunks for memory efficiency
-            for chunk in iter(lambda: f.read(8192), b''):
+            # Read in larger chunks for better throughput on modern disks (64KB)
+            for chunk in iter(lambda: f.read(65536), b''):
                 hasher.update(chunk)
         return hasher.hexdigest()
 

@@ -21,6 +21,7 @@ import time
 import asyncio
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any, Callable
+from functools import lru_cache
 
 try:
     from mistralai import Mistral
@@ -72,9 +73,11 @@ OCR_QUALITY_THRESHOLD_ACCEPTABLE = 40
 # ============================================================================
 
 
+@lru_cache(maxsize=1)
 def get_mistral_client() -> Optional[Mistral]:
     """
     Create and configure a Mistral client instance.
+    Cached to prevent connection pool churn in batch operations.
 
     Returns:
         Configured Mistral client or None if unavailable

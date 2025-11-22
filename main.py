@@ -115,9 +115,15 @@ def mode_hybrid(file_path: Path) -> Tuple[bool, str]:
     # Step 3: Mistral OCR
     # Mistral OCR works on ALL PDFs (both scanned and text-based)
     # It achieves ~95% accuracy across diverse document types
+    ext = file_path.suffix.lower().lstrip(".")
+    is_ocr_supported = ext in config.MISTRAL_OCR_SUPPORTED
+
     if not config.MISTRAL_API_KEY:
         logger.info("Step 3/3: Skipped (no Mistral API key)")
         results.append("Mistral OCR skipped (no API key)")
+    elif not is_ocr_supported:
+        logger.info(f"Step 3/3: Skipped (file type .{ext} not supported by Mistral OCR)")
+        results.append(f"Mistral OCR skipped (.{ext} not supported)")
     else:
         logger.info("Step 3/3: Processing with Mistral OCR...")
         ocr_success, ocr_path, ocr_error = mistral_converter.convert_with_mistral_ocr(
