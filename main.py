@@ -65,6 +65,7 @@ def mode_hybrid(file_path: Path) -> Tuple[bool, str]:
     has_errors: bool = False
     tables_extracted: List[List[List[str]]] = []
     table_count: int = 0
+    ocr_result: Optional[dict] = None  # Initialize to avoid UnboundLocalError
     ocr_quality: Optional[dict] = None
     ocr_path: Optional[Path] = None
     md_success: bool = False
@@ -163,7 +164,7 @@ def mode_hybrid(file_path: Path) -> Tuple[bool, str]:
             has_errors = True
 
     # Improve weak pages if OCR quality assessment indicates issues
-    if ocr_quality and ocr_quality.get('weak_page_count', 0) > 0:
+    if ocr_quality and ocr_quality.get('weak_page_count', 0) > 0 and ocr_result:
         logger.info(
             f"Attempting to improve {ocr_quality['weak_page_count']} weak pages..."
         )

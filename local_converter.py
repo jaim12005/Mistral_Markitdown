@@ -11,6 +11,7 @@ Documentation references:
 """
 
 import os
+from functools import lru_cache
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 import sys
@@ -44,6 +45,10 @@ logger = utils.logger
 # MarkItDown Integration
 # ============================================================================
 
+@lru_cache(maxsize=1)
+from functools import lru_cache
+
+@lru_cache(maxsize=1)
 def get_markitdown_instance() -> Optional[MarkItDown]:
     """
     Create and configure a MarkItDown instance.

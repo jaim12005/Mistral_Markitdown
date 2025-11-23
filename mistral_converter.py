@@ -18,7 +18,6 @@ Documentation references:
 import base64
 import json
 import time
-import asyncio
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any, Callable
 from functools import lru_cache
@@ -502,6 +501,7 @@ def process_with_ocr(
     model: Optional[str] = None,
     pages: Optional[List[int]] = None,
     progress_callback: Optional[Callable[[str, float], None]] = None,
+    signed_url: Optional[str] = None,
 ) -> Tuple[bool, Optional[Dict[str, Any]], Optional[str]]:
     """
     Process file with Mistral OCR.
@@ -539,15 +539,18 @@ def process_with_ocr(
 
         # Prepare document - use dict format instead of model classes
         if use_files_api:
-            _report_progress(f"Uploading file ({file_size_mb:.1f} MB)...", 0.3)
-            # Upload file and get signed URL
-            # NOTE: The Mistral OCR API requires a signed HTTPS URL, not a file ID
-            # After uploading, we must call get_signed_url() to get an HTTPS URL
-            signed_url = upload_file_for_ocr(client, file_path)
-            if not signed_url:
-                return False, None, "Failed to upload file"
+            if signed_url:
+                logger.debug("Using provided signed URL for OCR")
+            else:
+                _report_progress(f"Uploading file ({file_size_mb:.1f} MB)...", 0.3)
+                # Upload file and get signed URL
+                # NOTE: The Mistral OCR API requires a signed HTTPS URL, not a file ID
+                # After uploading, we must call get_signed_url() to get an HTTPS URL
+                signed_url = upload_file_for_ocr(client, file_path)
+                if not signed_url:
+                    return False, None, "Failed to upload file"
+                _report_progress("Upload complete", 0.4)
 
-            _report_progress("Upload complete", 0.4)
             document = {
                 "type": "document_url",
                 "document_url": signed_url,  # Use the signed HTTPS URL
@@ -628,138 +631,6 @@ def process_with_ocr(
 
     except Exception as e:
         error_msg = f"Error processing with Mistral OCR: {e}"
-
-        # Check for specific error types
-        if "401" in str(e) or "Unauthorized" in str(e):
-            error_msg = "Mistral API authentication failed (401 Unauthorized). "
-            error_msg += "Please verify your API key has OCR access at https://console.mistral.ai/"
-        elif "403" in str(e) or "Forbidden" in str(e):
-            error_msg = "Access denied to Mistral OCR (403 Forbidden). This feature may require a paid plan."
-
-        logger.error(error_msg)
-        return False, None, error_msg
-
-
-async def process_with_ocr_async(
-    client: Mistral,
-    file_path: Path,
-    model: Optional[str] = None,
-    pages: Optional[List[int]] = None,
-    progress_callback: Optional[Callable[[str, float], None]] = None,
-) -> Tuple[bool, Optional[Dict[str, Any]], Optional[str]]:
-    """
-    Process file with Mistral OCR asynchronously.
-
-    Args:
-        client: Mistral client instance
-        file_path: Path to file
-        model: Optional model override
-        pages: Optional specific pages to process (0-indexed)
-        progress_callback: Optional callback for progress updates (message, progress_0_to_1)
-
-    Returns:
-        Tuple of (success, ocr_result_dict, error_message)
-    """
-
-    def _report_progress(message: str, progress: float = 0.0):
-        """Report progress if callback is provided and streaming is enabled."""
-        if progress_callback and config.ENABLE_STREAMING:
-            progress_callback(message, progress)
-
-    try:
-        _report_progress("Analyzing file (async)...", 0.1)
-        # Determine best model
-        if model is None:
-            model = config.get_ocr_model()
-
-        logger.info(f"Processing with Mistral OCR (async) using model: {model}")
-
-        # ALWAYS use Files API for better OCR quality
-        file_size_mb = file_path.stat().st_size / (1024 * 1024)
-        use_files_api = True  # Always use Files API for best quality
-
-        # Prepare document - use dict format instead of model classes
-        if use_files_api:
-            # Upload file and get signed URL
-            signed_url = upload_file_for_ocr(client, file_path)
-            if not signed_url:
-                return False, None, "Failed to upload file"
-
-            document = {
-                "type": "document_url",
-                "document_url": signed_url,
-            }
-        else:
-            # Use base64 encoding for smaller files
-            with open(file_path, "rb") as f:
-                file_content = base64.b64encode(f.read()).decode("utf-8")
-
-            # Determine MIME type
-            mime_types = {
-                "pdf": "application/pdf",
-                "png": "image/png",
-                "jpg": "image/jpeg",
-                "jpeg": "image/jpeg",
-                "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-            }
-
-            ext = file_path.suffix.lower().lstrip(".")
-            mime_type = mime_types.get(ext, "application/octet-stream")
-
-            document = {
-                "type": "document_url",
-                "document_url": f"data:{mime_type};base64,{file_content}",
-            }
-
-        # Get retry configuration
-        retry_config = get_retry_config()
-
-        # Get structured output formats if enabled
-        bbox_format = get_bbox_annotation_format()
-        doc_format = get_document_annotation_format()
-
-        # Build OCR request parameters
-        # Note: Mistral OCR API only accepts: model, document, include_image_base64,
-        # pages (optional), bbox_annotation_format, document_annotation_format, retries
-        # Parameters like temperature, max_tokens, language are NOT supported by OCR endpoint
-        ocr_params = {
-            "model": model,
-            "document": document,
-            "include_image_base64": config.MISTRAL_INCLUDE_IMAGES,
-            "retries": retry_config,
-        }
-        
-        # Add optional parameters (only those supported by OCR API)
-        if pages is not None:
-            ocr_params["pages"] = pages
-        
-        # Add structured output formats if they were successfully created
-        if bbox_format is not None:
-            ocr_params["bbox_annotation_format"] = bbox_format
-        if doc_format is not None:
-            ocr_params["document_annotation_format"] = doc_format
-
-        # Process with OCR (async)
-        response = await client.ocr.process_async(**ocr_params)
-
-        # Parse response
-        if response:
-            result = _parse_ocr_response(response, file_path)
-
-            # Validate that we got actual text content
-            if not result.get("full_text", "").strip():
-                error_msg = "Mistral OCR returned empty text. Your API key may not have OCR access. "
-                error_msg += "Try using Mode 3 (MarkItDown Only) instead, which works perfectly for text-based PDFs."
-                logger.warning(error_msg)
-                return False, None, error_msg
-
-            return True, result, None
-        else:
-            return False, None, "Empty response from Mistral OCR"
-
-    except Exception as e:
-        error_msg = f"Error processing with Mistral OCR (async): {e}"
 
         # Check for specific error types
         if "401" in str(e) or "Unauthorized" in str(e):
@@ -1165,11 +1036,21 @@ def improve_weak_pages(
 
     logger.info(f"Re-processing {len(weak_pages)} weak pages...")
 
+    # Upload file ONCE for all weak pages to avoid redundant uploads
+    # We'll reuse this signed URL for all page requests
+    signed_url = None
+    try:
+        logger.debug("Uploading file once for weak page improvements...")
+        signed_url = upload_file_for_ocr(client, file_path)
+    except Exception as e:
+        logger.warning(f"Failed to pre-upload for weak pages: {e}")
+        # Continue anyway, process_with_ocr will handle upload individually if needed
+
     # Re-OCR weak pages
     for page_idx in weak_pages:
         try:
             success, improved_result, error = process_with_ocr(
-                client, file_path, model=model, pages=[page_idx]
+                client, file_path, model=model, pages=[page_idx], signed_url=signed_url
             )
 
             if success and improved_result:
@@ -1359,56 +1240,6 @@ def convert_with_mistral_ocr(
             success, ocr_result, error = process_with_ocr(client, file_path)
     else:
         success, ocr_result, error = process_with_ocr(client, file_path)
-
-    if not success or not ocr_result:
-        return False, None, error
-
-    if not success or not ocr_result:
-        return False, None, error
-
-    # Process result using common pipeline
-    return _process_ocr_result_pipeline(
-        client, file_path, ocr_result, use_cache, improve_weak
-    )
-
-
-async def convert_with_mistral_ocr_async(
-    file_path: Path, use_cache: bool = True, improve_weak: bool = True
-) -> Tuple[bool, Optional[Path], Optional[str]]:
-    """
-    Convert file using Mistral OCR with full pipeline (async version).
-
-    Args:
-        file_path: Path to file
-        use_cache: Use cached results if available
-        improve_weak: Re-process weak pages
-
-    Returns:
-        Tuple of (success, output_md_path, error_message)
-    """
-    client = get_mistral_client()
-    if client is None:
-        error_msg = (
-            "Mistral client not available. Please set MISTRAL_API_KEY in .env file"
-        )
-        logger.warning(error_msg)
-        return False, None, error_msg
-
-    # Check cache
-    if use_cache:
-        cached_result = utils.cache.get(file_path, cache_type="mistral_ocr")
-        if cached_result:
-            logger.info(f"Using cached Mistral OCR result for {file_path.name}")
-            ocr_result = cached_result
-            success = True
-            error = None
-        else:
-            success, ocr_result, error = await process_with_ocr_async(client, file_path)
-    else:
-        success, ocr_result, error = await process_with_ocr_async(client, file_path)
-
-    if not success or not ocr_result:
-        return False, None, error
 
     if not success or not ocr_result:
         return False, None, error

@@ -731,8 +731,6 @@ When enabled, the system uses `async`/`await` for:
 - Concurrent batch processing with ThreadPoolExecutor
 - Non-blocking file uploads
 
-**Note**: Full async OCR processing integration is available in the codebase (`process_with_ocr_async`, `convert_with_mistral_ocr_async`) and can be integrated into batch modes for further performance improvements. Current batch modes use ThreadPoolExecutor for concurrent file processing.
-
 ---
 
 ### Retry Configuration
