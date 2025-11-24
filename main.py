@@ -138,7 +138,7 @@ def mode_hybrid(file_path: Path) -> Tuple[bool, str]:
                 ocr_json_path = (
                     config.OUTPUT_MD_DIR / f"{file_path.stem}_ocr_metadata.json"
                 )
-                if ocr_json_path.exists():
+                if ocr_json_path.exists() and config.ENABLE_OCR_QUALITY_ASSESSMENT:
                     with open(ocr_json_path, "r", encoding="utf-8") as f:
                         ocr_result = json.load(f)
                     ocr_quality = mistral_converter.assess_ocr_quality(ocr_result)
@@ -164,7 +164,13 @@ def mode_hybrid(file_path: Path) -> Tuple[bool, str]:
             has_errors = True
 
     # Improve weak pages if OCR quality assessment indicates issues
-    if ocr_quality and ocr_quality.get('weak_page_count', 0) > 0 and ocr_result:
+    if (
+        config.ENABLE_OCR_QUALITY_ASSESSMENT
+        and config.ENABLE_OCR_WEAK_PAGE_IMPROVEMENT
+        and ocr_quality
+        and ocr_quality.get('weak_page_count', 0) > 0
+        and ocr_result
+    ):
         logger.info(
             f"Attempting to improve {ocr_quality['weak_page_count']} weak pages..."
         )

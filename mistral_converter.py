@@ -1153,15 +1153,23 @@ def _process_ocr_result_pipeline(
     Returns:
         Tuple of (success, output_md_path, error_message)
     """
-    # Assess OCR quality
-    logger.info("Assessing OCR quality...")
-    quality_assessment = assess_ocr_quality(ocr_result)
-    ocr_result["quality_assessment"] = quality_assessment
+    quality_assessment: Optional[Dict[str, Any]] = None
+
+    # Assess OCR quality (optional)
+    if config.ENABLE_OCR_QUALITY_ASSESSMENT:
+        logger.info("Assessing OCR quality...")
+        quality_assessment = assess_ocr_quality(ocr_result)
+        ocr_result["quality_assessment"] = quality_assessment
+    else:
+        logger.info("OCR quality assessment disabled by configuration")
 
     # Re-process weak pages if requested and quality is low
     if (
-        improve_weak
+        config.ENABLE_OCR_QUALITY_ASSESSMENT
+        and config.ENABLE_OCR_WEAK_PAGE_IMPROVEMENT
+        and improve_weak
         and ocr_result.get("pages")
+        and quality_assessment
         and quality_assessment.get("weak_page_count", 0) > 0
     ):
         logger.info(
@@ -1172,10 +1180,10 @@ def _process_ocr_result_pipeline(
         ocr_result = improve_weak_pages(client, file_path, ocr_result, model)
 
         # Re-assess quality after improvement
-        improved_quality = assess_ocr_quality(ocr_result)
-        ocr_result["quality_assessment"] = improved_quality
+        quality_assessment = assess_ocr_quality(ocr_result)
+        ocr_result["quality_assessment"] = quality_assessment
         logger.info(
-            f"Quality after improvement: {improved_quality['quality_score']:.1f}/100"
+            f"Quality after improvement: {quality_assessment['quality_score']:.1f}/100"
         )
 
     # Cache result

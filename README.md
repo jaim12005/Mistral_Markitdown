@@ -460,6 +460,10 @@ Pages are flagged as "weak" if they exhibit:
 
 **Automatic Improvement**: Weak pages are automatically re-processed for better results.
 
+**Toggle behavior via `.env`:**
+- `ENABLE_OCR_QUALITY_ASSESSMENT=true|false` to turn scoring on/off.
+- `ENABLE_OCR_WEAK_PAGE_IMPROVEMENT=true|false` to allow/skip weak-page re-OCR (requires assessment enabled).
+
 #### Example Quality Output
 
 ```

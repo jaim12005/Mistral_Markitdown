@@ -99,6 +99,13 @@ OCR_MIN_UNIQUENESS_RATIO = float(os.getenv("OCR_MIN_UNIQUENESS_RATIO", "0.3"))
 OCR_MAX_PHRASE_REPETITIONS = int(os.getenv("OCR_MAX_PHRASE_REPETITIONS", "5"))
 OCR_MIN_AVG_LINE_LENGTH = int(os.getenv("OCR_MIN_AVG_LINE_LENGTH", "10"))
 
+# Quality assessment controls
+ENABLE_OCR_QUALITY_ASSESSMENT = (
+    os.getenv("ENABLE_OCR_QUALITY_ASSESSMENT", "true").lower() == "true"
+)
+ENABLE_OCR_WEAK_PAGE_IMPROVEMENT = (
+    os.getenv("ENABLE_OCR_WEAK_PAGE_IMPROVEMENT", "true").lower() == "true"
+)
 
 MISTRAL_ENABLE_STRUCTURED_OUTPUT = (
     os.getenv("MISTRAL_ENABLE_STRUCTURED_OUTPUT", "true").lower()

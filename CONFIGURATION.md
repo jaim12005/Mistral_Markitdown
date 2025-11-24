@@ -121,6 +121,24 @@ OCR_QUALITY_THRESHOLD_GOOD=60
 OCR_QUALITY_THRESHOLD_ACCEPTABLE=40
 ```
 
+#### ENABLE_OCR_QUALITY_ASSESSMENT
+- **Type:** Boolean
+- **Default:** `true`
+- **Description:** Enable/disable OCR quality scoring. Set to `false` to skip scoring entirely.
+
+```ini
+ENABLE_OCR_QUALITY_ASSESSMENT=true
+```
+
+#### ENABLE_OCR_WEAK_PAGE_IMPROVEMENT
+- **Type:** Boolean
+- **Default:** `true`
+- **Description:** Enable/disable weak-page re-OCR. Requires `ENABLE_OCR_QUALITY_ASSESSMENT=true`.
+
+```ini
+ENABLE_OCR_WEAK_PAGE_IMPROVEMENT=true
+```
+
 ### OCR Quality Detection Thresholds
 
 Fine-tune the heuristics used to detect weak OCR pages.

@@ -46,9 +46,6 @@ logger = utils.logger
 # ============================================================================
 
 @lru_cache(maxsize=1)
-from functools import lru_cache
-
-@lru_cache(maxsize=1)
 def get_markitdown_instance() -> Optional[MarkItDown]:
     """
     Create and configure a MarkItDown instance.
