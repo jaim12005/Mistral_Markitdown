@@ -191,7 +191,9 @@ Mistral_Markitdown/
 │
 ├── README.md                # Complete user guide
 ├── QUICKSTART.md            # 5-minute getting started guide
+├── CONFIGURATION.md         # Complete configuration reference (50+ options)
 ├── DEPENDENCIES.md          # Dependency reference and troubleshooting
+├── KNOWN_ISSUES.md          # Known issues and troubleshooting guide
 ├── CONTRIBUTING.md          # Development guidelines (this file)
 ├── LICENSE                  # MIT License
 │

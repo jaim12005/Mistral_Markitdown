@@ -383,7 +383,7 @@ python -c "from mistralai import Mistral; print('Mistral SDK OK')"
 
 ---
 
-**Last Updated:** 2025-01-15  
+**Last Updated:** 2025-01-27
 **Version:** 2.1.1
 
 For more information, see:
