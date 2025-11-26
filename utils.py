@@ -105,9 +105,19 @@ class IntelligentCache:
                 hasher.update(chunk)
         return hasher.hexdigest()
 
-    def _get_cache_path(self, file_hash: str) -> Path:
-        """Get cache file path for a given hash."""
-        return self.cache_dir / f"{file_hash}.json"
+    def _get_cache_path(self, file_hash: str, cache_type: str = "ocr") -> Path:
+        """
+        Get cache file path for a given hash and type.
+
+        Args:
+            file_hash: SHA-256 hash of file contents
+            cache_type: Type of cache (e.g., "ocr", "mistral_ocr", "table")
+
+        Returns:
+            Path to cache file, segregated by type to avoid collisions
+        """
+        # Include cache_type in filename to prevent collisions between different cache types
+        return self.cache_dir / f"{file_hash}_{cache_type}.json"
 
     def get(self, file_path: Path, cache_type: str = "ocr") -> Optional[Dict[str, Any]]:
         """
@@ -127,7 +137,8 @@ class IntelligentCache:
                 return None
 
             file_hash = self._get_file_hash(file_path)
-            cache_path = self._get_cache_path(file_hash)
+            # Use type-segregated cache path to avoid collisions
+            cache_path = self._get_cache_path(file_hash, cache_type)
 
             if not cache_path.exists():
                 self.misses += 1
@@ -145,7 +156,10 @@ class IntelligentCache:
                 self.misses += 1
                 return None
 
+            # Type check is now redundant since paths are segregated,
+            # but keep for backwards compatibility with old cache files
             if cache_data.get("type") != cache_type:
+                logger.debug(f"Cache type mismatch (expected {cache_type}, got {cache_data.get('type')})")
                 self.misses += 1
                 return None
 
@@ -184,7 +198,8 @@ class IntelligentCache:
                 return
 
             file_hash = self._get_file_hash(file_path)
-            cache_path = self._get_cache_path(file_hash)
+            # Use type-segregated cache path to avoid collisions
+            cache_path = self._get_cache_path(file_hash, cache_type)
 
             cache_entry = {
                 "timestamp": datetime.now().isoformat(),

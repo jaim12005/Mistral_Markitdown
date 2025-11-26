@@ -234,17 +234,21 @@ def extract_tables_camelot(
 
         for table in table_list:
             # Quality filtering - skip low-accuracy tables
-            if hasattr(table, 'accuracy') and table.accuracy < config.CAMELOT_MIN_ACCURACY:
+            # Guard against None values to prevent TypeError
+            table_accuracy = getattr(table, 'accuracy', None)
+            if table_accuracy is not None and table_accuracy < config.CAMELOT_MIN_ACCURACY:
                 logger.debug(
-                    f"Skipping low-accuracy table: {table.accuracy:.1f}% "
+                    f"Skipping low-accuracy table: {table_accuracy:.1f}% "
                     f"(threshold: {config.CAMELOT_MIN_ACCURACY}%)"
                 )
                 continue
-            
+
             # Whitespace filtering - skip tables with too much empty space
-            if hasattr(table, 'whitespace') and table.whitespace > config.CAMELOT_MAX_WHITESPACE:
+            # Guard against None values to prevent TypeError
+            table_whitespace = getattr(table, 'whitespace', None)
+            if table_whitespace is not None and table_whitespace > config.CAMELOT_MAX_WHITESPACE:
                 logger.debug(
-                    f"Skipping high-whitespace table: {table.whitespace:.1f}% "
+                    f"Skipping high-whitespace table: {table_whitespace:.1f}% "
                     f"(threshold: {config.CAMELOT_MAX_WHITESPACE}%)"
                 )
                 continue
@@ -256,16 +260,16 @@ def extract_tables_camelot(
                 # Post-process: fix merged currency cells
                 table_data = _fix_merged_currency_cells(table_data)
                 tables.append(table_data)
-                
-                # Log quality metrics
+
+                # Log quality metrics (using already-fetched values)
                 quality_info = ""
-                if hasattr(table, 'accuracy'):
-                    quality_info += f" (accuracy: {table.accuracy:.1f}%"
-                if hasattr(table, 'whitespace'):
-                    quality_info += f", whitespace: {table.whitespace:.1f}%)"
-                else:
-                    quality_info += ")" if quality_info else ""
-                
+                if table_accuracy is not None:
+                    quality_info += f" (accuracy: {table_accuracy:.1f}%"
+                if table_whitespace is not None:
+                    quality_info += f", whitespace: {table_whitespace:.1f}%)"
+                elif quality_info:
+                    quality_info += ")"
+
                 logger.debug(f"Camelot extracted table with {len(table_data)} rows{quality_info}")
 
     except Exception as e:

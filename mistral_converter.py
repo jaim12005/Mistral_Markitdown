@@ -44,28 +44,11 @@ import schemas  # New: JSON schemas for structured extraction
 logger = utils.logger
 
 # ============================================================================
-# OCR Quality Assessment Constants
+# OCR Quality Assessment
 # ============================================================================
-
-# Minimum text length for a valid OCR page result
-OCR_MIN_TEXT_LENGTH = 50
-
-# Minimum digit count for financial/data documents (low count suggests poor OCR)
-OCR_MIN_DIGIT_COUNT = 20
-
-# Minimum token uniqueness ratio (detects repetitive OCR artifacts)
-OCR_MIN_UNIQUENESS_RATIO = 0.3
-
-# Maximum allowed repetitions of the same phrase (detects header/footer artifacts)
-OCR_MAX_PHRASE_REPETITIONS = 5
-
-# Minimum average line length (very short lines suggest parsing issues)
-OCR_MIN_AVG_LINE_LENGTH = 10
-
-# Quality score thresholds (0-100 scale)
-OCR_QUALITY_THRESHOLD_EXCELLENT = 80
-OCR_QUALITY_THRESHOLD_GOOD = 60
-OCR_QUALITY_THRESHOLD_ACCEPTABLE = 40
+# NOTE: All OCR quality thresholds are now configured via config.py
+# This ensures .env settings are honored as documented in README.md
+# See: config.OCR_MIN_TEXT_LENGTH, config.OCR_MIN_DIGIT_COUNT, etc.
 
 # ============================================================================
 # Mistral Client Initialization
@@ -850,6 +833,8 @@ def _is_weak_page(text: str) -> bool:
     - Very few numbers (important for financial/data documents)
     - Low unique token ratio
 
+    All thresholds are configurable via config.py (from .env).
+
     Args:
         text: Page text to analyze
 
@@ -859,16 +844,18 @@ def _is_weak_page(text: str) -> bool:
     if not text or len(text.strip()) < 10:
         return True
 
-    # Check 1: Very short text
-    if len(text.strip()) < OCR_MIN_TEXT_LENGTH:
+    # Check 1: Very short text (configurable via OCR_MIN_TEXT_LENGTH)
+    if len(text.strip()) < config.OCR_MIN_TEXT_LENGTH:
         return True
 
     # Check 2: Count digits (financial docs should have many numbers)
+    # Configurable via OCR_MIN_DIGIT_COUNT
     digit_count = sum(1 for char in text if char.isdigit())
-    if digit_count < OCR_MIN_DIGIT_COUNT:
+    if digit_count < config.OCR_MIN_DIGIT_COUNT:
         return True
 
     # Check 3: Token uniqueness ratio (detect heavy repetition)
+    # Configurable via OCR_MIN_UNIQUENESS_RATIO
     tokens = text.split()
     if not tokens:
         return True
@@ -876,12 +863,13 @@ def _is_weak_page(text: str) -> bool:
     unique_tokens = set(tokens)
     uniqueness_ratio = len(unique_tokens) / len(tokens)
 
-    if uniqueness_ratio < OCR_MIN_UNIQUENESS_RATIO:
+    if uniqueness_ratio < config.OCR_MIN_UNIQUENESS_RATIO:
         logger.debug(f"Low uniqueness ratio: {uniqueness_ratio:.2f}")
         return True
 
     # Check 4: Detect repeated header patterns
     # Count occurrences of common repeated strings
+    # Configurable via OCR_MAX_PHRASE_REPETITIONS
     common_phrases = [
         "5151 E Broadway",  # Example from SWE feedback
         "Page 1",
@@ -891,15 +879,16 @@ def _is_weak_page(text: str) -> bool:
 
     for phrase in common_phrases:
         occurrences = text.count(phrase)
-        if occurrences > OCR_MAX_PHRASE_REPETITIONS:
+        if occurrences > config.OCR_MAX_PHRASE_REPETITIONS:
             logger.debug(f"Repeated phrase '{phrase}' found {occurrences} times")
             return True
 
     # Check 5: Average line length (very short lines suggest parsing issues)
+    # Configurable via OCR_MIN_AVG_LINE_LENGTH
     lines = [line.strip() for line in text.split("\n") if line.strip()]
     if lines:
         avg_line_length = sum(len(line) for line in lines) / len(lines)
-        if avg_line_length < OCR_MIN_AVG_LINE_LENGTH:
+        if avg_line_length < config.OCR_MIN_AVG_LINE_LENGTH:
             logger.debug(f"Short average line length: {avg_line_length:.1f}")
             return True
 
@@ -981,8 +970,8 @@ def assess_ocr_quality(ocr_result: Dict[str, Any]) -> Dict[str, Any]:
             f"High repetition (uniqueness: {assessment['uniqueness_ratio']:.1%})"
         )
 
-    # Final verdict
-    if assessment["quality_score"] < 40:
+    # Final verdict (configurable via OCR_QUALITY_THRESHOLD_ACCEPTABLE)
+    if assessment["quality_score"] < config.OCR_QUALITY_THRESHOLD_ACCEPTABLE:
         assessment["is_usable"] = False
         assessment["issues"].append("Overall quality too low for inclusion")
 
@@ -1139,6 +1128,7 @@ def _process_ocr_result_pipeline(
     ocr_result: Dict[str, Any],
     use_cache: bool = True,
     improve_weak: bool = True,
+    from_cache: bool = False,
 ) -> Tuple[bool, Optional[Path], Optional[str]]:
     """
     Common pipeline for processing OCR results (quality check, improvement, saving).
@@ -1149,14 +1139,19 @@ def _process_ocr_result_pipeline(
         ocr_result: OCR result dictionary
         use_cache: Whether to cache the result
         improve_weak: Whether to improve weak pages
+        from_cache: Whether this result came from cache (skips re-improvement and image saving)
 
     Returns:
         Tuple of (success, output_md_path, error_message)
     """
     quality_assessment: Optional[Dict[str, Any]] = None
 
-    # Assess OCR quality (optional)
-    if config.ENABLE_OCR_QUALITY_ASSESSMENT:
+    # If from cache, reuse stored quality assessment if available
+    if from_cache and "quality_assessment" in ocr_result:
+        logger.info("Using cached OCR result with stored quality assessment")
+        quality_assessment = ocr_result["quality_assessment"]
+    elif config.ENABLE_OCR_QUALITY_ASSESSMENT:
+        # Assess OCR quality (only for fresh results)
         logger.info("Assessing OCR quality...")
         quality_assessment = assess_ocr_quality(ocr_result)
         ocr_result["quality_assessment"] = quality_assessment
@@ -1164,8 +1159,11 @@ def _process_ocr_result_pipeline(
         logger.info("OCR quality assessment disabled by configuration")
 
     # Re-process weak pages if requested and quality is low
+    # IMPORTANT: Skip re-improvement for cached results to avoid redundant API calls
+    # Cached results have already been improved (if improvement was enabled when they were created)
     if (
-        config.ENABLE_OCR_QUALITY_ASSESSMENT
+        not from_cache  # Only improve fresh results, not cached ones
+        and config.ENABLE_OCR_QUALITY_ASSESSMENT
         and config.ENABLE_OCR_WEAK_PAGE_IMPROVEMENT
         and improve_weak
         and ocr_result.get("pages")
@@ -1186,12 +1184,15 @@ def _process_ocr_result_pipeline(
             f"Quality after improvement: {quality_assessment['quality_score']:.1f}/100"
         )
 
-    # Cache result
-    if use_cache:
+    # Cache result (only for fresh results)
+    if use_cache and not from_cache:
         utils.cache.set(file_path, ocr_result, cache_type="mistral_ocr")
 
-    # Save extracted images
-    save_extracted_images(ocr_result, file_path)
+    # Save extracted images (skip for cached results to avoid redundant IO)
+    if not from_cache:
+        save_extracted_images(ocr_result, file_path)
+    else:
+        logger.debug("Skipping image extraction for cached result")
 
     # Generate markdown output
     output_path = _create_markdown_output(file_path, ocr_result)
@@ -1237,6 +1238,7 @@ def convert_with_mistral_ocr(
         return False, None, error_msg
 
     # Check cache
+    from_cache = False
     if use_cache:
         cached_result = utils.cache.get(file_path, cache_type="mistral_ocr")
         if cached_result:
@@ -1244,6 +1246,7 @@ def convert_with_mistral_ocr(
             ocr_result = cached_result
             success = True
             error = None
+            from_cache = True  # Mark as from cache to skip re-improvement
         else:
             success, ocr_result, error = process_with_ocr(client, file_path)
     else:
@@ -1253,8 +1256,9 @@ def convert_with_mistral_ocr(
         return False, None, error
 
     # Process result using common pipeline
+    # Pass from_cache flag to skip redundant API calls and IO for cached results
     return _process_ocr_result_pipeline(
-        client, file_path, ocr_result, use_cache, improve_weak
+        client, file_path, ocr_result, use_cache, improve_weak, from_cache
     )
 
 
@@ -1294,6 +1298,12 @@ def _create_markdown_output(file_path: Path, ocr_result: Dict[str, Any]) -> Path
     Returns:
         Path to created markdown file
     """
+    # Calculate total image count from all pages (images are stored per-page)
+    total_image_count = sum(
+        len(page.get("images", []))
+        for page in ocr_result.get("pages", [])
+    )
+
     # Generate frontmatter
     frontmatter = utils.generate_yaml_frontmatter(
         title=f"OCR: {file_path.stem}",
@@ -1301,7 +1311,7 @@ def _create_markdown_output(file_path: Path, ocr_result: Dict[str, Any]) -> Path
         conversion_method="Mistral OCR",
         additional_fields={
             "page_count": len(ocr_result.get("pages", [])),
-            "image_count": len(ocr_result.get("images", [])),
+            "image_count": total_image_count,
         },
     )
 

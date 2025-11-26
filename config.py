@@ -356,6 +356,20 @@ def validate_configuration() -> List[str]:
             "INFO: POPPLER_PATH not set. PDF to image conversion may not work on Windows."
         )
 
+    # Check for structured output flag conflicts
+    # bbox/document annotations require structured output to be enabled
+    if not MISTRAL_ENABLE_STRUCTURED_OUTPUT:
+        if MISTRAL_ENABLE_BBOX_ANNOTATION:
+            issues.append(
+                "WARNING: MISTRAL_ENABLE_BBOX_ANNOTATION is true but "
+                "MISTRAL_ENABLE_STRUCTURED_OUTPUT is false. Bbox annotations will be silently disabled."
+            )
+        if MISTRAL_ENABLE_DOCUMENT_ANNOTATION:
+            issues.append(
+                "WARNING: MISTRAL_ENABLE_DOCUMENT_ANNOTATION is true but "
+                "MISTRAL_ENABLE_STRUCTURED_OUTPUT is false. Document annotations will be silently disabled."
+            )
+
     return issues
 
 

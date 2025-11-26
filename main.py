@@ -163,23 +163,12 @@ def mode_hybrid(file_path: Path) -> Tuple[bool, str]:
             results.append(f"Mistral OCR failed: {ocr_error}")
             has_errors = True
 
-    # Improve weak pages if OCR quality assessment indicates issues
-    if (
-        config.ENABLE_OCR_QUALITY_ASSESSMENT
-        and config.ENABLE_OCR_WEAK_PAGE_IMPROVEMENT
-        and ocr_quality
-        and ocr_quality.get('weak_page_count', 0) > 0
-        and ocr_result
-    ):
-        logger.info(
-            f"Attempting to improve {ocr_quality['weak_page_count']} weak pages..."
-        )
-        try:
-            client = mistral_converter.get_mistral_client()
-            model = config.get_ocr_model()
-            ocr_result = mistral_converter.improve_weak_pages(client, file_path, ocr_result, model)
-        except Exception as e:
-            logger.warning(f"Failed to improve weak pages: {e}")
+    # NOTE: Weak page improvement is now handled entirely within the
+    # convert_with_mistral_ocr pipeline via _process_ocr_result_pipeline.
+    # The pipeline already: (1) assesses quality, (2) improves weak pages,
+    # (3) re-assesses, and (4) saves updated results to disk.
+    # Re-running improve_weak_pages here would trigger redundant API calls
+    # without persisting the results - so we skip it.
 
     # Combine results
     logger.info("Combining results into hybrid output...")
@@ -947,19 +936,49 @@ Examples:
             if not files:
                 return
 
-        mode_map = {
-            "hybrid": lambda: [mode_hybrid(f) for f in files],
-            "enhanced_batch": lambda: [mode_enhanced_batch(files)],
-            "markitdown": lambda: [mode_markitdown_only(files)],
-            "mistral_ocr": lambda: [mode_mistral_ocr_only(files)],
-            "transcription": lambda: [mode_transcription(files)],
-            "batch": lambda: [mode_standard_batch(files)],
-            "pdf_to_images": lambda: [mode_pdf_to_images(files)],
-            "status": lambda: [mode_system_status()],
-        }
+        # Execute mode and collect results
+        start_time = time.time()
+        all_success = True
 
-        mode_map[args.mode]()
-        return
+        if args.mode == "hybrid":
+            # Process each file individually and report results
+            for file_path in files:
+                success, message = mode_hybrid(file_path)
+                print(f"  {file_path.name}: {message}")
+                if not success:
+                    all_success = False
+        elif args.mode == "enhanced_batch":
+            success, message = mode_enhanced_batch(files)
+            print(f"\n{message}")
+            all_success = success
+        elif args.mode == "markitdown":
+            success, message = mode_markitdown_only(files)
+            print(f"\n{message}")
+            all_success = success
+        elif args.mode == "mistral_ocr":
+            success, message = mode_mistral_ocr_only(files)
+            print(f"\n{message}")
+            all_success = success
+        elif args.mode == "transcription":
+            success, message = mode_transcription(files)
+            print(f"\n{message}")
+            all_success = success
+        elif args.mode == "batch":
+            success, message = mode_standard_batch(files)
+            print(f"\n{message}")
+            all_success = success
+        elif args.mode == "pdf_to_images":
+            success, message = mode_pdf_to_images(files)
+            print(f"\n{message}")
+            all_success = success
+        elif args.mode == "status":
+            mode_system_status()
+
+        elapsed = time.time() - start_time
+        print(f"\nTotal processing time: {elapsed:.2f} seconds")
+
+        # Exit with appropriate code
+        sys.exit(0 if all_success else 1)
 
     # Interactive menu
     interactive_menu()
