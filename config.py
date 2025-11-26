@@ -318,12 +318,15 @@ MISTRAL_OCR_SUPPORTED = {
     "jpeg",
     "gif",
     "bmp",
+    "webp",  # Added: commonly supported modern format
+    "tiff",  # Added: commonly supported format
+    "avif",  # Added: explicitly mentioned in Mistral docs
     "docx",
     "pptx",
 }
 
 PDF_EXTENSIONS = {"pdf"}
-IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "bmp", "tiff"}
+IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "bmp", "tiff", "webp", "avif"}
 OFFICE_EXTENSIONS = {"docx", "doc", "pptx", "ppt", "xlsx", "xls"}
 
 # ============================================================================

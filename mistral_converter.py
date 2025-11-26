@@ -521,6 +521,12 @@ def process_with_ocr(
         use_files_api = True  # Always use Files API for best quality
 
         # Prepare document - use dict format instead of model classes
+        # IMPORTANT: Mistral OCR API uses different types for images vs documents:
+        # - Images (png, jpg, etc.): type="image_url", image_url=<url>
+        # - Documents (pdf, docx, etc.): type="document_url", document_url=<url>
+        ext = file_path.suffix.lower().lstrip(".")
+        is_image = ext in ["png", "jpg", "jpeg", "gif", "bmp", "webp", "tiff", "avif"]
+
         if use_files_api:
             if signed_url:
                 logger.debug("Using provided signed URL for OCR")
@@ -534,10 +540,19 @@ def process_with_ocr(
                     return False, None, "Failed to upload file"
                 _report_progress("Upload complete", 0.4)
 
-            document = {
-                "type": "document_url",
-                "document_url": signed_url,  # Use the signed HTTPS URL
-            }
+            # Use correct document type based on file type
+            if is_image:
+                document = {
+                    "type": "image_url",
+                    "image_url": signed_url,
+                }
+                logger.debug(f"Using image_url type for {ext} file")
+            else:
+                document = {
+                    "type": "document_url",
+                    "document_url": signed_url,
+                }
+                logger.debug(f"Using document_url type for {ext} file")
         else:
             # Use base64 encoding for smaller files
             with open(file_path, "rb") as f:
@@ -549,17 +564,28 @@ def process_with_ocr(
                 "png": "image/png",
                 "jpg": "image/jpeg",
                 "jpeg": "image/jpeg",
+                "gif": "image/gif",
+                "bmp": "image/bmp",
+                "webp": "image/webp",
+                "tiff": "image/tiff",
+                "avif": "image/avif",
                 "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
             }
 
-            ext = file_path.suffix.lower().lstrip(".")
             mime_type = mime_types.get(ext, "application/octet-stream")
 
-            document = {
-                "type": "document_url",
-                "document_url": f"data:{mime_type};base64,{file_content}",
-            }
+            # Use correct document type based on file type
+            if is_image:
+                document = {
+                    "type": "image_url",
+                    "image_url": f"data:{mime_type};base64,{file_content}",
+                }
+            else:
+                document = {
+                    "type": "document_url",
+                    "document_url": f"data:{mime_type};base64,{file_content}",
+                }
 
         # Get retry configuration
         retry_config = get_retry_config()
