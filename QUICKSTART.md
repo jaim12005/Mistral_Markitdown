@@ -39,7 +39,7 @@ Place files in the `input/` directory:
 - Word documents (DOCX)
 - PowerPoint (PPTX)
 - Excel (XLSX)
-- Images (PNG, JPG)
+- Images (PNG, JPG, WEBP, AVIF, TIFF, GIF, BMP)
 
 ## Step 4: Choose a Mode
 
@@ -110,7 +110,7 @@ Concurrent processing of multiple files
 
 ### "No files found in input directory"
 - Add files to `input/` folder
-- Supported: PDF, DOCX, PPTX, XLSX, PNG, JPG
+- Supported: PDF, DOCX, PPTX, XLSX, PNG, JPG, WEBP, AVIF, TIFF, GIF, BMP
 
 ### Low OCR quality scores
 - For text-based PDFs, use Mode 3 (MarkItDown) instead

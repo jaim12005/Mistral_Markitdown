@@ -24,7 +24,9 @@ pip install -r requirements.txt
 
 Provides:
 - ✓ Core document conversion (PDF, DOCX, PPTX, XLSX, HTML, images)
-- ✓ Mistral AI OCR
+- ✓ Mistral AI OCR (supports PNG, JPG, WEBP, AVIF, TIFF, GIF, BMP, PDF)
+- ✓ Document QnA (natural language document queries)
+- ✓ Batch OCR (50% cost reduction for bulk processing)
 - ✓ Advanced table extraction
 - ✓ All 8 conversion modes (except audio/YouTube transcription)
 
@@ -63,7 +65,7 @@ These are **REQUIRED** for basic operation and are installed via `requirements.t
 | Package | Version | Purpose | Documentation |
 |---------|---------|---------|---------------|
 | **markitdown** | ≥0.1.3 | Microsoft's document-to-markdown converter | [GitHub](https://github.com/microsoft/markitdown) |
-| **mistralai** | ≥1.0.0 | Mistral AI SDK for OCR and document AI | [Docs](https://docs.mistral.ai) |
+| **mistralai** | ≥1.0.0 | Mistral AI SDK for OCR, Document QnA, and Batch API | [Docs](https://docs.mistral.ai) |
 | **python-dotenv** | ≥1.0.0 | Environment variable management | [PyPI](https://pypi.org/project/python-dotenv/) |
 
 **MarkItDown Auto-Installed Dependencies:**
@@ -219,6 +221,19 @@ These dependencies are **NOT** part of MarkItDown but are used for enhanced func
 - **Configurable workers** via `MAX_CONCURRENT_FILES`
 - **Metadata tracking** with processing statistics
 - Dependencies: `aiofiles` (for async I/O)
+
+### Document QnA
+
+- **Natural language queries** on documents using Mistral chat completion
+- **Document URL content type** for direct document processing
+- No additional dependencies (uses `mistralai` SDK)
+
+### Batch OCR Processing
+
+- **50% cost reduction** for bulk document processing
+- **JSONL batch file creation** for large-scale OCR
+- **Job monitoring and result download**
+- No additional dependencies (uses `mistralai` SDK Batch API)
 
 ---
 
@@ -383,7 +398,7 @@ python -c "from mistralai import Mistral; print('Mistral SDK OK')"
 
 ---
 
-**Last Updated:** 2025-01-27
+**Last Updated:** 2025-12-18
 **Version:** 2.1.1
 
 For more information, see:

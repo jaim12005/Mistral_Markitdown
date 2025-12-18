@@ -77,11 +77,19 @@ AZURE_DOC_INTEL_KEY = os.getenv("AZURE_DOC_INTEL_KEY", "")
 # Model selection - ALWAYS use mistral-ocr-latest for OCR
 MISTRAL_OCR_MODEL = os.getenv("MISTRAL_OCR_MODEL", "mistral-ocr-latest")
 
+# Document QnA model (for querying documents with natural language)
+# Supports: mistral-small-latest, mistral-medium-latest, etc.
+MISTRAL_DOCUMENT_QNA_MODEL = os.getenv("MISTRAL_DOCUMENT_QNA_MODEL", "mistral-small-latest")
+
 # OCR options
 MISTRAL_INCLUDE_IMAGES = os.getenv("MISTRAL_INCLUDE_IMAGES", "true").lower() == "true"
 SAVE_MISTRAL_JSON = (
     os.getenv("SAVE_MISTRAL_JSON", "true").lower() == "true"
 )  # Default true for quality assessment
+
+# Batch OCR configuration (50% cost reduction for bulk processing)
+MISTRAL_BATCH_ENABLED = os.getenv("MISTRAL_BATCH_ENABLED", "true").lower() == "true"
+MISTRAL_BATCH_MIN_FILES = int(os.getenv("MISTRAL_BATCH_MIN_FILES", "10"))  # Min files to trigger batch
 
 # File upload management
 CLEANUP_OLD_UPLOADS = os.getenv("CLEANUP_OLD_UPLOADS", "true").lower() == "true"
@@ -220,9 +228,15 @@ ENABLE_BATCH_METADATA = os.getenv("ENABLE_BATCH_METADATA", "true").lower() == "t
 # Mistral Model Configuration
 # ============================================================================
 
-# Latest Mistral models (as of January 2025)
+# Latest Mistral models (as of December 2025)
 # NOTE: Model availability and specifications may change. Verify at https://docs.mistral.ai/
 MISTRAL_MODELS = {
+    "mistral-small-latest": {
+        "name": "Mistral Small Latest",
+        "description": "Fast, cost-effective model for simple tasks including Document QnA",
+        "best_for": ["document_qna", "simple_extraction", "chat"],
+        "max_tokens": 32768,
+    },
     "mistral-medium-latest": {
         "name": "Mistral Medium 2508",
         "description": "State-of-the-art multimodal model",
@@ -236,9 +250,9 @@ MISTRAL_MODELS = {
         "max_tokens": 32768,
     },
     "mistral-ocr-latest": {
-        "name": "Mistral OCR 2505",
-        "description": "Dedicated OCR service",
-        "best_for": ["ocr", "text_extraction"],
+        "name": "Mistral OCR 2512",
+        "description": "Dedicated OCR service with ~95% accuracy",
+        "best_for": ["ocr", "text_extraction", "document_processing"],
         "max_tokens": 16384,
     },
     "pixtral-large-latest": {

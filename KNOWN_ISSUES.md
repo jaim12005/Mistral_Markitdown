@@ -18,17 +18,24 @@ Current known issues and design limitations in Enhanced Document Converter v2.1.
 
 **Supported OCR Parameters:**
 - `model` - OCR model to use (`mistral-ocr-latest`)
-- `document` - Document to process (file or URL)
+- `document` - Document to process (file or URL via `DocumentURLChunk` or `ImageURLChunk`)
 - `include_image_base64` - Whether to extract images
 - `pages` - Optional list of specific pages to process
 - `bbox_annotation_format` - Optional structured bounding box extraction
 - `document_annotation_format` - Optional structured document-level extraction
 
-**Impact:** Low - The OCR service works as designed without these parameters.
+**OCR Response Fields:**
+The OCR API returns a comprehensive response including:
+- `pages` - List of page objects with markdown, images, dimensions, tables, hyperlinks, header, footer
+- `usage_info` - Processing metrics (pages_processed, doc_size_bytes)
+- `model` - The OCR model used
+- `document_annotation` - Structured document-level data (if enabled)
+
+**Impact:** Low - The OCR service works as designed without chat completion parameters.
 
 **References:**
-- [Mistral OCR Documentation](https://docs.mistral.ai/capabilities/document_ai/basic_ocr/)
-- [Mistral Python SDK - OCR Endpoint](https://github.com/mistralai/client-python/blob/main/docs/sdks/ocr/README.md)
+- [Mistral OCR Documentation](https://docs.mistral.ai/capabilities/document/ocr/)
+- [Mistral Python SDK - OCR Endpoint](https://github.com/mistralai/client-python)
 
 ---
 
@@ -291,15 +298,20 @@ If you encounter issues not listed here:
 
 ## Version History
 
-**v2.1.1** (January 2025)
+**v2.1.1** (December 2025)
 - Fixed OCR API parameter handling
+- Updated to latest Mistral OCR API response format
+- Added support for WEBP, AVIF, TIFF image formats
+- Added Document QnA capability (natural language document queries)
+- Added Batch OCR processing (50% cost reduction)
+- Enhanced OCR response parsing (dimensions, tables, hyperlinks, header, footer, usage_info)
 - Improved documentation clarity
 - Enhanced error messages
 - Better Windows support
 
 ---
 
-**Last Updated:** January 30, 2025  
+**Last Updated:** December 18, 2025  
 **Version:** 2.1.1
 
 For additional help, see:

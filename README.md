@@ -22,6 +22,9 @@ A powerful, production-ready document conversion system that combines Microsoft'
 - **Retry Configuration**: Exponential backoff with configurable retry logic for API resilience
 - **Bounding Box Annotations**: Structured extraction of text regions, tables, and figures with metadata
 - **Document-Level Annotations**: Automatic extraction of document structure, metadata, and summaries
+- **Document QnA**: Query documents in natural language using chat.complete with document_url content type (NEW)
+- **Batch OCR Processing**: Process multiple documents at 50% cost reduction using Mistral's Batch API (NEW)
+- **Pydantic Model Support**: Use Pydantic models with response_format_from_pydantic_model for type-safe extraction (NEW)
 
 ### Supported Formats
 
@@ -30,7 +33,7 @@ A powerful, production-ready document conversion system that combines Microsoft'
 | **Documents** | PDF, DOCX, DOC, PPTX, PPT, XLSX, XLS |
 | **Web** | HTML, HTM, XML |
 | **Data** | CSV, JSON |
-| **Images** | PNG, JPG, JPEG, GIF, BMP, TIFF |
+| **Images** | PNG, JPG, JPEG, GIF, BMP, TIFF, WEBP, AVIF |
 | **Books** | EPUB |
 | **Audio/Video** | MP3, WAV, M4A, FLAC (requires plugins) |
 
@@ -608,6 +611,19 @@ The Mistral OCR endpoint is a specialized service that differs from the chat com
 - `bbox_annotation_format` - Optional structured bounding box extraction
 - `document_annotation_format` - Optional structured document-level extraction
 
+**OCR Response Structure:**
+The OCR API returns a comprehensive response including:
+- `pages` - List of page objects with:
+  - `markdown` - Extracted text in markdown format
+  - `images` - Extracted images with position data (id, top_left_x/y, bottom_right_x/y, image_base64)
+  - `dimensions` - Page dimensions (dpi, height, width)
+  - `tables` - Detected tables with structure
+  - `hyperlinks` - Extracted hyperlinks
+  - `header` / `footer` - Page header and footer content
+- `usage_info` - Processing metrics (pages_processed, doc_size_bytes)
+- `model` - The OCR model used
+- `document_annotation` - Structured document-level data (if enabled)
+
 ### Enhanced Document Metadata Extraction (NEW)
 
 MarkItDown now automatically extracts and includes document properties in YAML frontmatter:
@@ -875,6 +891,129 @@ CUSTOM_SCHEMA = {
 ```
 
 See `schemas.py` for complete schema definitions and examples.
+
+---
+
+### Document QnA (NEW)
+
+Query documents in natural language using Mistral's Document QnA capability. This combines OCR with chat completion to enable interactive document understanding.
+
+#### How It Works
+
+1. **Document Processing**: OCR extracts text, structure, and formatting
+2. **Language Model Understanding**: The extracted content is analyzed by an LLM
+3. **Natural Language Query**: Ask questions and get answers based on document content
+
+#### Key Capabilities
+
+- Question answering about specific document content
+- Information extraction and summarization
+- Document analysis and insights
+- Multi-document queries and comparisons
+- Context-aware responses
+
+#### Usage (Programmatic)
+
+```python
+from mistral_converter import query_document, query_document_file
+from pathlib import Path
+
+# Query a public URL
+success, answer, error = query_document(
+    "https://arxiv.org/pdf/1805.04770",
+    "What is the main contribution of this paper?"
+)
+if success:
+    print(answer)
+
+# Query a local file
+success, answer, error = query_document_file(
+    Path("my_document.pdf"),
+    "Summarize the key findings"
+)
+```
+
+#### Configuration
+
+```ini
+# Model for Document QnA (supports document_url content type)
+MISTRAL_DOCUMENT_QNA_MODEL="mistral-small-latest"
+```
+
+---
+
+### Batch OCR Processing (NEW)
+
+Process multiple documents at **50% cost reduction** using Mistral's Batch API. Ideal for large-scale document processing workflows.
+
+#### How It Works
+
+1. **Create Batch File**: Generate a JSONL file with all documents
+2. **Submit Job**: Upload batch file and start processing
+3. **Monitor Progress**: Check job status and completion
+4. **Download Results**: Retrieve OCR results when complete
+
+#### Benefits
+
+- **50% Cost Reduction**: Batch processing is significantly cheaper
+- **Scalability**: Process hundreds or thousands of documents
+- **Asynchronous**: Submit and retrieve results later
+- **Error Handling**: Individual document failures don't affect the batch
+
+#### Usage (Programmatic)
+
+```python
+from mistral_converter import (
+    create_batch_ocr_file,
+    submit_batch_ocr_job,
+    get_batch_job_status,
+    download_batch_results
+)
+from pathlib import Path
+
+# Step 1: Create batch file
+files = [Path("doc1.pdf"), Path("doc2.pdf"), Path("doc3.pdf")]
+success, batch_file, error = create_batch_ocr_file(
+    files,
+    Path("batch_input.jsonl")
+)
+
+# Step 2: Submit batch job
+success, job_id, error = submit_batch_ocr_job(
+    batch_file,
+    metadata={"job_type": "document_processing"}
+)
+print(f"Job submitted: {job_id}")
+
+# Step 3: Monitor progress
+success, status, error = get_batch_job_status(job_id)
+print(f"Status: {status['status']} - {status['progress_percent']}% complete")
+
+# Step 4: Download results when complete
+if status['status'] == 'SUCCESS':
+    success, results_path, error = download_batch_results(job_id)
+    print(f"Results saved to: {results_path}")
+```
+
+#### Configuration
+
+```ini
+# Enable batch OCR processing
+MISTRAL_BATCH_ENABLED=true
+
+# Minimum files to recommend batch processing
+MISTRAL_BATCH_MIN_FILES=10
+```
+
+#### When to Use Batch Processing
+
+| Scenario | Recommended Method |
+|----------|-------------------|
+| 1-10 documents | Standard OCR (Mode 4) |
+| 10-100 documents | Batch OCR (50% savings) |
+| 100+ documents | Batch OCR (significant savings) |
+| Real-time processing | Standard OCR |
+| Overnight processing | Batch OCR |
 
 ---
 

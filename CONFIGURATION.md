@@ -90,6 +90,36 @@ MISTRAL_INCLUDE_IMAGES=true
 SAVE_MISTRAL_JSON=true
 ```
 
+### MISTRAL_DOCUMENT_QNA_MODEL
+- **Type:** String
+- **Default:** `"mistral-small-latest"`
+- **Options:** `mistral-small-latest`, `mistral-medium-latest`, or any chat model supporting document_url
+- **Description:** Model to use for Document QnA (natural language queries on documents)
+
+```ini
+MISTRAL_DOCUMENT_QNA_MODEL="mistral-small-latest"
+```
+
+### MISTRAL_BATCH_ENABLED
+- **Type:** Boolean
+- **Default:** `true`
+- **Description:** Enable batch OCR processing for 50% cost reduction
+- **Use for:** Processing large numbers of documents
+
+```ini
+MISTRAL_BATCH_ENABLED=true
+```
+
+### MISTRAL_BATCH_MIN_FILES
+- **Type:** Integer
+- **Default:** `10`
+- **Description:** Minimum number of files to recommend batch processing
+- **Note:** Batch processing is more cost-effective for larger batches
+
+```ini
+MISTRAL_BATCH_MIN_FILES=10
+```
+
 ### OCR Quality Assessment Thresholds
 
 Control when OCR results are considered usable based on quality scoring (0-100 scale).
@@ -253,6 +283,64 @@ MISTRAL_ENABLE_BBOX_ANNOTATION=false
 
 ```ini
 MISTRAL_ENABLE_DOCUMENT_ANNOTATION=false
+```
+
+---
+
+## Document QnA
+
+Query documents in natural language using Mistral's chat completion with document_url content type.
+
+### MISTRAL_DOCUMENT_QNA_MODEL
+- **Type:** String
+- **Default:** `"mistral-small-latest"`
+- **Options:** Any Mistral chat model supporting document_url content type
+- **Description:** Model for natural language document queries
+
+```ini
+MISTRAL_DOCUMENT_QNA_MODEL="mistral-small-latest"
+```
+
+**Usage:** Programmatically query documents:
+```python
+from mistral_converter import query_document
+success, answer, error = query_document(
+    "https://example.com/document.pdf",
+    "What is the main topic of this document?"
+)
+```
+
+---
+
+## Batch OCR Processing
+
+Process multiple documents at 50% cost reduction using Mistral's Batch API.
+
+### MISTRAL_BATCH_ENABLED
+- **Type:** Boolean
+- **Default:** `true`
+- **Description:** Enable batch OCR processing
+
+```ini
+MISTRAL_BATCH_ENABLED=true
+```
+
+### MISTRAL_BATCH_MIN_FILES
+- **Type:** Integer
+- **Default:** `10`
+- **Description:** Minimum files to recommend batch processing
+- **Recommendation:** Batch is most cost-effective for 10+ files
+
+```ini
+MISTRAL_BATCH_MIN_FILES=10
+```
+
+**Usage:** Programmatically batch process documents:
+```python
+from mistral_converter import create_batch_ocr_file, submit_batch_ocr_job
+files = [Path("doc1.pdf"), Path("doc2.pdf"), ...]
+success, batch_file, _ = create_batch_ocr_file(files, Path("batch.jsonl"))
+success, job_id, _ = submit_batch_ocr_job(batch_file)
 ```
 
 ---
@@ -666,6 +754,13 @@ MISTRAL_DOCUMENT_SCHEMA_TYPE=auto
 MISTRAL_ENABLE_BBOX_ANNOTATION=false
 MISTRAL_ENABLE_DOCUMENT_ANNOTATION=false
 
+# Document QnA (natural language queries)
+MISTRAL_DOCUMENT_QNA_MODEL=mistral-small-latest
+
+# Batch OCR (50% cost reduction)
+MISTRAL_BATCH_ENABLED=true
+MISTRAL_BATCH_MIN_FILES=10
+
 # ============================================================================
 # Windows-Specific Paths
 # ============================================================================
@@ -728,8 +823,11 @@ VERBOSE_PROGRESS=true
 | MISTRAL_API_KEY | string | - | Yes (for OCR) | API Keys |
 | OPENAI_API_KEY | string | - | No | API Keys |
 | MISTRAL_OCR_MODEL | string | mistral-ocr-latest | No | OCR |
+| MISTRAL_DOCUMENT_QNA_MODEL | string | mistral-small-latest | No | Document QnA |
 | MISTRAL_INCLUDE_IMAGES | bool | true | No | OCR |
 | SAVE_MISTRAL_JSON | bool | true | No | OCR |
+| MISTRAL_BATCH_ENABLED | bool | true | No | Batch OCR |
+| MISTRAL_BATCH_MIN_FILES | int | 10 | No | Batch OCR |
 | CLEANUP_OLD_UPLOADS | bool | true | No | File Management |
 | UPLOAD_RETENTION_DAYS | int | 7 | No | File Management |
 | CAMELOT_MIN_ACCURACY | float | 75.0 | No | Tables |
@@ -749,5 +847,5 @@ See README.md for complete feature documentation.
 
 ---
 
-**Last Updated:** 2025-01-27  
+**Last Updated:** 2025-12-18  
 **Version:** 2.1.1
