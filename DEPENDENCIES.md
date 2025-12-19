@@ -1,6 +1,6 @@
 # Dependencies Guide
 
-Complete reference for all dependencies used in Enhanced Document Converter v2.1.
+Complete reference for all dependencies used in Enhanced Document Converter v2.1.1.
 
 ## Table of Contents
 
@@ -401,8 +401,9 @@ python -c "from mistralai import Mistral; print('Mistral SDK OK')"
 **Last Updated:** 2025-12-18
 **Version:** 2.1.1
 
-For more information, see:
-- [README.md](README.md) - Complete feature documentation
-- [QUICKSTART.md](QUICKSTART.md) - Getting started guide
-- [CONFIGURATION.md](CONFIGURATION.md) - Configuration reference
-- [CONTRIBUTING.md](CONTRIBUTING.md) - Development guidelines
+**Related Documentation:**
+- **[README.md](README.md)** - Complete feature documentation
+- **[QUICKSTART.md](QUICKSTART.md)** - Getting started guide
+- **[CONFIGURATION.md](CONFIGURATION.md)** - Configuration reference
+- **[KNOWN_ISSUES.md](KNOWN_ISSUES.md)** - Troubleshooting guide
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** - Development guidelines

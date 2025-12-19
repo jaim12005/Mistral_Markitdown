@@ -1,6 +1,8 @@
 # Known Issues and Limitations
 
-Current known issues and design limitations in Enhanced Document Converter v2.1.1.
+Current known issues, design limitations, and troubleshooting guide for Enhanced Document Converter v2.1.1.
+
+This document consolidates all troubleshooting information. If you encounter an issue, check here first.
 
 ## Current Issues
 
@@ -314,9 +316,8 @@ If you encounter issues not listed here:
 **Last Updated:** December 18, 2025  
 **Version:** 2.1.1
 
-For additional help, see:
-- [README.md](README.md) - Complete feature documentation
-- [QUICKSTART.md](QUICKSTART.md) - Getting started guide
-- [CONFIGURATION.md](CONFIGURATION.md) - Configuration reference
-- [DEPENDENCIES.md](DEPENDENCIES.md) - Dependency troubleshooting
-
+**Related Documentation:**
+- **[README.md](README.md)** - Complete feature documentation
+- **[QUICKSTART.md](QUICKSTART.md)** - Getting started guide
+- **[CONFIGURATION.md](CONFIGURATION.md)** - Configuration reference
+- **[DEPENDENCIES.md](DEPENDENCIES.md)** - Dependency troubleshooting

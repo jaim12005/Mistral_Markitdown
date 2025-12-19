@@ -1,6 +1,11 @@
 # Quick Start Guide
 
-Get started with Enhanced Document Converter in 5 minutes.
+Get started with Enhanced Document Converter v2.1.1 in 5 minutes.
+
+## Prerequisites
+
+- Python 3.10 or higher
+- Mistral API key (for OCR features) - get one at https://console.mistral.ai/api-keys/
 
 ## Step 1: Installation
 
@@ -13,6 +18,13 @@ run_converter.bat
 ```bash
 chmod +x quick_start.sh
 ./quick_start.sh
+```
+
+### Manual Installation
+```bash
+python -m venv env
+source env/bin/activate  # Windows: env\Scripts\activate
+pip install -r requirements.txt
 ```
 
 The script will:
@@ -118,13 +130,22 @@ Concurrent processing of multiple files
 
 ## Next Steps
 
-- Read [README.md](README.md) for advanced configuration
-- Check [DEPENDENCIES.md](DEPENDENCIES.md) for system requirements
-- See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup
+After getting started, explore these resources:
+
+| Resource | Description |
+|----------|-------------|
+| **[CONFIGURATION.md](CONFIGURATION.md)** | All 50+ configuration options |
+| **[DEPENDENCIES.md](DEPENDENCIES.md)** | System requirements (Poppler, Ghostscript, ffmpeg) |
+| **[KNOWN_ISSUES.md](KNOWN_ISSUES.md)** | Troubleshooting common problems |
+| **[README.md](README.md)** | Complete feature documentation |
 
 ## Need Help?
 
-- Check Mode 8 (System Status) for diagnostics
-- Review logs in `logs/` directory
-- Check [README.md](README.md) troubleshooting section
+1. **Run diagnostics**: Mode 8 (System Status) shows configuration and cache info
+2. **Check logs**: Review `logs/` directory for detailed error messages
+3. **Troubleshooting**: See **[KNOWN_ISSUES.md](KNOWN_ISSUES.md)** for common issues and solutions
+4. **Configuration**: See **[CONFIGURATION.md](CONFIGURATION.md)** for all options
 
+---
+
+**Version:** 2.1.1

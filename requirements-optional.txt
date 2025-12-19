@@ -1,5 +1,5 @@
 # ============================================================================
-# Enhanced Document Converter v2.1 - Optional Dependencies
+# Enhanced Document Converter v2.1.1 - Optional Dependencies
 # ============================================================================
 # This file contains OPTIONAL dependencies for extended MarkItDown features.
 # These are NOT required for basic operation but enable additional capabilities.

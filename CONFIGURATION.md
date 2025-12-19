@@ -2,6 +2,29 @@
 
 Complete reference for all configuration options in Enhanced Document Converter v2.1.1.
 
+## Table of Contents
+
+- [Configuration File](#configuration-file)
+- [API Keys](#api-keys)
+- [Mistral OCR Settings](#mistral-ocr-settings)
+- [Document QnA](#document-qna)
+- [Batch OCR Processing](#batch-ocr-processing)
+- [File Upload Management](#file-upload-management)
+- [Structured Data Extraction](#structured-data-extraction)
+- [Image Processing](#image-processing)
+- [Table Extraction](#table-extraction)
+- [PDF to Image Conversion](#pdf-to-image-conversion)
+- [System Paths](#system-paths-windows-only)
+- [Caching](#caching)
+- [Logging](#logging)
+- [Performance](#performance)
+- [API Retry Configuration](#api-retry-configuration)
+- [Output Settings](#output-settings)
+- [MarkItDown Settings](#markitdown-settings)
+- [Complete Example Configuration](#complete-example-configuration)
+- [Configuration by Use Case](#configuration-by-use-case)
+- [Environment Variable Reference](#environment-variable-reference)
+
 ## Configuration File
 
 All settings are configured through a `.env` file in the project root directory.
@@ -848,4 +871,11 @@ See README.md for complete feature documentation.
 ---
 
 **Last Updated:** 2025-12-18  
+
 **Version:** 2.1.1
+
+**Related Documentation:**
+- **[README.md](README.md)** - Complete feature documentation
+- **[QUICKSTART.md](QUICKSTART.md)** - Getting started guide
+- **[DEPENDENCIES.md](DEPENDENCIES.md)** - System requirements
+- **[KNOWN_ISSUES.md](KNOWN_ISSUES.md)** - Troubleshooting guide

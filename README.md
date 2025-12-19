@@ -2,6 +2,16 @@
 
 A powerful, production-ready document conversion system that combines Microsoft's **MarkItDown** with **Mistral AI's OCR** capabilities for optimal document processing. Features 8 specialized conversion modes, advanced table extraction, intelligent caching, and comprehensive batch processing.
 
+## Documentation
+
+| Guide | Description |
+|-------|-------------|
+| **[QUICKSTART.md](QUICKSTART.md)** | 5-minute getting started guide |
+| **[CONFIGURATION.md](CONFIGURATION.md)** | Complete configuration reference (50+ options) |
+| **[DEPENDENCIES.md](DEPENDENCIES.md)** | Dependency guide and system requirements |
+| **[KNOWN_ISSUES.md](KNOWN_ISSUES.md)** | Known issues, limitations, and troubleshooting |
+| **[CONTRIBUTING.md](CONTRIBUTING.md)** | Development setup and contribution guidelines |
+
 ## Features
 
 ### Core Capabilities
@@ -1019,74 +1029,14 @@ MISTRAL_BATCH_MIN_FILES=10
 
 ## Troubleshooting
 
-### "MISTRAL_API_KEY not set"
+For troubleshooting common issues, see **[KNOWN_ISSUES.md](KNOWN_ISSUES.md)**.
 
-**Solution:**
-1. Create a `.env` file in the project root
-2. Get API key from https://console.mistral.ai/api-keys/
-3. Add `MISTRAL_API_KEY="your_key_here"` to `.env`
-4. See configuration sections below for additional options
+**Quick fixes for common issues:**
 
-### "Mistral OCR returned empty text"
-
-**Cause**: Your API key may not have OCR access
-
-**Solution:**
-1. Verify your API key at https://console.mistral.ai/
-2. Check if your plan includes OCR features (may require paid plan)
-3. Try Mode 3 (MarkItDown Only) - works perfectly for text-based PDFs (free, local)
-
-### "401 Unauthorized"
-
-**Cause**: Invalid or expired API key
-
-**Solution:**
-1. Generate new API key at https://console.mistral.ai/api-keys/
-2. Update `MISTRAL_API_KEY` in `.env`
-3. Restart the converter
-
-### "403 Forbidden - Access denied to Mistral OCR"
-
-**Cause**: OCR feature requires paid plan
-
-**Solution:**
-1. Upgrade your Mistral plan at https://console.mistral.ai/
-2. Verify plan includes OCR access
-3. Alternative: Use Mode 3 (MarkItDown Only) for text-based PDFs (free)
-
-### "MarkItDown not installed"
-
-**Solution:**
-```bash
-pip install markitdown
-```
-
-### "pdf2image: Unable to get page count"
-
-**Cause**: Poppler not installed or path not configured (Windows only)
-
-**Solution:**
-1. Download Poppler: https://github.com/oschwartz10612/poppler-windows/releases
-2. Extract to `C:\Program Files\poppler-XX.XX.X\`
-3. Set `POPPLER_PATH` in `.env`: `POPPLER_PATH="C:/Program Files/poppler-23.08.0/Library/bin"`
-
-### Low OCR Quality Scores
-
-**Symptoms**: Quality score < 40, many "weak pages" detected
-
-**Solution:**
-- **For text-based PDFs**: Use Mode 3 (MarkItDown) instead - often better for standard PDFs
-- **For scanned documents**: Try improving scan quality (higher DPI, better contrast)
-- **For complex layouts**: Mode 1 (HYBRID) provides best results with multiple extraction methods
-- **Check document type**: Some unusual fonts or layouts may challenge OCR
-
-### Cache Not Working
-
-**Solution:**
-1. Check `CACHE_DURATION_HOURS` in `.env` (default: 24)
-2. Verify cache directory exists: `cache/`
-3. Run Mode 8 to see cache statistics
-4. Clear old cache: Set `AUTO_CLEAR_CACHE=true`
+- **"MISTRAL_API_KEY not set"** → Create `.env` file with your key from https://console.mistral.ai/api-keys/
+- **"401 Unauthorized"** → Verify/regenerate your API key
+- **Low OCR quality scores** → Use Mode 3 (MarkItDown) for text-based PDFs
+- **Windows PDF issues** → Set `POPPLER_PATH` in `.env` (see [KNOWN_ISSUES.md](KNOWN_ISSUES.md))
 
 ## Performance Expectations
 
@@ -1113,25 +1063,20 @@ pip install markitdown
 
 ## Documentation
 
-### Getting Started
-- 📖 **[QUICKSTART.md](QUICKSTART.md)** - 5-minute getting started guide
-- 📖 **[CONFIGURATION.md](CONFIGURATION.md)** - Complete configuration reference (all 50+ options)
-- 📖 **[DEPENDENCIES.md](DEPENDENCIES.md)** - Dependency guide and troubleshooting
+### Quick Links
 
-### Development & Support
-- 📖 **[CONTRIBUTING.md](CONTRIBUTING.md)** - Contribution guidelines and development setup
-- 📖 **[KNOWN_ISSUES.md](KNOWN_ISSUES.md)** - Known issues and limitations
+- **[QUICKSTART.md](QUICKSTART.md)** - Get started in 5 minutes
+- **[CONFIGURATION.md](CONFIGURATION.md)** - All 50+ configuration options
+- **[DEPENDENCIES.md](DEPENDENCIES.md)** - Installation and system requirements
+- **[KNOWN_ISSUES.md](KNOWN_ISSUES.md)** - Troubleshooting and limitations
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** - Development and contribution guide
 
-### External Documentation
+### External Resources
+
 - **MarkItDown**: https://github.com/microsoft/markitdown
 - **Mistral Document AI**: https://docs.mistral.ai/capabilities/document_ai/
 - **Mistral Python SDK**: https://github.com/mistralai/client-python
-- **Camelot (Table Extraction)**: https://camelot-py.readthedocs.io/
-- **pdf2image**: https://github.com/Belval/pdf2image
-
-### API Management
-- **Get Mistral API Key**: https://console.mistral.ai/api-keys/
-- **Mistral Console**: https://console.mistral.ai/
+- **Get API Key**: https://console.mistral.ai/api-keys/
 
 ## Latest Updates
 

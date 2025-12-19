@@ -1,6 +1,6 @@
 # Contributing to Enhanced Document Converter
 
-Thank you for your interest in contributing! This document provides guidelines and setup instructions for developers.
+Thank you for your interest in contributing to Enhanced Document Converter v2.1.1! This document provides guidelines and setup instructions for developers.
 
 ## Development Setup
 
@@ -178,8 +178,8 @@ Common fixtures are available in `tests/conftest.py`:
 
 ```
 Mistral_Markitdown/
-├── main.py                  # Main application entry point
-├── config.py                # Configuration management
+├── main.py                  # Main application entry point (8 modes)
+├── config.py                # Configuration management (50+ options)
 ├── local_converter.py       # MarkItDown integration & table extraction
 ├── mistral_converter.py     # Mistral AI OCR integration
 ├── utils.py                 # Utility functions (caching, logging, formatting)
@@ -191,7 +191,7 @@ Mistral_Markitdown/
 │
 ├── README.md                # Complete user guide
 ├── QUICKSTART.md            # 5-minute getting started guide
-├── CONFIGURATION.md         # Complete configuration reference (50+ options)
+├── CONFIGURATION.md         # Complete configuration reference
 ├── DEPENDENCIES.md          # Dependency reference and troubleshooting
 ├── KNOWN_ISSUES.md          # Known issues and troubleshooting guide
 ├── CONTRIBUTING.md          # Development guidelines (this file)
@@ -199,10 +199,9 @@ Mistral_Markitdown/
 │
 ├── run_converter.bat        # Windows quick start script
 ├── quick_start.sh           # Linux/macOS quick start script
-├── Makefile                 # Development commands (make test, make lint, etc.)
+├── Makefile                 # Development commands
 ├── pyproject.toml           # Tool configuration (black, isort, pytest)
 ├── mypy.ini                 # Type checking configuration
-├── .gitignore               # Git ignore patterns
 │
 ├── tests/                   # Test suite
 │   ├── __init__.py
@@ -211,8 +210,8 @@ Mistral_Markitdown/
 │   └── test_utils.py        # Utility function tests
 │
 ├── .github/workflows/       # CI/CD automation
-│   ├── test.yml            # Multi-platform testing
-│   └── lint.yml            # Code quality checks
+│   ├── test.yml             # Multi-platform testing
+│   └── lint.yml             # Code quality checks
 │
 ├── input/                   # Place files to convert here
 ├── output_md/               # Markdown output
@@ -342,3 +341,11 @@ By contributing, you agree that your contributions will be licensed under the sa
 ---
 
 Thank you for contributing to Enhanced Document Converter! 🎉
+
+**Version:** 2.1.1
+
+**Related Documentation:**
+- **[README.md](README.md)** - Complete feature documentation
+- **[CONFIGURATION.md](CONFIGURATION.md)** - Configuration reference
+- **[DEPENDENCIES.md](DEPENDENCIES.md)** - Dependency guide
+- **[KNOWN_ISSUES.md](KNOWN_ISSUES.md)** - Known issues

@@ -1,4 +1,4 @@
-# Enhanced Document Converter v2.1 - Makefile
+# Enhanced Document Converter v2.1.1 - Makefile
 # Convenience commands for development and testing
 
 .PHONY: help install install-dev test lint format type-check clean run
