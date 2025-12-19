@@ -269,6 +269,8 @@ UPLOAD_RETENTION_DAYS=7
 
 ## Structured Data Extraction
 
+**Important:** The OCR API uses raw JSON schema dictionaries for structured extraction, not ResponseFormat objects. The converter handles this automatically - these settings simply enable/disable the features.
+
 ### MISTRAL_ENABLE_STRUCTURED_OUTPUT
 - **Type:** Boolean
 - **Default:** `true`

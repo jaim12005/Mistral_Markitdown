@@ -6,7 +6,54 @@ This document consolidates all troubleshooting information. If you encounter an 
 
 ## Current Issues
 
-### 1. OCR Parameter Limitations
+### 1. OCR Structured Output Format Requirements
+
+**Issue:** The OCR API uses different structured output formats than the Chat Completion API.
+
+**Details:**
+- **OCR API** (`bbox_annotation_format`, `document_annotation_format`): Expects **raw JSON schema dictionaries**
+- **Chat Completion API** (`response_format`): Expects **ResponseFormat objects** from `response_format_from_pydantic_model()`
+
+**Correct Usage for OCR:**
+```python
+from schemas import get_bbox_pydantic_model
+
+# Get Pydantic model
+model = get_bbox_pydantic_model("image")
+
+# Extract raw JSON schema (correct for OCR)
+json_schema = model.model_json_schema()
+
+# Use with OCR endpoint
+response = client.ocr.process(
+    model="mistral-ocr-latest",
+    document=DocumentURLChunk(document_url="..."),
+    bbox_annotation_format=json_schema,  # Raw dict, NOT ResponseFormat
+)
+```
+
+**Incorrect Usage (will fail):**
+```python
+from mistralai.extra import response_format_from_pydantic_model
+
+# This creates a ResponseFormat object - for Chat Completion ONLY
+response_format = response_format_from_pydantic_model(model)
+
+# WRONG: OCR API does not accept ResponseFormat objects
+response = client.ocr.process(
+    bbox_annotation_format=response_format,  # Will fail!
+)
+```
+
+**Impact:** Low - The converter handles this correctly internally. Only affects users writing custom code.
+
+**References:**
+- [Mistral OCR Annotations](https://docs.mistral.ai/capabilities/document_ai/annotations)
+- [Mistral Chat Structured Outputs](https://docs.mistral.ai/capabilities/json_mode/)
+
+---
+
+### 2. OCR Parameter Limitations
 
 **Issue:** The Mistral OCR endpoint does not support certain chat completion parameters.
 

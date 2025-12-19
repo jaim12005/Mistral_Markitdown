@@ -28,7 +28,9 @@ try:
     from mistralai.utils import retries
     # New SDK types for OCR document handling
     from mistralai import DocumentURLChunk, ImageURLChunk
-    # Helper for Pydantic model conversion to ResponseFormat
+    # NOTE: response_format_from_pydantic_model is for CHAT COMPLETION structured outputs ONLY.
+    # The OCR API uses raw JSON schema dicts for bbox_annotation_format and document_annotation_format.
+    # We keep this import available for potential future chat completion use cases (e.g., Document QnA with structured output).
     from mistralai.extra import response_format_from_pydantic_model
 except ImportError:
     Mistral = None
@@ -136,14 +138,19 @@ def get_raw_schema(schema_dict: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
     Get raw schema for OCR annotation formats.
 
-    Note: OCR API expects raw JSON schema dicts, NOT ResponseFormat objects.
-    ResponseFormat is for chat completion API with structured outputs.
+    This function extracts the JSON schema from a schema definition dict.
+
+    IMPORTANT DISTINCTION:
+    - OCR API (bbox_annotation_format, document_annotation_format): Expects raw JSON schema dicts
+    - Chat Completion API (response_format): Expects ResponseFormat objects from response_format_from_pydantic_model()
+
+    This function is for OCR annotation formats only.
 
     Args:
-        schema_dict: Schema definition from schemas.py
+        schema_dict: Schema definition from schemas.py (contains 'name', 'schema', 'description' keys)
 
     Returns:
-        Raw schema dict or None if structured output disabled
+        Raw JSON schema dict or None if structured output disabled
     """
     if not config.MISTRAL_ENABLE_STRUCTURED_OUTPUT:
         return None
@@ -156,45 +163,52 @@ def get_raw_schema(schema_dict: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         return None
 
 
-def get_bbox_annotation_format() -> Optional[Any]:
+def get_bbox_annotation_format() -> Optional[Dict[str, Any]]:
     """
     Get schema format for bounding box annotation.
 
-    Uses Pydantic models with response_format_from_pydantic_model when available,
-    otherwise falls back to raw JSON schema dict.
+    IMPORTANT: The OCR API expects raw JSON schema dicts, NOT ResponseFormat objects.
+    ResponseFormat (from response_format_from_pydantic_model) is for chat completion
+    structured outputs only. The OCR endpoint's bbox_annotation_format and
+    document_annotation_format parameters require plain JSON schema dictionaries.
 
     Returns:
-        ResponseFormat from Pydantic model, or raw JSON schema dict, or None if disabled
+        Raw JSON schema dict for bbox annotation, or None if disabled
     """
     if not config.MISTRAL_ENABLE_BBOX_ANNOTATION:
         return None
 
-    # Try to use Pydantic model with SDK helper (new recommended approach)
-    if response_format_from_pydantic_model is not None:
+    # Try to get JSON schema from Pydantic model (preferred - type-safe)
+    pydantic_model = schemas.get_bbox_pydantic_model()
+    if pydantic_model is not None:
         try:
-            pydantic_model = schemas.get_bbox_pydantic_model()
-            if pydantic_model is not None:
-                return response_format_from_pydantic_model(pydantic_model)
+            # Extract raw JSON schema from Pydantic model
+            # This returns a dict compatible with the OCR API
+            json_schema = pydantic_model.model_json_schema()
+            logger.debug(f"Using Pydantic-derived JSON schema for bbox annotation")
+            return json_schema
         except Exception as e:
-            logger.debug(f"Could not use Pydantic model for bbox: {e}, falling back to raw schema")
+            logger.debug(f"Could not get JSON schema from Pydantic model: {e}, falling back to predefined schema")
 
-    # Fallback to raw JSON schema
+    # Fallback to predefined JSON schema from schemas.py
     bbox_schema = schemas.get_bbox_schema("structured")
-    return get_raw_schema(bbox_schema)
+    return bbox_schema.get("schema")
 
 
-def get_document_annotation_format(doc_type: str = "auto") -> Optional[Any]:
+def get_document_annotation_format(doc_type: str = "auto") -> Optional[Dict[str, Any]]:
     """
     Get schema format for document-level annotation.
 
-    Uses Pydantic models with response_format_from_pydantic_model when available,
-    otherwise falls back to raw JSON schema dict.
+    IMPORTANT: The OCR API expects raw JSON schema dicts, NOT ResponseFormat objects.
+    ResponseFormat (from response_format_from_pydantic_model) is for chat completion
+    structured outputs only. The OCR endpoint's document_annotation_format parameter
+    requires a plain JSON schema dictionary.
 
     Args:
         doc_type: Document type (invoice, financial_statement, form, generic, auto)
 
     Returns:
-        ResponseFormat from Pydantic model, or raw JSON schema dict, or None if disabled
+        Raw JSON schema dict for document annotation, or None if disabled
     """
     if not config.MISTRAL_ENABLE_DOCUMENT_ANNOTATION:
         return None
@@ -205,18 +219,21 @@ def get_document_annotation_format(doc_type: str = "auto") -> Optional[Any]:
         if doc_type == "auto":
             doc_type = "generic"  # Default fallback
 
-    # Try to use Pydantic model with SDK helper (new recommended approach)
-    if response_format_from_pydantic_model is not None:
+    # Try to get JSON schema from Pydantic model (preferred - type-safe)
+    pydantic_model = schemas.get_document_pydantic_model(doc_type)
+    if pydantic_model is not None:
         try:
-            pydantic_model = schemas.get_document_pydantic_model(doc_type)
-            if pydantic_model is not None:
-                return response_format_from_pydantic_model(pydantic_model)
+            # Extract raw JSON schema from Pydantic model
+            # This returns a dict compatible with the OCR API
+            json_schema = pydantic_model.model_json_schema()
+            logger.debug(f"Using Pydantic-derived JSON schema for document annotation (type: {doc_type})")
+            return json_schema
         except Exception as e:
-            logger.debug(f"Could not use Pydantic model for document: {e}, falling back to raw schema")
+            logger.debug(f"Could not get JSON schema from Pydantic model: {e}, falling back to predefined schema")
 
-    # Fallback to raw JSON schema
+    # Fallback to predefined JSON schema from schemas.py
     document_schema = schemas.get_document_schema(doc_type)
-    return get_raw_schema(document_schema)
+    return document_schema.get("schema")
 
 
 # ============================================================================

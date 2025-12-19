@@ -584,77 +584,97 @@ def get_bbox_schema(schema_type: str = "structured") -> Dict[str, Any]:
 def get_bbox_pydantic_model(annotation_type: str = "image") -> Optional[Type]:
     """
     Get a Pydantic model class for bounding box annotation.
-    
-    Use with mistralai.extra.response_format_from_pydantic_model() for
-    the bbox_annotation_format parameter.
-    
+
+    IMPORTANT: The OCR API expects raw JSON schema dicts, NOT ResponseFormat objects.
+    Use model_json_schema() to extract the JSON schema from the Pydantic model.
+
+    The response_format_from_pydantic_model() helper is for CHAT COMPLETION only,
+    not for OCR annotation formats.
+
     Args:
         annotation_type: Type of annotation model to return:
             - "image": General image/figure annotation (default, most versatile)
             - "table": Table-specific annotation with structure info
             - "chart": Chart/graph annotation with axis info
             - "structured": Comprehensive bbox annotation
-    
+
     Returns:
         Pydantic model class, or None if Pydantic not available
-    
+
     Example:
-        >>> from mistralai.extra import response_format_from_pydantic_model
+        >>> # Get the Pydantic model
         >>> model = get_bbox_pydantic_model("image")
-        >>> bbox_format = response_format_from_pydantic_model(model)
+        >>> # Extract raw JSON schema for OCR API
+        >>> json_schema = model.model_json_schema()
+        >>> # Use with OCR endpoint
         >>> response = client.ocr.process(
         ...     model="mistral-ocr-latest",
         ...     document=DocumentURLChunk(document_url="..."),
-        ...     bbox_annotation_format=bbox_format,
+        ...     bbox_annotation_format=json_schema,  # Raw JSON schema dict
         ...     include_image_base64=True
         ... )
+
+    Note:
+        For chat completion structured outputs (NOT OCR), use:
+        >>> from mistralai.extra import response_format_from_pydantic_model
+        >>> response_format = response_format_from_pydantic_model(model)
     """
     if not PYDANTIC_AVAILABLE:
         return None
-    
+
     model_map = {
         "image": ImageAnnotation,
         "table": TableAnnotation,
         "chart": ChartAnnotation,
         "structured": BBoxStructuredAnnotation,
     }
-    
+
     return model_map.get(annotation_type, ImageAnnotation)
 
 
 def get_document_pydantic_model(doc_type: str = "generic") -> Optional[Type]:
     """
     Get a Pydantic model class for document-level annotation.
-    
-    Use with mistralai.extra.response_format_from_pydantic_model() for
-    the document_annotation_format parameter.
-    
+
+    IMPORTANT: The OCR API expects raw JSON schema dicts, NOT ResponseFormat objects.
+    Use model_json_schema() to extract the JSON schema from the Pydantic model.
+
+    The response_format_from_pydantic_model() helper is for CHAT COMPLETION only,
+    not for OCR annotation formats.
+
     Args:
         doc_type: Type of document model to return:
             - "generic": General document structure (default)
             - "invoice": Invoice/receipt extraction
-    
+
     Returns:
         Pydantic model class, or None if Pydantic not available
-    
+
     Example:
-        >>> from mistralai.extra import response_format_from_pydantic_model
+        >>> # Get the Pydantic model
         >>> model = get_document_pydantic_model("invoice")
-        >>> doc_format = response_format_from_pydantic_model(model)
+        >>> # Extract raw JSON schema for OCR API
+        >>> json_schema = model.model_json_schema()
+        >>> # Use with OCR endpoint
         >>> response = client.ocr.process(
         ...     model="mistral-ocr-latest",
         ...     document=DocumentURLChunk(document_url="..."),
-        ...     document_annotation_format=doc_format
+        ...     document_annotation_format=json_schema  # Raw JSON schema dict
         ... )
+
+    Note:
+        For chat completion structured outputs (NOT OCR), use:
+        >>> from mistralai.extra import response_format_from_pydantic_model
+        >>> response_format = response_format_from_pydantic_model(model)
     """
     if not PYDANTIC_AVAILABLE:
         return None
-    
+
     model_map = {
         "generic": GenericDocument,
         "invoice": InvoiceDocument,
         # Note: financial_statement and form use JSON schemas only for now
         # Add Pydantic models as needed
     }
-    
+
     return model_map.get(doc_type, GenericDocument)

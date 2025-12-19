@@ -30,11 +30,11 @@ A powerful, production-ready document conversion system that combines Microsoft'
 - **Structured Data Extraction**: JSON schema-based extraction for invoices, financial statements, forms
 - **Async Operations**: Non-blocking processing for better performance and responsiveness
 - **Retry Configuration**: Exponential backoff with configurable retry logic for API resilience
-- **Bounding Box Annotations**: Structured extraction of text regions, tables, and figures with metadata
+- **Bounding Box Annotations**: Structured extraction of text regions, tables, and figures using raw JSON schemas
 - **Document-Level Annotations**: Automatic extraction of document structure, metadata, and summaries
 - **Document QnA**: Query documents in natural language using chat.complete with document_url content type (NEW)
 - **Batch OCR Processing**: Process multiple documents at 50% cost reduction using Mistral's Batch API (NEW)
-- **Pydantic Model Support**: Use Pydantic models with response_format_from_pydantic_model for type-safe extraction (NEW)
+- **Pydantic Model Support**: Define type-safe schemas using Pydantic models with `model_json_schema()` for OCR annotations (NEW)
 
 ### Supported Formats
 
