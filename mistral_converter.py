@@ -402,6 +402,30 @@ def cleanup_uploaded_files(client: Mistral, days_old: Optional[int] = None) -> i
                 logger.debug(f"Error processing file {file.id}: {e}")
                 continue
 
+        # Also clean up batch files
+        try:
+            batch_files_list = client.files.list(purpose="batch")
+            for file in batch_files_list:
+                try:
+                    if hasattr(file, 'created_at'):
+                        if isinstance(file.created_at, str):
+                            file_created = datetime.fromisoformat(file.created_at.replace('Z', '+00:00'))
+                        elif hasattr(file.created_at, 'replace'):
+                            file_created = file.created_at
+                            if file_created.tzinfo is None:
+                                file_created = file_created.replace(tzinfo=timezone.utc)
+                        else:
+                            continue
+                        if file_created < cutoff_date:
+                            client.files.delete(file_id=file.id)
+                            deleted += 1
+                            logger.debug(f"Deleted old batch file: {file.id}")
+                except Exception as e:
+                    logger.debug(f"Error processing batch file {file.id}: {e}")
+                    continue
+        except Exception as e:
+            logger.debug(f"Error listing batch files for cleanup: {e}")
+
         if deleted > 0:
             logger.info(f"Cleaned up {deleted} old uploaded files (older than {days_old} days)")
 
@@ -483,7 +507,7 @@ def upload_file_for_ocr(client: Mistral, file_path: Path) -> Optional[str]:
         # The signed URL is required to process the file with OCR
         signed_url_response = client.files.get_signed_url(
             file_id=response.id,
-            expiry=1,  # URL expires in 1 hour
+            expiry=config.MISTRAL_SIGNED_URL_EXPIRY,  # URL expiry in hours
         )
 
         if hasattr(signed_url_response, "url"):
@@ -551,8 +575,8 @@ def process_with_ocr(
     """
 
     def _report_progress(message: str, progress: float = 0.0):
-        """Report progress if callback is provided and streaming is enabled."""
-        if progress_callback and config.ENABLE_STREAMING:
+        """Report progress if callback is provided."""
+        if progress_callback:
             progress_callback(message, progress)
 
     try:
@@ -686,6 +710,20 @@ def process_with_ocr(
             ocr_params["bbox_annotation_format"] = bbox_format
         if doc_format is not None:
             ocr_params["document_annotation_format"] = doc_format
+        if config.MISTRAL_DOCUMENT_ANNOTATION_PROMPT:
+            ocr_params["document_annotation_prompt"] = config.MISTRAL_DOCUMENT_ANNOTATION_PROMPT
+
+        # OCR 3 (mistral-ocr-2512) parameters
+        if config.MISTRAL_TABLE_FORMAT:
+            ocr_params["table_format"] = config.MISTRAL_TABLE_FORMAT
+        if config.MISTRAL_EXTRACT_HEADER:
+            ocr_params["extract_header"] = True
+        if config.MISTRAL_EXTRACT_FOOTER:
+            ocr_params["extract_footer"] = True
+        if config.MISTRAL_IMAGE_LIMIT:
+            ocr_params["image_limit"] = int(config.MISTRAL_IMAGE_LIMIT)
+        if config.MISTRAL_IMAGE_MIN_SIZE:
+            ocr_params["image_min_size"] = int(config.MISTRAL_IMAGE_MIN_SIZE)
 
         # Process with OCR
         response = client.ocr.process(**ocr_params)
@@ -1036,7 +1074,6 @@ def _is_weak_page(text: str) -> bool:
     # Count occurrences of common repeated strings
     # Configurable via OCR_MAX_PHRASE_REPETITIONS
     common_phrases = [
-        "5151 E Broadway",  # Example from SWE feedback
         "Page 1",
         "Page 2",
         "Page 3",
@@ -1568,7 +1605,10 @@ def query_document(
         logger.info(f"Querying document with question: {question[:50]}...")
         
         # Build message with document_url content type
-        messages = [
+        messages = []
+        if config.MISTRAL_QNA_SYSTEM_PROMPT:
+            messages.append({"role": "system", "content": config.MISTRAL_QNA_SYSTEM_PROMPT})
+        messages.append(
             {
                 "role": "user",
                 "content": [
@@ -1582,7 +1622,7 @@ def query_document(
                     }
                 ]
             }
-        ]
+        )
         
         # Get retry config
         retry_config = get_retry_config()
@@ -1595,7 +1635,12 @@ def query_document(
         
         if retry_config:
             chat_params["retries"] = retry_config
-        
+
+        if config.MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT:
+            chat_params["document_image_limit"] = int(config.MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT)
+        if config.MISTRAL_QNA_DOCUMENT_PAGE_LIMIT:
+            chat_params["document_page_limit"] = int(config.MISTRAL_QNA_DOCUMENT_PAGE_LIMIT)
+
         response = client.chat.complete(**chat_params)
         
         if response and response.choices and len(response.choices) > 0:
@@ -1727,7 +1772,17 @@ def create_batch_ocr_file(
                     "include_image_base64": include_image_base64
                 }
             }
-            
+
+            # Include structured annotation formats if enabled
+            bbox_format = get_bbox_annotation_format()
+            doc_format = get_document_annotation_format()
+            if bbox_format is not None:
+                entry["body"]["bbox_annotation_format"] = bbox_format
+            if doc_format is not None:
+                entry["body"]["document_annotation_format"] = doc_format
+            if config.MISTRAL_DOCUMENT_ANNOTATION_PROMPT:
+                entry["body"]["document_annotation_prompt"] = config.MISTRAL_DOCUMENT_ANNOTATION_PROMPT
+
             entries.append(entry)
             logger.debug(f"Added {file_path.name} to batch (id: {entry['custom_id']})")
         
@@ -1806,7 +1861,10 @@ def submit_batch_ocr_job(
         
         if metadata:
             job_params["metadata"] = metadata
-        
+
+        if config.MISTRAL_BATCH_TIMEOUT_HOURS != 24:  # Only pass if non-default
+            job_params["timeout_hours"] = config.MISTRAL_BATCH_TIMEOUT_HOURS
+
         created_job = client.batch.jobs.create(**job_params)
         
         logger.info(f"Batch job created: {created_job.id}")
@@ -1920,5 +1978,117 @@ def download_batch_results(
     
     except Exception as e:
         error_msg = f"Error downloading batch results: {e}"
+        logger.error(error_msg)
+        return False, None, error_msg
+
+
+def list_batch_jobs(
+    status: Optional[str] = None,
+) -> Tuple[bool, Optional[List[Dict[str, Any]]], Optional[str]]:
+    """
+    List batch OCR jobs with optional status filtering.
+
+    Args:
+        status: Optional filter by status (QUEUED, RUNNING, SUCCESS, FAILED, etc.)
+
+    Returns:
+        Tuple of (success, jobs_list, error_message)
+    """
+    client = get_mistral_client()
+    if client is None:
+        return False, None, "Mistral client not available"
+
+    try:
+        jobs = client.batch.jobs.list()
+
+        jobs_list = []
+        for job in jobs:
+            job_info = {
+                "id": job.id,
+                "status": job.status,
+                "model": getattr(job, 'model', None),
+                "total_requests": getattr(job, 'total_requests', 0),
+                "succeeded_requests": getattr(job, 'succeeded_requests', 0),
+                "failed_requests": getattr(job, 'failed_requests', 0),
+                "created_at": str(getattr(job, 'created_at', '')),
+            }
+
+            if status is None or job_info["status"] == status:
+                jobs_list.append(job_info)
+
+        logger.info(f"Found {len(jobs_list)} batch jobs")
+        return True, jobs_list, None
+
+    except Exception as e:
+        error_msg = f"Error listing batch jobs: {e}"
+        logger.error(error_msg)
+        return False, None, error_msg
+
+
+def cancel_batch_job(job_id: str) -> Tuple[bool, Optional[str], Optional[str]]:
+    """
+    Cancel a running batch OCR job.
+
+    Args:
+        job_id: The batch job ID to cancel
+
+    Returns:
+        Tuple of (success, status, error_message)
+    """
+    client = get_mistral_client()
+    if client is None:
+        return False, None, "Mistral client not available"
+
+    try:
+        job = client.batch.jobs.cancel(job_id=job_id)
+        logger.info(f"Batch job {job_id} cancellation requested")
+        return True, job.status, None
+
+    except Exception as e:
+        error_msg = f"Error cancelling batch job: {e}"
+        logger.error(error_msg)
+        return False, None, error_msg
+
+
+def download_batch_errors(
+    job_id: str,
+    output_dir: Optional[Path] = None,
+) -> Tuple[bool, Optional[Path], Optional[str]]:
+    """
+    Download error file from a batch OCR job.
+
+    Args:
+        job_id: The batch job ID
+        output_dir: Directory to save errors (default: output_md/)
+
+    Returns:
+        Tuple of (success, error_file_path, error_message)
+    """
+    client = get_mistral_client()
+    if client is None:
+        return False, None, "Mistral client not available"
+
+    if output_dir is None:
+        output_dir = config.OUTPUT_MD_DIR
+
+    try:
+        job = client.batch.jobs.get(job_id=job_id)
+
+        if not getattr(job, 'error_file', None):
+            return False, None, "No error file available for this job"
+
+        logger.info(f"Downloading batch errors for job {job_id}...")
+
+        output_path = output_dir / f"batch_ocr_errors_{job_id}.jsonl"
+        file_content = client.files.download(file_id=job.error_file)
+
+        with open(output_path, 'wb') as f:
+            f.write(file_content)
+
+        logger.info(f"Batch errors saved to: {output_path}")
+        return True, output_path, None
+
+    except Exception as e:
+        error_msg = f"Error downloading batch errors: {e}"
         logger.error(error_msg)
         return False, None, error_msg

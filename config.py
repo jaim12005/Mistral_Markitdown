@@ -65,10 +65,9 @@ def ensure_directories() -> None:
 # Mistral AI API Key (required)
 MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY", "")
 
-# Optional API Keys
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-AZURE_DOC_INTEL_ENDPOINT = os.getenv("AZURE_DOC_INTEL_ENDPOINT", "")
-AZURE_DOC_INTEL_KEY = os.getenv("AZURE_DOC_INTEL_KEY", "")
+# NOTE: Azure Document Intelligence and OpenAI API keys have been removed.
+# LLM image descriptions now use Mistral's OpenAI-compatible endpoint
+# with the existing MISTRAL_API_KEY (no separate key needed).
 
 # ============================================================================
 # Mistral OCR Configuration
@@ -134,6 +133,24 @@ MISTRAL_ENABLE_DOCUMENT_ANNOTATION = (
     os.getenv("MISTRAL_ENABLE_DOCUMENT_ANNOTATION", "false").lower() == "true"
 )
 
+# OCR 3 (mistral-ocr-2512) features
+# Table output format: "markdown" (default) or "html" (gives colspan/rowspan for merged cells)
+MISTRAL_TABLE_FORMAT = os.getenv("MISTRAL_TABLE_FORMAT", "")  # Empty = API default (markdown)
+
+# Extract headers/footers separately from page content
+MISTRAL_EXTRACT_HEADER = os.getenv("MISTRAL_EXTRACT_HEADER", "true").lower() == "true"
+MISTRAL_EXTRACT_FOOTER = os.getenv("MISTRAL_EXTRACT_FOOTER", "true").lower() == "true"
+
+# Custom guidance prompt for document annotation LLM
+MISTRAL_DOCUMENT_ANNOTATION_PROMPT = os.getenv("MISTRAL_DOCUMENT_ANNOTATION_PROMPT", "")
+
+# Image extraction control
+MISTRAL_IMAGE_LIMIT = os.getenv("MISTRAL_IMAGE_LIMIT", "")  # Empty = no limit
+MISTRAL_IMAGE_MIN_SIZE = os.getenv("MISTRAL_IMAGE_MIN_SIZE", "")  # Empty = no minimum (px)
+
+# Signed URL expiry (hours) - increase for large batch jobs
+MISTRAL_SIGNED_URL_EXPIRY = int(os.getenv("MISTRAL_SIGNED_URL_EXPIRY", "1"))
+
 # Image optimization
 MISTRAL_ENABLE_IMAGE_OPTIMIZATION = (
     os.getenv("MISTRAL_ENABLE_IMAGE_OPTIMIZATION", "true").lower() == "true"
@@ -150,14 +167,25 @@ MISTRAL_IMAGE_QUALITY_THRESHOLD = int(
 # MarkItDown Configuration
 # ============================================================================
 
-# LLM integration
-MARKITDOWN_USE_LLM = os.getenv("MARKITDOWN_USE_LLM", "false").lower() == "true"
-MARKITDOWN_LLM_MODEL = os.getenv("MARKITDOWN_LLM_MODEL", "gpt-4-vision-preview")
+# LLM integration - uses Mistral's OpenAI-compatible endpoint (no separate API key)
+# Set to true to enable LLM-powered image descriptions in MarkItDown conversions
+MARKITDOWN_ENABLE_LLM_DESCRIPTIONS = os.getenv("MARKITDOWN_ENABLE_LLM_DESCRIPTIONS", "false").lower() == "true"
+# Vision-capable model for image descriptions (pixtral-large-latest recommended)
+MARKITDOWN_LLM_MODEL = os.getenv("MARKITDOWN_LLM_MODEL", "pixtral-large-latest")
+# Custom prompt for LLM image descriptions (empty = MarkItDown default)
+MARKITDOWN_LLM_PROMPT = os.getenv("MARKITDOWN_LLM_PROMPT", "")
+
 MARKITDOWN_ENABLE_PLUGINS = (
     os.getenv("MARKITDOWN_ENABLE_PLUGINS", "false").lower() == "true"
 )
 
-# File size limit (for determining when to use Mistral Files API)
+# DOCX style mapping for mammoth (e.g., "p[style-name='Custom Heading'] => h2:fresh")
+MARKITDOWN_STYLE_MAP = os.getenv("MARKITDOWN_STYLE_MAP", "")
+
+# Path to ExifTool binary for EXIF metadata extraction from images/audio
+MARKITDOWN_EXIFTOOL_PATH = os.getenv("MARKITDOWN_EXIFTOOL_PATH", "")
+
+# File size limit - files exceeding this are rejected to prevent OOM
 MARKITDOWN_MAX_FILE_SIZE_MB = int(os.getenv("MARKITDOWN_MAX_FILE_SIZE_MB", "100"))
 
 # ============================================================================
@@ -197,11 +225,13 @@ VERBOSE_PROGRESS = os.getenv("VERBOSE_PROGRESS", "true").lower() == "true"
 # Performance
 MAX_CONCURRENT_FILES = int(os.getenv("MAX_CONCURRENT_FILES", "5"))
 
-# Async operations
-ENABLE_ASYNC_OPERATIONS = os.getenv("ENABLE_ASYNC_OPERATIONS", "true").lower() == "true"
+# Document QnA configuration
+MISTRAL_QNA_SYSTEM_PROMPT = os.getenv("MISTRAL_QNA_SYSTEM_PROMPT", "")  # Custom system prompt for QnA
+MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT = os.getenv("MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT", "")  # Max images (default: API default of 8)
+MISTRAL_QNA_DOCUMENT_PAGE_LIMIT = os.getenv("MISTRAL_QNA_DOCUMENT_PAGE_LIMIT", "")  # Max pages (default: API default of 64)
 
-# Streaming (real-time progress feedback)
-ENABLE_STREAMING = os.getenv("ENABLE_STREAMING", "false").lower() == "true"
+# Batch processing advanced configuration
+MISTRAL_BATCH_TIMEOUT_HOURS = int(os.getenv("MISTRAL_BATCH_TIMEOUT_HOURS", "24"))
 
 # Retry Configuration (for Mistral API calls)
 MAX_RETRIES = int(os.getenv("MAX_RETRIES", "3"))
@@ -319,10 +349,16 @@ MARKITDOWN_SUPPORTED = {
     "jpeg",
     "gif",
     "bmp",
+    "tiff",
     "mp3",
     "wav",
     "m4a",
     "flac",  # Audio (requires plugins)
+    "zip",   # ZIP archive (recursive extraction)
+    "ipynb", # Jupyter notebooks
+    "msg",   # Outlook MSG (requires extract-msg)
+    "txt",   # Plain text
+    "rss",   # RSS feeds
 }
 
 MISTRAL_OCR_SUPPORTED = {
@@ -363,9 +399,9 @@ def validate_configuration() -> List[str]:
             "WARNING: MISTRAL_API_KEY not set. Mistral OCR features will not work."
         )
 
-    # Check LLM configuration
-    if MARKITDOWN_USE_LLM and not OPENAI_API_KEY:
-        issues.append("WARNING: MARKITDOWN_USE_LLM is true but OPENAI_API_KEY not set.")
+    # Check LLM configuration (uses Mistral's OpenAI-compatible endpoint)
+    if MARKITDOWN_ENABLE_LLM_DESCRIPTIONS and not MISTRAL_API_KEY:
+        issues.append("WARNING: MARKITDOWN_ENABLE_LLM_DESCRIPTIONS is true but MISTRAL_API_KEY not set.")
 
     # Check Poppler on Windows
     if sys.platform == "win32" and not POPPLER_PATH:

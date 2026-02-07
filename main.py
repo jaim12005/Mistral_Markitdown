@@ -591,10 +591,14 @@ def mode_system_status() -> Tuple[bool, str]:
     # Configuration Status
     print("Configuration:")
     print(f"  * Mistral API Key: {'Set' if config.MISTRAL_API_KEY else 'NOT SET'}")
-    print(f"  * OpenAI API Key: {'Set' if config.OPENAI_API_KEY else 'Not set'}")
+    print(f"  * LLM Descriptions: {'Enabled (' + config.MARKITDOWN_LLM_MODEL + ')' if config.MARKITDOWN_ENABLE_LLM_DESCRIPTIONS else 'Disabled'}")
     print(f"  * Cache Duration: {config.CACHE_DURATION_HOURS} hours")
     print(f"  * Max Concurrent Files: {config.MAX_CONCURRENT_FILES}")
     print(f"  * Mistral OCR Model: {config.get_ocr_model()}")
+    print(f"  * Table Format: {config.MISTRAL_TABLE_FORMAT or 'markdown (default)'}")
+    print(f"  * Extract Headers/Footers: {config.MISTRAL_EXTRACT_HEADER}/{config.MISTRAL_EXTRACT_FOOTER}")
+    print(f"  * ExifTool: {'Set' if config.MARKITDOWN_EXIFTOOL_PATH else 'Not configured'}")
+    print(f"  * Style Map: {'Set' if config.MARKITDOWN_STYLE_MAP else 'Not configured'}")
     print()
 
     # Cache Statistics

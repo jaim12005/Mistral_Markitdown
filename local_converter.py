@@ -11,7 +11,6 @@ Documentation references:
 """
 
 import os
-from functools import lru_cache
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 import sys
@@ -45,14 +44,28 @@ logger = utils.logger
 # MarkItDown Integration
 # ============================================================================
 
-@lru_cache(maxsize=1)
+_markitdown_instance = None
+_markitdown_init_attempted = False
+
+
 def get_markitdown_instance() -> Optional[MarkItDown]:
     """
     Create and configure a MarkItDown instance.
 
+    Uses a module-level cache that can be invalidated on failure
+    via reset_markitdown_instance().
+
     Returns:
         Configured MarkItDown instance or None if unavailable
     """
+    global _markitdown_instance, _markitdown_init_attempted
+
+    if _markitdown_instance is not None:
+        return _markitdown_instance
+    if _markitdown_init_attempted:
+        return None
+    _markitdown_init_attempted = True
+
     if MarkItDown is None:
         logger.error("MarkItDown not installed. Install with: pip install markitdown")
         return None
@@ -63,21 +76,44 @@ def get_markitdown_instance() -> Optional[MarkItDown]:
             "enable_plugins": config.MARKITDOWN_ENABLE_PLUGINS,
         }
 
-        # Add LLM configuration if enabled
-        if config.MARKITDOWN_USE_LLM and config.OPENAI_API_KEY:
+        # Add LLM configuration if enabled (via Mistral's OpenAI-compatible endpoint)
+        if config.MARKITDOWN_ENABLE_LLM_DESCRIPTIONS and config.MISTRAL_API_KEY:
             try:
                 from openai import OpenAI
-                llm_client = OpenAI(api_key=config.OPENAI_API_KEY)
+                llm_client = OpenAI(
+                    api_key=config.MISTRAL_API_KEY,
+                    base_url="https://api.mistral.ai/v1"
+                )
                 md_kwargs["llm_client"] = llm_client
                 md_kwargs["llm_model"] = config.MARKITDOWN_LLM_MODEL
             except ImportError:
-                logger.warning("OpenAI package not installed. LLM features disabled.")
+                logger.warning("OpenAI package not installed. LLM image descriptions disabled.")
 
-        return MarkItDown(**md_kwargs)
+        # Add optional LLM prompt override
+        if config.MARKITDOWN_LLM_PROMPT:
+            md_kwargs["llm_prompt"] = config.MARKITDOWN_LLM_PROMPT
+
+        # Add optional style map for DOCX conversion
+        if config.MARKITDOWN_STYLE_MAP:
+            md_kwargs["style_map"] = config.MARKITDOWN_STYLE_MAP
+
+        # Add optional exiftool path
+        if config.MARKITDOWN_EXIFTOOL_PATH:
+            md_kwargs["exiftool_path"] = config.MARKITDOWN_EXIFTOOL_PATH
+
+        _markitdown_instance = MarkItDown(**md_kwargs)
+        return _markitdown_instance
 
     except Exception as e:
         logger.error(f"Error initializing MarkItDown: {e}")
         return None
+
+
+def reset_markitdown_instance():
+    """Reset the cached MarkItDown instance so it will be re-created on next call."""
+    global _markitdown_instance, _markitdown_init_attempted
+    _markitdown_instance = None
+    _markitdown_init_attempted = False
 
 def convert_with_markitdown(file_path: Path) -> Tuple[bool, Optional[str], Optional[str]]:
     """
@@ -89,6 +125,14 @@ def convert_with_markitdown(file_path: Path) -> Tuple[bool, Optional[str], Optio
     Returns:
         Tuple of (success, markdown_content, error_message)
     """
+    # Enforce file size limit
+    file_size_mb = file_path.stat().st_size / (1024 * 1024)
+    if file_size_mb > config.MARKITDOWN_MAX_FILE_SIZE_MB:
+        return False, None, (
+            f"File too large ({file_size_mb:.1f} MB). "
+            f"Maximum allowed: {config.MARKITDOWN_MAX_FILE_SIZE_MB} MB"
+        )
+
     md = get_markitdown_instance()
     if md is None:
         return False, None, "MarkItDown not available"
@@ -99,28 +143,18 @@ def convert_with_markitdown(file_path: Path) -> Tuple[bool, Optional[str], Optio
         # Convert the file
         result = md.convert(str(file_path))
 
-        if result and hasattr(result, 'text_content'):
-            markdown_content = result.text_content
+        if result and (hasattr(result, 'markdown') or hasattr(result, 'text_content')):
+            markdown_content = getattr(result, 'markdown', None) or getattr(result, 'text_content', '')
 
             # Extract document metadata if available
             doc_metadata = {
                 "file_size_bytes": file_path.stat().st_size,
                 "file_extension": file_path.suffix.lower(),
             }
-            
-            # Try to extract document properties from MarkItDown result
-            if hasattr(result, 'metadata') and result.metadata:
-                metadata = result.metadata
-                if isinstance(metadata, dict):
-                    # Add common document properties
-                    for key in ['title', 'author', 'subject', 'creator', 'producer',
-                               'created', 'modified', 'pages', 'words']:
-                        if key in metadata and metadata[key]:
-                            doc_metadata[f"doc_{key}"] = metadata[key]
-            
-            # If no title in metadata, use filename
-            if 'doc_title' not in doc_metadata:
-                doc_metadata['doc_title'] = file_path.stem
+
+            # Extract title from MarkItDown result (DocumentConverterResult.title)
+            doc_title = getattr(result, 'title', None) or file_path.stem
+            doc_metadata['doc_title'] = doc_title
 
             # Add YAML frontmatter with enriched metadata
             frontmatter = utils.generate_yaml_frontmatter(
