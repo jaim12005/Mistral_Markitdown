@@ -88,7 +88,7 @@ The OCR API returns a comprehensive response including:
 
 ---
 
-### 2. Image Preprocessing Only Works on Image Files
+### 3. Image Preprocessing Only Works on Image Files
 
 **Issue:** Image preprocessing and optimization settings only apply to standalone image files (PNG, JPG, etc.), NOT PDFs.
 
@@ -109,7 +109,7 @@ The OCR API returns a comprehensive response including:
 
 ---
 
-### 3. Low OCR Quality Scores for Text-Based PDFs
+### 4. Low OCR Quality Scores for Text-Based PDFs
 
 **Issue:** Text-based PDFs may receive low quality scores (< 40) when processed with Mistral OCR.
 
@@ -127,7 +127,7 @@ The OCR API returns a comprehensive response including:
 
 ---
 
-### 4. Windows Path Configuration Requirements
+### 5. Windows Path Configuration Requirements
 
 **Issue:** Windows users must manually configure paths for Poppler and Ghostscript.
 
@@ -360,7 +360,7 @@ If you encounter issues not listed here:
 
 ---
 
-**Last Updated:** December 18, 2025  
+**Last Updated:** July 2025  
 **Version:** 2.1.1
 
 **Related Documentation:**

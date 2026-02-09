@@ -72,6 +72,14 @@ def get_mistral_client() -> Optional[Mistral]:
     Create and configure a Mistral client instance.
     Cached to prevent connection pool churn in batch operations.
 
+    Thread-safety note:
+        The Mistral SDK client uses ``httpx`` under the hood, which is
+        thread-safe for concurrent requests.  This cached singleton is
+        therefore safe to share across the ``ThreadPoolExecutor`` used
+        by batch processing modes.  If you switch to a different HTTP
+        backend or need per-thread isolation, replace this with a
+        ``threading.local()`` pattern.
+
     Returns:
         Configured Mistral client or None if unavailable
     """
@@ -90,6 +98,14 @@ def get_mistral_client() -> Optional[Mistral]:
     except Exception as e:
         logger.error(f"Error initializing Mistral client: {e}")
         return None
+
+
+def reset_mistral_client() -> None:
+    """Clear the cached Mistral client so the next call creates a fresh one.
+
+    Useful after rotating an API key at runtime or in tests.
+    """
+    get_mistral_client.cache_clear()
 
 
 # ============================================================================
@@ -207,7 +223,11 @@ def get_document_annotation_format(doc_type: str = "auto") -> Optional[Dict[str,
     requires a plain JSON schema dictionary.
 
     Args:
-        doc_type: Document type (invoice, financial_statement, form, generic, auto)
+        doc_type: Document type (invoice, financial_statement, form, generic, auto).
+                  When set to "auto", the value of MISTRAL_DOCUMENT_SCHEMA_TYPE from
+                  the environment is used.  If that is also "auto", "generic" is used
+                  as the final fallback.  True content-based auto-detection is not yet
+                  implemented; set the schema type explicitly for best results.
 
     Returns:
         Raw JSON schema dict for document annotation, or None if disabled
@@ -374,22 +394,26 @@ def cleanup_uploaded_files(client: Mistral, days_old: Optional[int] = None) -> i
     try:
         from datetime import datetime, timedelta, timezone
 
-        # List all OCR files
-        files_list = client.files.list(purpose="ocr")
         cutoff_date = datetime.now(timezone.utc) - timedelta(days=days_old)
-        deleted = 0
 
-        for file in files_list:
+        def _cleanup_files_by_purpose(purpose: str) -> int:
+            """Delete files older than cutoff_date for a given purpose."""
+            deleted = 0
             try:
-                # Handle created_at as either string or datetime object
-                if hasattr(file, 'created_at'):
+                files_list = client.files.list(purpose=purpose)
+            except Exception as e:
+                logger.debug(f"Error listing {purpose} files for cleanup: {e}")
+                return 0
+
+            for file in files_list:
+                try:
+                    if not hasattr(file, 'created_at'):
+                        continue
+
                     if isinstance(file.created_at, str):
-                        # Parse ISO format string
                         file_created = datetime.fromisoformat(file.created_at.replace('Z', '+00:00'))
                     elif hasattr(file.created_at, 'replace'):
-                        # Already a datetime object
                         file_created = file.created_at
-                        # Ensure timezone-aware
                         if file_created.tzinfo is None:
                             file_created = file_created.replace(tzinfo=timezone.utc)
                     else:
@@ -399,34 +423,14 @@ def cleanup_uploaded_files(client: Mistral, days_old: Optional[int] = None) -> i
                     if file_created < cutoff_date:
                         client.files.delete(file_id=file.id)
                         deleted += 1
-                        logger.debug(f"Deleted old file: {file.id} (created {file_created})")
-            except Exception as e:
-                logger.debug(f"Error processing file {file.id}: {e}")
-                continue
-
-        # Also clean up batch files
-        try:
-            batch_files_list = client.files.list(purpose="batch")
-            for file in batch_files_list:
-                try:
-                    if hasattr(file, 'created_at'):
-                        if isinstance(file.created_at, str):
-                            file_created = datetime.fromisoformat(file.created_at.replace('Z', '+00:00'))
-                        elif hasattr(file.created_at, 'replace'):
-                            file_created = file.created_at
-                            if file_created.tzinfo is None:
-                                file_created = file_created.replace(tzinfo=timezone.utc)
-                        else:
-                            continue
-                        if file_created < cutoff_date:
-                            client.files.delete(file_id=file.id)
-                            deleted += 1
-                            logger.debug(f"Deleted old batch file: {file.id}")
+                        logger.debug(f"Deleted old {purpose} file: {file.id} (created {file_created})")
                 except Exception as e:
-                    logger.debug(f"Error processing batch file {file.id}: {e}")
+                    logger.debug(f"Error processing {purpose} file {file.id}: {e}")
                     continue
-        except Exception as e:
-            logger.debug(f"Error listing batch files for cleanup: {e}")
+            return deleted
+
+        deleted = _cleanup_files_by_purpose("ocr")
+        deleted += _cleanup_files_by_purpose("batch")
 
         if deleted > 0:
             logger.info(f"Cleaned up {deleted} old uploaded files (older than {days_old} days)")
@@ -1250,6 +1254,10 @@ def save_extracted_images(ocr_result: Dict[str, Any], file_path: Path) -> List[P
                 continue
 
             try:
+                # Strip data URI prefix if present (e.g. "data:image/png;base64,...")
+                if image_base64.startswith("data:"):
+                    image_base64 = image_base64.split(",", 1)[1]
+
                 # Decode base64 image
                 image_data = base64.b64decode(image_base64)
 
@@ -1514,7 +1522,8 @@ def _validate_document_url(url: str) -> Tuple[bool, Optional[str]]:
     """
     Validate a document URL to prevent SSRF attacks.
 
-    Rejects non-HTTPS URLs and URLs pointing to private/internal networks.
+    Rejects non-HTTPS URLs, URLs with embedded credentials, and URLs
+    pointing to private/internal networks (IPv4 and IPv6).
 
     Args:
         url: URL to validate
@@ -1522,6 +1531,7 @@ def _validate_document_url(url: str) -> Tuple[bool, Optional[str]]:
     Returns:
         Tuple of (is_valid, error_message)
     """
+    import ipaddress
     from urllib.parse import urlparse
 
     try:
@@ -1533,37 +1543,53 @@ def _validate_document_url(url: str) -> Tuple[bool, Optional[str]]:
     if parsed.scheme not in ("https",):
         return False, f"Only HTTPS URLs are allowed (got {parsed.scheme}://)"
 
+    # Reject embedded credentials (userinfo component)
+    if parsed.username or parsed.password:
+        return False, "URLs with embedded credentials are not allowed"
+
     # Reject obviously internal/private hostnames
     hostname = (parsed.hostname or "").lower()
-    blocked_hosts = [
+
+    if not hostname:
+        return False, "URL must include a hostname"
+
+    blocked_hosts = {
         "localhost",
         "127.0.0.1",
         "0.0.0.0",
         "::1",
         "[::1]",
         "metadata.google.internal",
-        "169.254.169.254",  # Cloud metadata endpoint
-    ]
+        "169.254.169.254",  # AWS/cloud metadata endpoint
+        "metadata.google.internal.",  # trailing dot variant
+    }
     if hostname in blocked_hosts:
         return False, f"URLs pointing to internal hosts are not allowed: {hostname}"
 
-    # Reject private IP ranges (10.x, 172.16-31.x, 192.168.x)
-    if hostname.startswith(("10.", "192.168.")):
-        return False, f"URLs pointing to private networks are not allowed: {hostname}"
+    # Strip IPv6 brackets for ipaddress parsing
+    ip_str = hostname.strip("[]")
 
-    # Check 172.16.0.0 - 172.31.255.255
-    if hostname.startswith("172."):
-        parts = hostname.split(".")
-        if len(parts) >= 2:
-            try:
-                second_octet = int(parts[1])
-                if 16 <= second_octet <= 31:
-                    return False, f"URLs pointing to private networks are not allowed: {hostname}"
-            except ValueError:
-                pass
-
-    if not hostname:
-        return False, "URL must include a hostname"
+    # Check if hostname is an IP address and validate against private/reserved ranges
+    try:
+        addr = ipaddress.ip_address(ip_str)
+        if addr.is_private:
+            return False, f"URLs pointing to private networks are not allowed: {hostname}"
+        if addr.is_reserved:
+            return False, f"URLs pointing to reserved addresses are not allowed: {hostname}"
+        if addr.is_loopback:
+            return False, f"URLs pointing to loopback addresses are not allowed: {hostname}"
+        if addr.is_link_local:
+            return False, f"URLs pointing to link-local addresses are not allowed: {hostname}"
+        if addr.is_multicast:
+            return False, f"URLs pointing to multicast addresses are not allowed: {hostname}"
+        # IPv6-mapped IPv4 (e.g. ::ffff:127.0.0.1)
+        if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:
+            mapped = addr.ipv4_mapped
+            if mapped.is_private or mapped.is_loopback or mapped.is_reserved or mapped.is_link_local:
+                return False, f"URLs pointing to private/internal networks via IPv4-mapped IPv6 are not allowed: {hostname}"
+    except ValueError:
+        # Not an IP address - hostname string, which is fine
+        pass
 
     return True, None
 
@@ -1603,11 +1629,10 @@ def query_document(
     if client is None:
         return False, None, "Mistral client not available"
 
-    # Validate URL to prevent SSRF (skip for signed URLs from our own uploads)
-    if not document_url.startswith("https://storage."):
-        url_valid, url_error = _validate_document_url(document_url)
-        if not url_valid:
-            return False, None, f"Invalid document URL: {url_error}"
+    # Validate URL to prevent SSRF
+    url_valid, url_error = _validate_document_url(document_url)
+    if not url_valid:
+        return False, None, f"Invalid document URL: {url_error}"
 
     if model is None:
         model = config.MISTRAL_DOCUMENT_QNA_MODEL
@@ -1851,15 +1876,17 @@ def submit_batch_ocr_job(
     try:
         logger.info(f"Uploading batch file: {batch_file_path.name}")
         
-        # Upload the batch file
+        # Upload the batch file (read content as bytes, consistent with OCR upload)
         with open(batch_file_path, "rb") as f:
-            batch_data = client.files.upload(
-                file={
-                    "file_name": batch_file_path.name,
-                    "content": f
-                },
-                purpose="batch"
-            )
+            file_content = f.read()
+
+        batch_data = client.files.upload(
+            file={
+                "file_name": batch_file_path.name,
+                "content": file_content,
+            },
+            purpose="batch"
+        )
         
         logger.info(f"Batch file uploaded: {batch_data.id}")
         
@@ -1995,12 +2022,16 @@ def download_batch_results(
 
 def list_batch_jobs(
     status: Optional[str] = None,
+    page: int = 0,
+    page_size: int = 100,
 ) -> Tuple[bool, Optional[List[Dict[str, Any]]], Optional[str]]:
     """
-    List batch OCR jobs with optional status filtering.
+    List batch OCR jobs with optional status filtering and pagination.
 
     Args:
         status: Optional filter by status (QUEUED, RUNNING, SUCCESS, FAILED, etc.)
+        page: Page number (0-indexed) for pagination
+        page_size: Number of results per page (default: 100)
 
     Returns:
         Tuple of (success, jobs_list, error_message)
@@ -2010,7 +2041,13 @@ def list_batch_jobs(
         return False, None, "Mistral client not available"
 
     try:
-        jobs = client.batch.jobs.list()
+        list_kwargs: Dict[str, Any] = {}
+        if page > 0:
+            list_kwargs["page"] = page
+        if page_size != 100:
+            list_kwargs["page_size"] = page_size
+
+        jobs = client.batch.jobs.list(**list_kwargs)
 
         jobs_list = []
         for job in jobs:

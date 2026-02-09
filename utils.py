@@ -90,10 +90,16 @@ class IntelligentCache:
         self._lock = threading.Lock()
         self.hits = 0
         self.misses = 0
+        # In-memory hash cache keyed by (path, mtime_ns, size) to avoid
+        # re-reading file contents on every cache lookup.
+        self._hash_memo: Dict[Tuple[str, int, int], str] = {}
 
     def _get_file_hash(self, file_path: Path) -> str:
         """
         Generate SHA-256 hash of file contents.
+
+        Results are memoized by (path, mtime_ns, size) so repeated lookups
+        for the same unchanged file avoid re-reading the entire file.
 
         Args:
             file_path: Path to file
@@ -101,12 +107,24 @@ class IntelligentCache:
         Returns:
             Hexadecimal hash string
         """
+        stat = file_path.stat()
+        memo_key = (str(file_path), stat.st_mtime_ns, stat.st_size)
+
+        with self._lock:
+            cached_hash = self._hash_memo.get(memo_key)
+        if cached_hash is not None:
+            return cached_hash
+
         hasher = hashlib.sha256()
         with open(file_path, 'rb') as f:
             # Read in larger chunks for better throughput on modern disks (64KB)
             for chunk in iter(lambda: f.read(65536), b''):
                 hasher.update(chunk)
-        return hasher.hexdigest()
+        file_hash = hasher.hexdigest()
+
+        with self._lock:
+            self._hash_memo[memo_key] = file_hash
+        return file_hash
 
     def _get_cache_path(self, file_hash: str, cache_type: str = "ocr") -> Path:
         """

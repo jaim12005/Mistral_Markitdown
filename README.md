@@ -28,7 +28,7 @@ A powerful, production-ready document conversion system that combines Microsoft'
 ### Advanced Features (NEW in v2.1)
 
 - **Structured Data Extraction**: JSON schema-based extraction for invoices, financial statements, forms
-- **Async Operations**: Non-blocking processing for better performance and responsiveness
+- **Concurrent Processing**: Thread-pool based batch processing for better performance and throughput
 - **Retry Configuration**: Exponential backoff with configurable retry logic for API resilience
 - **Bounding Box Annotations**: Structured extraction of text regions, tables, and figures using raw JSON schemas
 - **Document-Level Annotations**: Automatic extraction of document structure, metadata, and summaries
@@ -737,29 +737,29 @@ When structured extraction is enabled, you'll get:
 
 ---
 
-### Async Operations
+### Concurrent Processing
 
-Asynchronous processing for better performance and non-blocking operations.
+Concurrent processing for better performance and throughput during batch operations.
 
 #### Benefits
 
-- **Better Resource Utilization**: Efficient use of system resources
+- **Better Resource Utilization**: Efficient use of system resources via thread pools
 - **Non-Blocking**: UI remains responsive during processing
-- **Concurrent File I/O**: Async file operations reduce wait times
+- **Concurrent File Processing**: Multiple files processed simultaneously
 
 #### Configuration
 
 ```ini
-# Enable async operations (recommended)
-ENABLE_ASYNC_OPERATIONS=true
+# Maximum concurrent files to process in batch mode
+MAX_CONCURRENT_FILES=5
 ```
 
 #### Current Implementation
 
-When enabled, the system uses `async`/`await` for:
-- Async file I/O operations (`aiofiles`)
-- Concurrent batch processing with ThreadPoolExecutor
-- Non-blocking file uploads
+The system uses `concurrent.futures.ThreadPoolExecutor` for:
+- Concurrent batch file processing
+- Parallel file uploads
+- Non-blocking file I/O during batch operations
 
 ---
 

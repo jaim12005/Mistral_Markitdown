@@ -19,6 +19,47 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
+
+# ============================================================================
+# Safe Environment Variable Parsing Helpers
+# ============================================================================
+
+
+def _safe_int(env_var: str, default: int) -> int:
+    """Parse an integer environment variable with a fallback default.
+
+    Logs a warning and returns *default* when the value cannot be converted.
+    """
+    raw = os.getenv(env_var, "")
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except (ValueError, TypeError):
+        import logging
+        logging.getLogger("document_converter").warning(
+            f"Invalid integer for {env_var}={raw!r}, using default {default}"
+        )
+        return default
+
+
+def _safe_float(env_var: str, default: float) -> float:
+    """Parse a float environment variable with a fallback default.
+
+    Logs a warning and returns *default* when the value cannot be converted.
+    """
+    raw = os.getenv(env_var, "")
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except (ValueError, TypeError):
+        import logging
+        logging.getLogger("document_converter").warning(
+            f"Invalid float for {env_var}={raw!r}, using default {default}"
+        )
+        return default
+
 # ============================================================================
 # Version (single source of truth)
 # ============================================================================
@@ -94,23 +135,23 @@ SAVE_MISTRAL_JSON = (
 
 # Batch OCR configuration (50% cost reduction for bulk processing)
 MISTRAL_BATCH_ENABLED = os.getenv("MISTRAL_BATCH_ENABLED", "true").lower() == "true"
-MISTRAL_BATCH_MIN_FILES = int(os.getenv("MISTRAL_BATCH_MIN_FILES", "10"))  # Min files to trigger batch
+MISTRAL_BATCH_MIN_FILES = _safe_int("MISTRAL_BATCH_MIN_FILES", 10)  # Min files to trigger batch
 
 # File upload management
 CLEANUP_OLD_UPLOADS = os.getenv("CLEANUP_OLD_UPLOADS", "true").lower() == "true"
-UPLOAD_RETENTION_DAYS = int(os.getenv("UPLOAD_RETENTION_DAYS", "7"))  # Delete files older than N days
+UPLOAD_RETENTION_DAYS = _safe_int("UPLOAD_RETENTION_DAYS", 7)  # Delete files older than N days
 
 # OCR Quality Assessment Thresholds (0-100 scale)
-OCR_QUALITY_THRESHOLD_EXCELLENT = int(os.getenv("OCR_QUALITY_THRESHOLD_EXCELLENT", "80"))
-OCR_QUALITY_THRESHOLD_GOOD = int(os.getenv("OCR_QUALITY_THRESHOLD_GOOD", "60"))
-OCR_QUALITY_THRESHOLD_ACCEPTABLE = int(os.getenv("OCR_QUALITY_THRESHOLD_ACCEPTABLE", "40"))
+OCR_QUALITY_THRESHOLD_EXCELLENT = _safe_int("OCR_QUALITY_THRESHOLD_EXCELLENT", 80)
+OCR_QUALITY_THRESHOLD_GOOD = _safe_int("OCR_QUALITY_THRESHOLD_GOOD", 60)
+OCR_QUALITY_THRESHOLD_ACCEPTABLE = _safe_int("OCR_QUALITY_THRESHOLD_ACCEPTABLE", 40)
 
 # OCR Quality Detection Thresholds
-OCR_MIN_TEXT_LENGTH = int(os.getenv("OCR_MIN_TEXT_LENGTH", "50"))
-OCR_MIN_DIGIT_COUNT = int(os.getenv("OCR_MIN_DIGIT_COUNT", "20"))
-OCR_MIN_UNIQUENESS_RATIO = float(os.getenv("OCR_MIN_UNIQUENESS_RATIO", "0.3"))
-OCR_MAX_PHRASE_REPETITIONS = int(os.getenv("OCR_MAX_PHRASE_REPETITIONS", "5"))
-OCR_MIN_AVG_LINE_LENGTH = int(os.getenv("OCR_MIN_AVG_LINE_LENGTH", "10"))
+OCR_MIN_TEXT_LENGTH = _safe_int("OCR_MIN_TEXT_LENGTH", 50)
+OCR_MIN_DIGIT_COUNT = _safe_int("OCR_MIN_DIGIT_COUNT", 20)
+OCR_MIN_UNIQUENESS_RATIO = _safe_float("OCR_MIN_UNIQUENESS_RATIO", 0.3)
+OCR_MAX_PHRASE_REPETITIONS = _safe_int("OCR_MAX_PHRASE_REPETITIONS", 5)
+OCR_MIN_AVG_LINE_LENGTH = _safe_int("OCR_MIN_AVG_LINE_LENGTH", 10)
 
 # Quality assessment controls
 ENABLE_OCR_QUALITY_ASSESSMENT = (
@@ -155,7 +196,7 @@ MISTRAL_IMAGE_LIMIT = os.getenv("MISTRAL_IMAGE_LIMIT", "")  # Empty = no limit
 MISTRAL_IMAGE_MIN_SIZE = os.getenv("MISTRAL_IMAGE_MIN_SIZE", "")  # Empty = no minimum (px)
 
 # Signed URL expiry (hours) - increase for large batch jobs
-MISTRAL_SIGNED_URL_EXPIRY = int(os.getenv("MISTRAL_SIGNED_URL_EXPIRY", "1"))
+MISTRAL_SIGNED_URL_EXPIRY = _safe_int("MISTRAL_SIGNED_URL_EXPIRY", 1)
 
 # Image optimization
 MISTRAL_ENABLE_IMAGE_OPTIMIZATION = (
@@ -164,10 +205,8 @@ MISTRAL_ENABLE_IMAGE_OPTIMIZATION = (
 MISTRAL_ENABLE_IMAGE_PREPROCESSING = (
     os.getenv("MISTRAL_ENABLE_IMAGE_PREPROCESSING", "false").lower() == "true"
 )
-MISTRAL_MAX_IMAGE_DIMENSION = int(os.getenv("MISTRAL_MAX_IMAGE_DIMENSION", "2048"))
-MISTRAL_IMAGE_QUALITY_THRESHOLD = int(
-    os.getenv("MISTRAL_IMAGE_QUALITY_THRESHOLD", "70")
-)
+MISTRAL_MAX_IMAGE_DIMENSION = _safe_int("MISTRAL_MAX_IMAGE_DIMENSION", 2048)
+MISTRAL_IMAGE_QUALITY_THRESHOLD = _safe_int("MISTRAL_IMAGE_QUALITY_THRESHOLD", 70)
 
 # ============================================================================
 # MarkItDown Configuration
@@ -192,23 +231,23 @@ MARKITDOWN_STYLE_MAP = os.getenv("MARKITDOWN_STYLE_MAP", "")
 MARKITDOWN_EXIFTOOL_PATH = os.getenv("MARKITDOWN_EXIFTOOL_PATH", "")
 
 # File size limit - files exceeding this are rejected to prevent OOM
-MARKITDOWN_MAX_FILE_SIZE_MB = int(os.getenv("MARKITDOWN_MAX_FILE_SIZE_MB", "100"))
+MARKITDOWN_MAX_FILE_SIZE_MB = _safe_int("MARKITDOWN_MAX_FILE_SIZE_MB", 100)
 
 # ============================================================================
 # Table Extraction Configuration
 # ============================================================================
 
 # Camelot quality thresholds
-CAMELOT_MIN_ACCURACY = float(os.getenv("CAMELOT_MIN_ACCURACY", "75.0"))  # Minimum accuracy % to accept table
-CAMELOT_MAX_WHITESPACE = float(os.getenv("CAMELOT_MAX_WHITESPACE", "30.0"))  # Maximum whitespace % to accept
+CAMELOT_MIN_ACCURACY = _safe_float("CAMELOT_MIN_ACCURACY", 75.0)  # Minimum accuracy % to accept table
+CAMELOT_MAX_WHITESPACE = _safe_float("CAMELOT_MAX_WHITESPACE", 30.0)  # Maximum whitespace % to accept
 
 # ============================================================================
 # PDF to Image Configuration
 # ============================================================================
 
 PDF_IMAGE_FORMAT = os.getenv("PDF_IMAGE_FORMAT", "png")  # png, jpeg, ppm, tiff
-PDF_IMAGE_DPI = int(os.getenv("PDF_IMAGE_DPI", "200"))  # Image resolution
-PDF_IMAGE_THREAD_COUNT = int(os.getenv("PDF_IMAGE_THREAD_COUNT", "4"))  # Concurrent conversion threads
+PDF_IMAGE_DPI = _safe_int("PDF_IMAGE_DPI", 200)  # Image resolution
+PDF_IMAGE_THREAD_COUNT = _safe_int("PDF_IMAGE_THREAD_COUNT", 4)  # Concurrent conversion threads
 PDF_IMAGE_USE_PDFTOCAIRO = os.getenv("PDF_IMAGE_USE_PDFTOCAIRO", "true").lower() == "true"  # Better quality
 
 # ============================================================================
@@ -220,7 +259,7 @@ POPPLER_PATH = os.getenv("POPPLER_PATH", "")
 GHOSTSCRIPT_PATH = os.getenv("GHOSTSCRIPT_PATH", "")
 
 # Caching
-CACHE_DURATION_HOURS = int(os.getenv("CACHE_DURATION_HOURS", "24"))
+CACHE_DURATION_HOURS = _safe_int("CACHE_DURATION_HOURS", 24)
 AUTO_CLEAR_CACHE = os.getenv("AUTO_CLEAR_CACHE", "true").lower() == "true"
 
 # Logging
@@ -229,7 +268,7 @@ SAVE_PROCESSING_LOGS = os.getenv("SAVE_PROCESSING_LOGS", "true").lower() == "tru
 VERBOSE_PROGRESS = os.getenv("VERBOSE_PROGRESS", "true").lower() == "true"
 
 # Performance
-MAX_CONCURRENT_FILES = int(os.getenv("MAX_CONCURRENT_FILES", "5"))
+MAX_CONCURRENT_FILES = _safe_int("MAX_CONCURRENT_FILES", 5)
 
 # Document QnA configuration
 MISTRAL_QNA_SYSTEM_PROMPT = os.getenv("MISTRAL_QNA_SYSTEM_PROMPT", "")  # Custom system prompt for QnA
@@ -237,18 +276,14 @@ MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT = os.getenv("MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT",
 MISTRAL_QNA_DOCUMENT_PAGE_LIMIT = os.getenv("MISTRAL_QNA_DOCUMENT_PAGE_LIMIT", "")  # Max pages (default: API default of 64)
 
 # Batch processing advanced configuration
-MISTRAL_BATCH_TIMEOUT_HOURS = int(os.getenv("MISTRAL_BATCH_TIMEOUT_HOURS", "24"))
+MISTRAL_BATCH_TIMEOUT_HOURS = _safe_int("MISTRAL_BATCH_TIMEOUT_HOURS", 24)
 
 # Retry Configuration (for Mistral API calls)
-MAX_RETRIES = int(os.getenv("MAX_RETRIES", "3"))
-RETRY_INITIAL_INTERVAL_MS = int(
-    os.getenv("RETRY_INITIAL_INTERVAL_MS", "1000")
-)  # 1 second
-RETRY_MAX_INTERVAL_MS = int(os.getenv("RETRY_MAX_INTERVAL_MS", "10000"))  # 10 seconds
-RETRY_EXPONENT = float(os.getenv("RETRY_EXPONENT", "2.0"))  # Exponential backoff
-RETRY_MAX_ELAPSED_TIME_MS = int(
-    os.getenv("RETRY_MAX_ELAPSED_TIME_MS", "60000")
-)  # 1 minute
+MAX_RETRIES = _safe_int("MAX_RETRIES", 3)
+RETRY_INITIAL_INTERVAL_MS = _safe_int("RETRY_INITIAL_INTERVAL_MS", 1000)  # 1 second
+RETRY_MAX_INTERVAL_MS = _safe_int("RETRY_MAX_INTERVAL_MS", 10000)  # 10 seconds
+RETRY_EXPONENT = _safe_float("RETRY_EXPONENT", 2.0)  # Exponential backoff
+RETRY_MAX_ELAPSED_TIME_MS = _safe_int("RETRY_MAX_ELAPSED_TIME_MS", 60000)  # 1 minute
 RETRY_CONNECTION_ERRORS = os.getenv("RETRY_CONNECTION_ERRORS", "true").lower() == "true"
 
 # ============================================================================
@@ -457,10 +492,16 @@ def initialize() -> List[str]:
     return validate_configuration()
 
 
-# Auto-initialize when run as the main script so the interactive CLI works
-# without an explicit init call.  Other callers (tests, library imports)
-# can call initialize() explicitly when ready.
+# Run as a standalone config diagnostic: ``python config.py``
 if __name__ == "__main__":
     _issues = initialize()
+    print(f"Enhanced Document Converter v{VERSION}")
+    print(f"Base directory: {BASE_DIR}")
+    print(f"OCR model: {MISTRAL_OCR_MODEL}")
+    print(f"API key set: {'Yes' if MISTRAL_API_KEY else 'No'}")
     if _issues:
-        print("\n".join(_issues))
+        print("\nConfiguration issues:")
+        for issue in _issues:
+            print(f"  - {issue}")
+    else:
+        print("\nConfiguration OK - no issues detected.")
