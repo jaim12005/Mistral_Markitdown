@@ -357,7 +357,7 @@ def mode_enhanced_batch(file_paths: List[Path]) -> Tuple[bool, str]:
                     )
 
             except Exception as e:
-                processing_time = time.time() - start_time
+                processing_time = time.time() - submit_times[file_path]
                 failed += 1
                 metadata.add_file(
                     file_path.name, "failed", processing_time, error=str(e)

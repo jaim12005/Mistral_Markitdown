@@ -19,7 +19,8 @@ class TestDirectoryCreation:
 
     def test_ensure_directories_creates_paths(self):
         """Test that ensure_directories creates required paths."""
-        # This test verifies the directories exist after config import
+        # Directories are created by initialize(), not at import time
+        config.initialize()
         assert config.INPUT_DIR.exists()
         assert config.OUTPUT_MD_DIR.exists()
         assert config.OUTPUT_TXT_DIR.exists()
