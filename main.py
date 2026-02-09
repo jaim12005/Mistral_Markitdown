@@ -1,5 +1,5 @@
 """
-Enhanced Document Converter v2.1.1 - Main Application
+Enhanced Document Converter - Main Application
 
 Interactive CLI for document conversion with 8 conversion modes:
 1. HYBRID Mode - Intelligent combined processing
@@ -23,6 +23,7 @@ Documentation references:
 
 import argparse
 import json
+import re
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -275,8 +276,6 @@ def mode_hybrid(file_path: Path) -> Tuple[bool, str]:
             ocr_content = utils.strip_yaml_frontmatter(ocr_content)
 
             # Remove the main title (# OCR Result: ...)
-            import re
-
             ocr_content = re.sub(
                 r"^#\s+OCR Result:.*?\n+", "", ocr_content, flags=re.MULTILINE
             )
@@ -331,17 +330,22 @@ def mode_enhanced_batch(file_paths: List[Path]) -> Tuple[bool, str]:
     failed = 0
 
     with ThreadPoolExecutor(max_workers=config.MAX_CONCURRENT_FILES) as executor:
-        futures = {executor.submit(mode_hybrid, fp): fp for fp in file_paths}
+        # Record submission time per file for accurate timing
+        submit_times = {}
+        futures = {}
+        for fp in file_paths:
+            submit_times[fp] = time.time()
+            future = executor.submit(mode_hybrid, fp)
+            futures[future] = fp
 
         for i, future in enumerate(as_completed(futures), 1):
             file_path = futures[future]
-            start_time = time.time()
 
             utils.print_progress(i, len(file_paths), "Processing files")
 
             try:
                 success, message = future.result()
-                processing_time = time.time() - start_time
+                processing_time = time.time() - submit_times[file_path]
 
                 if success:
                     successful += 1
@@ -585,7 +589,7 @@ def mode_system_status() -> Tuple[bool, str]:
     logger.info("SYSTEM STATUS MODE")
 
     print("\n" + "=" * 60)
-    print("  ENHANCED DOCUMENT CONVERTER v2.1.1 - SYSTEM STATUS")
+    print(f"  ENHANCED DOCUMENT CONVERTER v{config.VERSION} - SYSTEM STATUS")
     print("=" * 60 + "\n")
 
     # Configuration Status
@@ -745,7 +749,7 @@ def select_files() -> List[Path]:
 def show_menu():
     """Display the interactive menu."""
     print("\n" + "=" * 60)
-    print("  ENHANCED DOCUMENT CONVERTER v2.1.1")
+    print(f"  ENHANCED DOCUMENT CONVERTER v{config.VERSION}")
     print("=" * 60)
     print("\nSelect conversion mode:\n")
     print("  1. HYBRID Mode (Intelligent Processing)")
@@ -871,7 +875,7 @@ def interactive_menu():
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
-        description="Enhanced Document Converter v2.1.1",
+        description=f"Enhanced Document Converter v{config.VERSION}",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -906,13 +910,13 @@ Examples:
 
     # Print header
     print("\n" + "=" * 60)
-    print("  Enhanced Document Converter v2.1.1")
+    print(f"  Enhanced Document Converter v{config.VERSION}")
     print("  https://github.com/microsoft/markitdown")
     print("  https://docs.mistral.ai/capabilities/document_ai/basic_ocr/")
     print("=" * 60 + "\n")
 
-    # Show configuration issues
-    issues = config.validate_configuration()
+    # Initialize config (creates directories, validates settings)
+    issues = config.initialize()
     if issues:
         for issue in issues:
             print(issue)

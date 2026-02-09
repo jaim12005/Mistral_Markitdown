@@ -18,6 +18,15 @@
 # ============================================================================
 
 # ----------------------------------------------------------------------------
+# LLM Image Descriptions (via Mistral's OpenAI-compatible endpoint)
+# ----------------------------------------------------------------------------
+# Enables: LLM-powered image descriptions in MarkItDown conversions
+# Requires: MARKITDOWN_ENABLE_LLM_DESCRIPTIONS=true in .env
+# Uses Mistral API key (no separate OpenAI key needed)
+
+openai>=1.0.0
+
+# ----------------------------------------------------------------------------
 # Audio Transcription (Mode 5: Transcription)
 # ----------------------------------------------------------------------------
 # Enables: Audio/video file transcription (MP3, WAV, M4A, FLAC)
@@ -99,6 +108,7 @@ olefile>=0.47
 # ============================================================================
 # Feature                    | Required Packages              | Config Setting
 # ---------------------------|--------------------------------|----------------------------
+# LLM Image Descriptions    | openai                         | MARKITDOWN_ENABLE_LLM_DESCRIPTIONS=true
 # Audio Transcription        | pydub, SpeechRecognition       | MARKITDOWN_ENABLE_PLUGINS=true
 # YouTube Transcription      | youtube-transcript-api         | MARKITDOWN_ENABLE_PLUGINS=true
 # Azure Document Intel       | azure-ai-*, azure-identity     | AZURE_DOC_INTEL_ENDPOINT/KEY

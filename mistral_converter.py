@@ -1,5 +1,5 @@
 """
-Enhanced Document Converter v2.1.1 - Mistral AI Integration Module
+Enhanced Document Converter - Mistral AI Integration Module
 
 This module handles Mistral OCR processing including:
 - Files API integration with purpose="ocr"
@@ -17,7 +17,9 @@ Documentation references:
 
 import base64
 import json
+import re
 import time
+import traceback
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any, Callable
 from functools import lru_cache
@@ -592,7 +594,6 @@ def process_with_ocr(
         # ALWAYS use Files API for better OCR quality (not base64)
         # The Files API produces significantly better results than base64 encoding
         file_size_mb = file_path.stat().st_size / (1024 * 1024)
-        use_files_api = True  # Always use Files API for best quality
 
         # Prepare document using SDK types when available
         # IMPORTANT: Mistral OCR API uses different types for images vs documents:
@@ -601,85 +602,40 @@ def process_with_ocr(
         ext = file_path.suffix.lower().lstrip(".")
         is_image = ext in config.IMAGE_EXTENSIONS
 
-        if use_files_api:
-            if signed_url:
-                logger.debug("Using provided signed URL for OCR")
-            else:
-                _report_progress(f"Uploading file ({file_size_mb:.1f} MB)...", 0.3)
-                # Upload file and get signed URL
-                # NOTE: The Mistral OCR API requires a signed HTTPS URL, not a file ID
-                # After uploading, we must call get_signed_url() to get an HTTPS URL
-                signed_url = upload_file_for_ocr(client, file_path)
-                if not signed_url:
-                    return False, None, "Failed to upload file"
-                _report_progress("Upload complete", 0.4)
-
-            # Use SDK types when available (new recommended approach)
-            # Fallback to dict format for compatibility
-            if is_image:
-                if ImageURLChunk is not None:
-                    # Use new SDK type (recommended)
-                    document = ImageURLChunk(image_url=signed_url)
-                    logger.debug(f"Using ImageURLChunk for {ext} file")
-                else:
-                    # Fallback to dict format
-                    document = {
-                        "type": "image_url",
-                        "image_url": signed_url,
-                    }
-                    logger.debug(f"Using image_url dict for {ext} file")
-            else:
-                if DocumentURLChunk is not None:
-                    # Use new SDK type (recommended)
-                    document = DocumentURLChunk(document_url=signed_url)
-                    logger.debug(f"Using DocumentURLChunk for {ext} file")
-                else:
-                    # Fallback to dict format
-                    document = {
-                        "type": "document_url",
-                        "document_url": signed_url,
-                    }
-                    logger.debug(f"Using document_url dict for {ext} file")
+        if signed_url:
+            logger.debug("Using provided signed URL for OCR")
         else:
-            # Use base64 encoding for smaller files
-            with open(file_path, "rb") as f:
-                file_content = base64.b64encode(f.read()).decode("utf-8")
+            _report_progress(f"Uploading file ({file_size_mb:.1f} MB)...", 0.3)
+            # Upload file and get signed URL
+            # NOTE: The Mistral OCR API requires a signed HTTPS URL, not a file ID
+            # After uploading, we must call get_signed_url() to get an HTTPS URL
+            signed_url = upload_file_for_ocr(client, file_path)
+            if not signed_url:
+                return False, None, "Failed to upload file"
+            _report_progress("Upload complete", 0.4)
 
-            # Determine MIME type
-            mime_types = {
-                "pdf": "application/pdf",
-                "png": "image/png",
-                "jpg": "image/jpeg",
-                "jpeg": "image/jpeg",
-                "gif": "image/gif",
-                "bmp": "image/bmp",
-                "webp": "image/webp",
-                "tiff": "image/tiff",
-                "avif": "image/avif",
-                "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-            }
-
-            mime_type = mime_types.get(ext, "application/octet-stream")
-            base64_url = f"data:{mime_type};base64,{file_content}"
-
-            # Use SDK types when available for base64 data URLs
-            if is_image:
-                if ImageURLChunk is not None:
-                    document = ImageURLChunk(image_url=base64_url)
-                else:
-                    document = {
-                        "type": "image_url",
-                        "image_url": base64_url,
-                    }
+        # Use SDK types when available (new recommended approach)
+        # Fallback to dict format for compatibility
+        if is_image:
+            if ImageURLChunk is not None:
+                document = ImageURLChunk(image_url=signed_url)
+                logger.debug(f"Using ImageURLChunk for {ext} file")
             else:
-                if DocumentURLChunk is not None:
-                    document = DocumentURLChunk(document_url=base64_url)
-                else:
-                    document = {
-                        "type": "document_url",
-                        "document_url": base64_url,
-                    }
+                document = {
+                    "type": "image_url",
+                    "image_url": signed_url,
+                }
+                logger.debug(f"Using image_url dict for {ext} file")
+        else:
+            if DocumentURLChunk is not None:
+                document = DocumentURLChunk(document_url=signed_url)
+                logger.debug(f"Using DocumentURLChunk for {ext} file")
+            else:
+                document = {
+                    "type": "document_url",
+                    "document_url": signed_url,
+                }
+                logger.debug(f"Using document_url dict for {ext} file")
 
         # Get retry configuration
         retry_config = get_retry_config()
@@ -1014,8 +970,6 @@ def _parse_ocr_response(response: Any, file_path: Path) -> Dict[str, Any]:
 
     except Exception as e:
         logger.error(f"Error parsing OCR response: {e}")
-        import traceback
-
         logger.debug(f"Traceback: {traceback.format_exc()}")
 
     return result
@@ -1071,19 +1025,12 @@ def _is_weak_page(text: str) -> bool:
         return True
 
     # Check 4: Detect repeated header patterns
-    # Count occurrences of common repeated strings
+    # Use regex to catch all "Page N" patterns, not just a hardcoded few
     # Configurable via OCR_MAX_PHRASE_REPETITIONS
-    common_phrases = [
-        "Page 1",
-        "Page 2",
-        "Page 3",
-    ]
-
-    for phrase in common_phrases:
-        occurrences = text.count(phrase)
-        if occurrences > config.OCR_MAX_PHRASE_REPETITIONS:
-            logger.debug(f"Repeated phrase '{phrase}' found {occurrences} times")
-            return True
+    page_refs = re.findall(r"Page\s+\d+", text)
+    if len(page_refs) > config.OCR_MAX_PHRASE_REPETITIONS:
+        logger.debug(f"Repeated page references found {len(page_refs)} times")
+        return True
 
     # Check 5: Average line length (very short lines suggest parsing issues)
     # Configurable via OCR_MIN_AVG_LINE_LENGTH
@@ -1563,6 +1510,64 @@ def _create_markdown_output(file_path: Path, ocr_result: Dict[str, Any]) -> Path
 # ============================================================================
 
 
+def _validate_document_url(url: str) -> Tuple[bool, Optional[str]]:
+    """
+    Validate a document URL to prevent SSRF attacks.
+
+    Rejects non-HTTPS URLs and URLs pointing to private/internal networks.
+
+    Args:
+        url: URL to validate
+
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    from urllib.parse import urlparse
+
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False, "Invalid URL format"
+
+    # Require HTTPS
+    if parsed.scheme not in ("https",):
+        return False, f"Only HTTPS URLs are allowed (got {parsed.scheme}://)"
+
+    # Reject obviously internal/private hostnames
+    hostname = (parsed.hostname or "").lower()
+    blocked_hosts = [
+        "localhost",
+        "127.0.0.1",
+        "0.0.0.0",
+        "::1",
+        "[::1]",
+        "metadata.google.internal",
+        "169.254.169.254",  # Cloud metadata endpoint
+    ]
+    if hostname in blocked_hosts:
+        return False, f"URLs pointing to internal hosts are not allowed: {hostname}"
+
+    # Reject private IP ranges (10.x, 172.16-31.x, 192.168.x)
+    if hostname.startswith(("10.", "192.168.")):
+        return False, f"URLs pointing to private networks are not allowed: {hostname}"
+
+    # Check 172.16.0.0 - 172.31.255.255
+    if hostname.startswith("172."):
+        parts = hostname.split(".")
+        if len(parts) >= 2:
+            try:
+                second_octet = int(parts[1])
+                if 16 <= second_octet <= 31:
+                    return False, f"URLs pointing to private networks are not allowed: {hostname}"
+            except ValueError:
+                pass
+
+    if not hostname:
+        return False, "URL must include a hostname"
+
+    return True, None
+
+
 def query_document(
     document_url: str,
     question: str,
@@ -1576,7 +1581,7 @@ def query_document(
     you can ask questions about it in natural language.
     
     Args:
-        document_url: Public URL to the document (PDF, image, etc.)
+        document_url: Public HTTPS URL to the document (PDF, image, etc.)
         question: Natural language question about the document
         model: Optional model override (default: mistral-small-latest)
     
@@ -1597,7 +1602,13 @@ def query_document(
     client = get_mistral_client()
     if client is None:
         return False, None, "Mistral client not available"
-    
+
+    # Validate URL to prevent SSRF (skip for signed URLs from our own uploads)
+    if not document_url.startswith("https://storage."):
+        url_valid, url_error = _validate_document_url(document_url)
+        if not url_valid:
+            return False, None, f"Invalid document URL: {url_error}"
+
     if model is None:
         model = config.MISTRAL_DOCUMENT_QNA_MODEL
     

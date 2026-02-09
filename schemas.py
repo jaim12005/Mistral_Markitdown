@@ -1,5 +1,5 @@
 """
-Enhanced Document Converter v2.1.1 - JSON Schemas for Structured Extraction
+Enhanced Document Converter - JSON Schemas for Structured Extraction
 
 This module provides predefined JSON schemas AND Pydantic models for structured
 data extraction from various document types using Mistral AI's structured output

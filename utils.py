@@ -1,5 +1,5 @@
 """
-Enhanced Document Converter v2.1.1 - Utility Functions
+Enhanced Document Converter - Utility Functions
 
 This module provides helper functions for logging, caching, file operations,
 and metadata tracking.
@@ -10,14 +10,16 @@ Documentation references:
 """
 
 import hashlib
+import itertools
 import json
 import logging
+import re
+import sys
+import threading
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-import sys
-import itertools
 
 import config
 
@@ -85,6 +87,7 @@ class IntelligentCache:
         """
         self.cache_dir = cache_dir
         self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.Lock()
         self.hits = 0
         self.misses = 0
 
@@ -133,7 +136,8 @@ class IntelligentCache:
         try:
             if not file_path.exists():
                 logger.debug(f"Cache lookup skipped (file missing): {file_path}")
-                self.misses += 1
+                with self._lock:
+                    self.misses += 1
                 return None
 
             file_hash = self._get_file_hash(file_path)
@@ -141,7 +145,8 @@ class IntelligentCache:
             cache_path = self._get_cache_path(file_hash, cache_type)
 
             if not cache_path.exists():
-                self.misses += 1
+                with self._lock:
+                    self.misses += 1
                 return None
 
             with open(cache_path, 'r', encoding='utf-8') as f:
@@ -153,27 +158,32 @@ class IntelligentCache:
             if datetime.now() - cached_time > max_age:
                 logger.debug(f"Cache expired for {file_path.name}")
                 cache_path.unlink()
-                self.misses += 1
+                with self._lock:
+                    self.misses += 1
                 return None
 
             # Type check is now redundant since paths are segregated,
             # but keep for backwards compatibility with old cache files
             if cache_data.get("type") != cache_type:
                 logger.debug(f"Cache type mismatch (expected {cache_type}, got {cache_data.get('type')})")
-                self.misses += 1
+                with self._lock:
+                    self.misses += 1
                 return None
 
-            self.hits += 1
+            with self._lock:
+                self.hits += 1
             logger.info(f"Cache hit for {file_path.name}")
             return cache_data.get("data")
 
         except FileNotFoundError:
             logger.debug(f"Cache lookup failed (file not found): {file_path}")
-            self.misses += 1
+            with self._lock:
+                self.misses += 1
             return None
         except Exception as e:
             logger.warning(f"Error reading cache for {file_path.name}: {e}")
-            self.misses += 1
+            with self._lock:
+                self.misses += 1
             return None
 
     def set(
@@ -256,14 +266,18 @@ class IntelligentCache:
         cache_files = list(self.cache_dir.glob("*.json"))
         total_size = sum(f.stat().st_size for f in cache_files)
 
-        total_requests = self.hits + self.misses
+        with self._lock:
+            hits = self.hits
+            misses = self.misses
+
+        total_requests = hits + misses
 
         return {
             "total_entries": len(cache_files),
             "total_size_mb": total_size / (1024 * 1024),
-            "cache_hits": self.hits,
-            "cache_misses": self.misses,
-            "hit_rate": (self.hits / total_requests * 100) if total_requests > 0 else 0,
+            "cache_hits": hits,
+            "cache_misses": misses,
+            "hit_rate": (hits / total_requests * 100) if total_requests > 0 else 0,
         }
 
 # Global cache instance
@@ -411,7 +425,6 @@ def is_page_artifact_row(row: List[str]) -> bool:
     # Pattern: single cell or cells that form a date
     if len(row_text) < 30 and any(month in row_text for month in MONTH_HEADERS):
         # Check if it looks like "Month DD, YYYY"
-        import re
         date_pattern = r'^[A-Za-z]+\s+\d{1,2},?\s+\d{4}$'
         if re.match(date_pattern, row_text.replace(',', '')):
             return True
@@ -528,8 +541,6 @@ def markdown_to_text(markdown_content: str) -> str:
     Returns:
         Plain text string
     """
-    import re
-
     text = markdown_content
 
     # Remove YAML frontmatter
@@ -757,7 +768,7 @@ def generate_yaml_frontmatter(
         "source_file": file_name,
         "conversion_method": conversion_method,
         "converted_at": datetime.now().isoformat(),
-        "converter_version": "2.1.1",
+        "converter_version": config.VERSION,
     }
 
     if additional_fields:
@@ -786,8 +797,6 @@ def strip_yaml_frontmatter(content: str) -> str:
     Returns:
         Content without frontmatter
     """
-    import re
-
     # Pattern to match YAML frontmatter at the start of content
     # Matches: ---\n...anything...\n---\n
     pattern = r'^---\s*\n.*?\n---\s*\n'

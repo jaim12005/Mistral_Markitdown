@@ -20,7 +20,6 @@ mistralai>=1.0.0
 
 # Environment Configuration
 python-dotenv>=1.0.0
-openai>=1.0.0
 
 # ----------------------------------------------------------------------------
 # Enhanced PDF Table Extraction (Beyond MarkItDown)

@@ -1,5 +1,5 @@
 """
-Enhanced Document Converter v2.1.1 - Local Conversion Module
+Enhanced Document Converter - Local Conversion Module
 
 This module handles MarkItDown integration, PDF table extraction using pdfplumber
 and camelot, and PDF to image conversion.
@@ -10,10 +10,11 @@ Documentation references:
 - pdf2image: https://github.com/Belval/pdf2image
 """
 
-import os
+import csv
+import re
+import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
-import sys
 
 try:
     from markitdown import MarkItDown
@@ -326,8 +327,6 @@ def _fix_merged_currency_cells(table: List[List[str]]) -> List[List[str]]:
     Returns:
         Fixed table with currency cells properly split
     """
-    import re
-
     # Pattern to detect multiple currency values in one cell
     # Matches: "$ 1,234.56 $ 5,678.90" or "$ (1,234.56) $ (5,678.90)"
     double_currency_pattern = re.compile(
@@ -421,7 +420,11 @@ def extract_all_tables(pdf_path: Path) -> Dict[str, Any]:
 
 def _deduplicate_tables(tables: List[List[List[str]]]) -> List[List[List[str]]]:
     """
-    Remove duplicate tables based on size and first row.
+    Remove duplicate tables based on content hash.
+
+    Uses the first row, last row, row count, and column count to build a
+    more robust signature that avoids false deduplication of tables that
+    happen to share the same header but contain different data.
 
     Args:
         tables: List of tables
@@ -436,8 +439,11 @@ def _deduplicate_tables(tables: List[List[List[str]]]) -> List[List[List[str]]]:
         if not table:
             continue
 
-        # Create signature: row count + first row content
-        signature = (len(table), str(table[0]) if table else "")
+        # Build a robust signature: row count + column count + first row + last row
+        col_count = max((len(row) for row in table), default=0)
+        first_row = str(table[0]) if table else ""
+        last_row = str(table[-1]) if table else ""
+        signature = (len(table), col_count, first_row, last_row)
 
         if signature not in seen:
             seen.add(signature)
@@ -511,8 +517,6 @@ def save_tables_to_files(
             csv_path = config.OUTPUT_MD_DIR / f"{base_name}_table_{i}.csv"
 
             try:
-                import csv
-
                 # Normalize headers for CSV as well
                 headers, data_rows = utils.normalize_table_headers(table)
 

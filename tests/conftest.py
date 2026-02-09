@@ -2,17 +2,8 @@
 Pytest configuration and shared fixtures.
 """
 
-import os
-import tempfile
 from pathlib import Path
 import pytest
-
-
-@pytest.fixture
-def tmp_path():
-    """Create a temporary directory for testing."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        yield Path(tmpdir)
 
 
 @pytest.fixture

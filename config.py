@@ -1,5 +1,5 @@
 """
-Enhanced Document Converter v2.1.1 - Configuration Module
+Enhanced Document Converter - Configuration Module
 
 This module handles all configuration settings for the document converter,
 including environment variables, directory setup, and model configuration.
@@ -18,6 +18,12 @@ from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
+
+# ============================================================================
+# Version (single source of truth)
+# ============================================================================
+
+VERSION = "2.1.1"
 
 # ============================================================================
 # Project Paths
@@ -430,10 +436,31 @@ def validate_configuration() -> List[str]:
 # Initialization
 # ============================================================================
 
-# Ensure all directories exist
-ensure_directories()
+_initialized = False
 
-# Validate configuration on import
-_config_issues = validate_configuration()
-if _config_issues and __name__ == "__main__":
-    print("\n".join(_config_issues))
+
+def initialize() -> List[str]:
+    """
+    Initialize the application: create directories and validate config.
+
+    Safe to call multiple times; only runs once.
+
+    Returns:
+        List of configuration warning/error messages (empty if all OK)
+    """
+    global _initialized
+    if _initialized:
+        return []
+    _initialized = True
+
+    ensure_directories()
+    return validate_configuration()
+
+
+# Auto-initialize when run as the main script so the interactive CLI works
+# without an explicit init call.  Other callers (tests, library imports)
+# can call initialize() explicitly when ready.
+if __name__ == "__main__":
+    _issues = initialize()
+    if _issues:
+        print("\n".join(_issues))
