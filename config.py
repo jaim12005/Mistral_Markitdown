@@ -64,7 +64,7 @@ def _safe_float(env_var: str, default: float) -> float:
 # Version (single source of truth)
 # ============================================================================
 
-VERSION = "2.1.1"
+VERSION = "2.2.0"
 
 # ============================================================================
 # Project Paths
@@ -191,9 +191,9 @@ MISTRAL_EXTRACT_FOOTER = os.getenv("MISTRAL_EXTRACT_FOOTER", "true").lower() == 
 # Custom guidance prompt for document annotation LLM
 MISTRAL_DOCUMENT_ANNOTATION_PROMPT = os.getenv("MISTRAL_DOCUMENT_ANNOTATION_PROMPT", "")
 
-# Image extraction control
-MISTRAL_IMAGE_LIMIT = os.getenv("MISTRAL_IMAGE_LIMIT", "")  # Empty = no limit
-MISTRAL_IMAGE_MIN_SIZE = os.getenv("MISTRAL_IMAGE_MIN_SIZE", "")  # Empty = no minimum (px)
+# Image extraction control (0 = no limit / no minimum)
+MISTRAL_IMAGE_LIMIT = _safe_int("MISTRAL_IMAGE_LIMIT", 0)
+MISTRAL_IMAGE_MIN_SIZE = _safe_int("MISTRAL_IMAGE_MIN_SIZE", 0)
 
 # Signed URL expiry (hours) - increase for large batch jobs
 MISTRAL_SIGNED_URL_EXPIRY = _safe_int("MISTRAL_SIGNED_URL_EXPIRY", 1)
@@ -272,8 +272,8 @@ MAX_CONCURRENT_FILES = _safe_int("MAX_CONCURRENT_FILES", 5)
 
 # Document QnA configuration
 MISTRAL_QNA_SYSTEM_PROMPT = os.getenv("MISTRAL_QNA_SYSTEM_PROMPT", "")  # Custom system prompt for QnA
-MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT = os.getenv("MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT", "")  # Max images (default: API default of 8)
-MISTRAL_QNA_DOCUMENT_PAGE_LIMIT = os.getenv("MISTRAL_QNA_DOCUMENT_PAGE_LIMIT", "")  # Max pages (default: API default of 64)
+MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT = _safe_int("MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT", 0)  # 0 = API default (8)
+MISTRAL_QNA_DOCUMENT_PAGE_LIMIT = _safe_int("MISTRAL_QNA_DOCUMENT_PAGE_LIMIT", 0)  # 0 = API default (64)
 
 # Batch processing advanced configuration
 MISTRAL_BATCH_TIMEOUT_HOURS = _safe_int("MISTRAL_BATCH_TIMEOUT_HOURS", 24)

@@ -1,13 +1,13 @@
-# Enhanced Document Converter v2.1.1
+# Enhanced Document Converter v2.2.0
 
-A powerful, production-ready document conversion system that combines Microsoft's **MarkItDown** with **Mistral AI's OCR** capabilities for optimal document processing. Features 8 specialized conversion modes, advanced table extraction, intelligent caching, and comprehensive batch processing.
+A powerful, production-ready document conversion system that combines Microsoft's **MarkItDown** with **Mistral AI's OCR** capabilities for optimal document processing. Features 10 specialized conversion modes, advanced table extraction, intelligent caching, and comprehensive batch processing.
 
 ## Documentation
 
 | Guide | Description |
 |-------|-------------|
 | **[QUICKSTART.md](QUICKSTART.md)** | 5-minute getting started guide |
-| **[CONFIGURATION.md](CONFIGURATION.md)** | Complete configuration reference (50+ options) |
+| **[CONFIGURATION.md](CONFIGURATION.md)** | Complete configuration reference (65+ options) |
 | **[DEPENDENCIES.md](DEPENDENCIES.md)** | Dependency guide and system requirements |
 | **[KNOWN_ISSUES.md](KNOWN_ISSUES.md)** | Known issues, limitations, and troubleshooting |
 | **[CONTRIBUTING.md](CONTRIBUTING.md)** | Development setup and contribution guidelines |
@@ -16,7 +16,7 @@ A powerful, production-ready document conversion system that combines Microsoft'
 
 ### Core Capabilities
 
-- **8 Conversion Modes**: From simple batch processing to advanced hybrid pipelines
+- **10 Conversion Modes**: From simple batch processing to advanced hybrid pipelines, Document QnA, and Batch OCR
 - **Dual-Engine Processing**: MarkItDown (local, fast) + Mistral AI (cloud, accurate)
 - **Advanced Table Extraction**: pdfplumber + camelot with financial document optimization
 - **Intelligent Caching**: Hash-based caching with 24-hour persistence - second run = $0 API costs
@@ -40,11 +40,13 @@ A powerful, production-ready document conversion system that combines Microsoft'
 
 | Category | Formats |
 |----------|---------|
-| **Documents** | PDF, DOCX, DOC, PPTX, PPT, XLSX, XLS |
-| **Web** | HTML, HTM, XML |
-| **Data** | CSV, JSON |
+| **Documents** | PDF, DOCX, DOC, PPTX, PPT, XLSX, XLS, MSG |
+| **Web** | HTML, HTM, XML, RSS |
+| **Data** | CSV, JSON, TXT |
 | **Images** | PNG, JPG, JPEG, GIF, BMP, TIFF, WEBP, AVIF |
 | **Books** | EPUB |
+| **Notebooks** | IPYNB (Jupyter) |
+| **Archives** | ZIP (recursive extraction) |
 | **Audio/Video** | MP3, WAV, M4A, FLAC (requires plugins) |
 
 ## How It Works
@@ -109,6 +111,8 @@ UPLOAD_RETENTION_DAYS=7
 | **Mode 3 (MarkItDown Only)** | $0 | Fast | Text-based PDFs, Office docs, simple extraction |
 | **Mode 4 (Mistral OCR Only)** | Mistral API | Moderate | When you need AI-powered document understanding |
 | **Mode 1 (HYBRID)** | Mistral API | Comprehensive | Maximum accuracy, critical documents, complex layouts |
+| **Mode 9 (Document QnA)** | Mistral API | Interactive | Ask questions about document content |
+| **Mode 10 (Batch OCR)** | 50% reduced | Async | Large-scale processing (10+ documents) |
 
 ### Typical Costs
 
@@ -132,7 +136,7 @@ pip install -r requirements.txt
 - ✓ Mistral AI OCR
 - ✓ Advanced table extraction (pdfplumber + camelot)
 - ✓ PDF to image conversion
-- ✓ All 8 conversion modes (except audio/YouTube transcription)
+- ✓ All 10 conversion modes (except audio/YouTube transcription)
 
 ### Optional Dependencies
 
@@ -145,7 +149,6 @@ pip install -r requirements-optional.txt
 **Adds:**
 - ✓ Audio/video transcription (MP3, WAV, M4A, FLAC)
 - ✓ YouTube transcript fetching
-- ✓ Azure Document Intelligence integration
 - ✓ Outlook MSG file support
 
 **Important:** Audio transcription requires:
@@ -208,7 +211,7 @@ pip install -r requirements-optional.txt
 python main.py
 ```
 
-## 8 Conversion Modes
+## 10 Conversion Modes
 
 ### Mode 1: HYBRID Mode (Intelligent Processing)
 
@@ -441,6 +444,55 @@ Displays:
 python main.py --mode status
 ```
 
+### Mode 9: Document QnA (NEW)
+
+**Best for**: Asking questions about document content in natural language
+
+Features:
+- Interactive question-answering about document content
+- Uses Mistral's chat completion with `document_url` content type
+- Supports custom system prompts for domain-specific queries
+- Configurable image and page limits
+
+**Configuration**:
+```ini
+MISTRAL_DOCUMENT_QNA_MODEL="mistral-small-latest"
+MISTRAL_QNA_SYSTEM_PROMPT=""
+MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT=0    # 0 = API default (8)
+MISTRAL_QNA_DOCUMENT_PAGE_LIMIT=0     # 0 = API default (64)
+```
+
+**Usage**:
+```bash
+python main.py --mode qna
+```
+
+---
+
+### Mode 10: Batch OCR Processing (NEW)
+
+**Best for**: Processing large document sets at 50% cost reduction
+
+Features:
+- Submit batch OCR jobs via Mistral's Batch API
+- Monitor job progress and download results
+- List and manage all batch jobs
+- 50% cost reduction compared to standard OCR
+
+**Configuration**:
+```ini
+MISTRAL_BATCH_ENABLED=true
+MISTRAL_BATCH_MIN_FILES=10
+MISTRAL_BATCH_TIMEOUT_HOURS=24
+```
+
+**Usage**:
+```bash
+python main.py --mode batch_ocr
+```
+
+---
+
 ## OCR Quality Assessment System
 
 ### Automated Quality Scoring (0-100)
@@ -561,7 +613,7 @@ This feature runs automatically on all OCR results - no configuration needed.
 
 All configuration is done via a `.env` file in the project root. 
 
-📖 **See [CONFIGURATION.md](CONFIGURATION.md)** for the complete configuration reference with all 50+ options organized by category.
+📖 **See [CONFIGURATION.md](CONFIGURATION.md)** for the complete configuration reference with all 65+ options organized by category.
 
 ### Quick Configuration
 
@@ -586,7 +638,7 @@ MISTRAL_API_KEY="your_mistral_api_key_here"
 | `MAX_CONCURRENT_FILES` | `5` | Batch processing concurrency |
 | `GENERATE_TXT_OUTPUT` | `true` | Create .txt files |
 
-**Configuration Options:** This README documents all 50+ configuration options. Create a `.env` file with your settings based on the examples throughout this documentation.
+**Configuration Options:** This README documents all 65+ configuration options. Create a `.env` file with your settings based on the examples throughout this documentation.
 
 ## Advanced Features Guide
 
@@ -615,11 +667,31 @@ The Mistral OCR endpoint is a specialized service that differs from the chat com
 
 **Supported OCR Parameters:**
 - `model` - OCR model to use (`mistral-ocr-latest`)
-- `document` - Document to process (file or URL)
+- `document` - Document to process (file, URL, or FileChunk)
 - `include_image_base64` - Whether to extract images
 - `pages` - Optional list of specific pages to process
 - `bbox_annotation_format` - Optional structured bounding box extraction
 - `document_annotation_format` - Optional structured document-level extraction
+- `document_annotation_prompt` - Custom guidance for annotation LLM
+- `table_format` - Table output format: `markdown` or `html` (OCR 3)
+- `extract_header` / `extract_footer` - Separate header/footer extraction (OCR 3)
+- `image_limit` / `image_min_size` - Image extraction control (OCR 3)
+
+**New in v2.2 - OCR 3 Configuration:**
+```ini
+# Table output format: "" (inline markdown), "markdown" (separate), "html" (with colspan/rowspan)
+MISTRAL_TABLE_FORMAT=""
+# Extract headers/footers separately from page content
+MISTRAL_EXTRACT_HEADER=true
+MISTRAL_EXTRACT_FOOTER=true
+# Custom guidance prompt for document annotation LLM
+MISTRAL_DOCUMENT_ANNOTATION_PROMPT=""
+# Image extraction control (0 = no limit / no minimum)
+MISTRAL_IMAGE_LIMIT=0
+MISTRAL_IMAGE_MIN_SIZE=0
+# Signed URL expiry in hours (increase for large batch jobs)
+MISTRAL_SIGNED_URL_EXPIRY=1
+```
 
 **OCR Response Structure:**
 The OCR API returns a comprehensive response including:
@@ -633,6 +705,27 @@ The OCR API returns a comprehensive response including:
 - `usage_info` - Processing metrics (pages_processed, doc_size_bytes)
 - `model` - The OCR model used
 - `document_annotation` - Structured document-level data (if enabled)
+
+### MarkItDown LLM & Advanced Configuration (NEW in v2.2)
+
+MarkItDown can use an LLM for image descriptions within documents. This project uses Mistral's OpenAI-compatible endpoint (no separate API key needed).
+
+```ini
+# Enable LLM-powered image descriptions in MarkItDown conversions
+MARKITDOWN_ENABLE_LLM_DESCRIPTIONS=false
+# Vision model for image descriptions (pixtral-large-latest recommended)
+MARKITDOWN_LLM_MODEL="pixtral-large-latest"
+# Custom prompt for LLM image descriptions (empty = MarkItDown default)
+MARKITDOWN_LLM_PROMPT=""
+# DOCX style mapping for mammoth (e.g., "p[style-name='Custom Heading'] => h2:fresh")
+MARKITDOWN_STYLE_MAP=""
+# Path to ExifTool binary for EXIF metadata extraction from images/audio
+MARKITDOWN_EXIFTOOL_PATH=""
+# Maximum file size in MB (files exceeding this are rejected)
+MARKITDOWN_MAX_FILE_SIZE_MB=100
+```
+
+---
 
 ### Enhanced Document Metadata Extraction (NEW)
 
@@ -1066,7 +1159,7 @@ For troubleshooting common issues, see **[KNOWN_ISSUES.md](KNOWN_ISSUES.md)**.
 ### Quick Links
 
 - **[QUICKSTART.md](QUICKSTART.md)** - Get started in 5 minutes
-- **[CONFIGURATION.md](CONFIGURATION.md)** - All 50+ configuration options
+- **[CONFIGURATION.md](CONFIGURATION.md)** - All 65+ configuration options
 - **[DEPENDENCIES.md](DEPENDENCIES.md)** - Installation and system requirements
 - **[KNOWN_ISSUES.md](KNOWN_ISSUES.md)** - Troubleshooting and limitations
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** - Development and contribution guide
@@ -1080,10 +1173,19 @@ For troubleshooting common issues, see **[KNOWN_ISSUES.md](KNOWN_ISSUES.md)**.
 
 ## Latest Updates
 
-### Version 2.1.1 (Current)
+### Version 2.2.0 (Current)
 
-**Key Features:**
-- ✅ **8 Specialized Conversion Modes** - From simple MarkItDown to advanced HYBRID pipelines
+**New in v2.2:**
+- ✅ **10 Conversion Modes** - Added Document QnA (Mode 9) and Batch OCR Processing (Mode 10)
+- ✅ **OCR 3 Support** - Table format control, header/footer extraction, image limits
+- ✅ **Document QnA** - Interactive natural language querying of documents
+- ✅ **Batch OCR Management** - Submit, monitor, and download batch jobs at 50% cost reduction
+- ✅ **Mistral-Only LLM** - Consolidated on Mistral's OpenAI-compatible endpoint (no separate OpenAI key)
+- ✅ **FileChunk Support** - Direct file ID passing to OCR (no signed URL step needed)
+- ✅ **Enhanced Configuration** - 65+ documented options including OCR 3, QnA, and batch settings
+- ✅ **SDK v1.12.0** - Latest Mistral Python SDK with full OCR 3 parameter support
+
+**Core Features:**
 - ✅ **Dual-Engine Processing** - Local (MarkItDown) + Cloud (Mistral OCR) for optimal results
 - ✅ **Intelligent Caching** - 24-hour persistence, second run = $0 API costs
 - ✅ **Advanced Table Extraction** - pdfplumber + camelot with quality filtering (75%+ accuracy)
@@ -1092,7 +1194,6 @@ For troubleshooting common issues, see **[KNOWN_ISSUES.md](KNOWN_ISSUES.md)**.
 - ✅ **Automatic File Cleanup** - Removes old uploads from Mistral API (cost savings)
 - ✅ **Enhanced Metadata** - Automatic extraction of document properties (author, dates, etc.)
 - ✅ **Multi-Threaded PDF to Image** - 4x faster with multiple format support
-- ✅ **Comprehensive Configuration** - 50+ documented options in dedicated guide
 - ✅ **CI/CD Integration** - GitHub Actions for automated testing and linting
 - ✅ **Cross-Platform** - Windows, macOS, Linux support
 
@@ -1100,4 +1201,4 @@ For troubleshooting common issues, see **[KNOWN_ISSUES.md](KNOWN_ISSUES.md)**.
 
 ## Summary
 
-**Enhanced Document Converter v2.1.1** combines the best of local (MarkItDown) and cloud (Mistral AI OCR) processing for optimal document conversion. Features include 8 specialized modes, intelligent caching, quality assessment, and comprehensive configuration options - all designed for production use with cost optimization in mind.
+**Enhanced Document Converter v2.2.0** combines the best of local (MarkItDown) and cloud (Mistral AI OCR) processing for optimal document conversion. Features include 10 specialized modes (including Document QnA and Batch OCR), intelligent caching, quality assessment, OCR 3 support, and 65+ configuration options - all designed for production use with cost optimization in mind.

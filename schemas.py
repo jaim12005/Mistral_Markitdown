@@ -114,7 +114,7 @@ if PYDANTIC_AVAILABLE:
         heading: str = Field(..., description="Section heading")
         level: Optional[int] = Field(None, description="Heading level (1-6)")
         content_summary: Optional[str] = Field(None, description="Brief summary of section content")
-    
+
     class GenericDocument(BaseModel):
         """Generic document extraction model."""
         document_type: str = Field(..., description="Type or category of document")
@@ -124,6 +124,78 @@ if PYDANTIC_AVAILABLE:
         sections: Optional[List[DocumentSection]] = Field(None, description="Document sections and headings")
         summary: Optional[str] = Field(None, description="Brief document summary")
 
+    # Financial statement models
+    class CompanyInfo(BaseModel):
+        """Company information for financial statement extraction."""
+        name: str = Field(..., description="Company name")
+        registration_number: Optional[str] = Field(None, description="Registration or tax ID number")
+        address: Optional[str] = Field(None, description="Company address")
+
+    class StatementPeriod(BaseModel):
+        """Reporting period for financial statement extraction."""
+        start_date: Optional[str] = Field(None, description="Period start (ISO format)")
+        end_date: str = Field(..., description="Period end (ISO format)")
+        fiscal_year: Optional[int] = Field(None, description="Fiscal year")
+
+    class AccountEntry(BaseModel):
+        """Individual account line in a financial statement."""
+        account_number: Optional[str] = Field(None, description="Account number")
+        account_name: str = Field(..., description="Account name")
+        category: Optional[str] = Field(None, description="Category: Assets, Liabilities, Revenue, etc.")
+        debit: Optional[float] = Field(None, description="Debit amount")
+        credit: Optional[float] = Field(None, description="Credit amount")
+        balance: Optional[float] = Field(None, description="Account balance")
+
+    class StatementTotals(BaseModel):
+        """Aggregate totals for financial statement extraction."""
+        total_assets: Optional[float] = Field(None, description="Total assets")
+        total_liabilities: Optional[float] = Field(None, description="Total liabilities")
+        total_equity: Optional[float] = Field(None, description="Total equity")
+        total_revenue: Optional[float] = Field(None, description="Total revenue")
+        total_expenses: Optional[float] = Field(None, description="Total expenses")
+        net_income: Optional[float] = Field(None, description="Net income")
+
+    class FinancialStatementDocument(BaseModel):
+        """Complete financial statement extraction model."""
+        statement_type: str = Field(..., description="Type: balance_sheet, income_statement, cash_flow, trial_balance")
+        company: CompanyInfo = Field(..., description="Company information")
+        period: StatementPeriod = Field(..., description="Reporting period")
+        accounts: List[AccountEntry] = Field(..., description="List of accounts with balances")
+        totals: Optional[StatementTotals] = Field(None, description="Aggregate totals")
+        currency: Optional[str] = Field(None, description="Currency code")
+        audited: Optional[bool] = Field(None, description="Whether the statement is audited")
+        notes: Optional[List[str]] = Field(None, description="Footnotes and additional information")
+
+    # Form document models
+    class FormField(BaseModel):
+        """Individual field in a form document."""
+        field_name: str = Field(..., description="Field label or name")
+        field_type: Optional[str] = Field(None, description="Field type: text, number, date, checkbox, signature, other")
+        field_value: str = Field(..., description="Value entered in the field")
+        is_filled: Optional[bool] = Field(None, description="Whether the field has been filled in")
+
+    class FormSignature(BaseModel):
+        """Signature field in a form document."""
+        signer_name: Optional[str] = Field(None, description="Name of the signer")
+        title: Optional[str] = Field(None, description="Title or role of the signer")
+        date: Optional[str] = Field(None, description="Date signed (ISO format)")
+        is_signed: Optional[bool] = Field(None, description="Whether the field has been signed")
+
+    class FormDates(BaseModel):
+        """Key dates in a form document."""
+        submission_date: Optional[str] = Field(None, description="Date submitted")
+        effective_date: Optional[str] = Field(None, description="Date effective")
+        expiration_date: Optional[str] = Field(None, description="Date of expiration")
+
+    class FormDocument(BaseModel):
+        """Complete form document extraction model."""
+        form_type: Optional[str] = Field(None, description="Type of form: application, survey, contract, etc.")
+        form_title: str = Field(..., description="Title or name of the form")
+        form_number: Optional[str] = Field(None, description="Form number or identifier")
+        fields: List[FormField] = Field(..., description="Form fields and their values")
+        signatures: Optional[List[FormSignature]] = Field(None, description="Signature fields")
+        dates: Optional[FormDates] = Field(None, description="Key dates")
+
 else:
     # Placeholder classes when Pydantic is not available
     ImageAnnotation = None
@@ -132,6 +204,8 @@ else:
     BBoxStructuredAnnotation = None
     InvoiceDocument = None
     GenericDocument = None
+    FinancialStatementDocument = None
+    FormDocument = None
 
 # ============================================================================
 # Document-Level Schemas (document_annotation_format)
@@ -673,8 +747,8 @@ def get_document_pydantic_model(doc_type: str = "generic") -> Optional[Type]:
     model_map = {
         "generic": GenericDocument,
         "invoice": InvoiceDocument,
-        # Note: financial_statement and form use JSON schemas only for now
-        # Add Pydantic models as needed
+        "financial_statement": FinancialStatementDocument,
+        "form": FormDocument,
     }
 
     return model_map.get(doc_type, GenericDocument)

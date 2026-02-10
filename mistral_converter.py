@@ -29,18 +29,14 @@ try:
     from mistralai import models
     from mistralai.utils import retries
     # New SDK types for OCR document handling
-    from mistralai import DocumentURLChunk, ImageURLChunk
-    # NOTE: response_format_from_pydantic_model is for CHAT COMPLETION structured outputs ONLY.
-    # The OCR API uses raw JSON schema dicts for bbox_annotation_format and document_annotation_format.
-    # We keep this import available for potential future chat completion use cases (e.g., Document QnA with structured output).
-    from mistralai.extra import response_format_from_pydantic_model
+    from mistralai import DocumentURLChunk, ImageURLChunk, FileChunk
 except ImportError:
     Mistral = None
     models = None
     retries = None
     DocumentURLChunk = None
     ImageURLChunk = None
-    response_format_from_pydantic_model = None
+    FileChunk = None
 
 try:
     from PIL import Image
@@ -92,7 +88,17 @@ def get_mistral_client() -> Optional[Mistral]:
         return None
 
     try:
-        client = Mistral(api_key=config.MISTRAL_API_KEY)
+        client_kwargs = {"api_key": config.MISTRAL_API_KEY}
+
+        # Set global retry config on client (applies to all calls by default)
+        global_retry = get_retry_config()
+        if global_retry:
+            client_kwargs["retry_config"] = global_retry
+
+        # Set global timeout (60 seconds default)
+        client_kwargs["timeout_ms"] = config.RETRY_MAX_ELAPSED_TIME_MS
+
+        client = Mistral(**client_kwargs)
         return client
 
     except Exception as e:
@@ -150,35 +156,6 @@ def get_retry_config() -> Optional[Any]:
 # ============================================================================
 # Structured Output Configuration
 # ============================================================================
-
-
-def get_raw_schema(schema_dict: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """
-    Get raw schema for OCR annotation formats.
-
-    This function extracts the JSON schema from a schema definition dict.
-
-    IMPORTANT DISTINCTION:
-    - OCR API (bbox_annotation_format, document_annotation_format): Expects raw JSON schema dicts
-    - Chat Completion API (response_format): Expects ResponseFormat objects from response_format_from_pydantic_model()
-
-    This function is for OCR annotation formats only.
-
-    Args:
-        schema_dict: Schema definition from schemas.py (contains 'name', 'schema', 'description' keys)
-
-    Returns:
-        Raw JSON schema dict or None if structured output disabled
-    """
-    if not config.MISTRAL_ENABLE_STRUCTURED_OUTPUT:
-        return None
-
-    try:
-        # Return just the schema portion - OCR API expects this format
-        return schema_dict.get("schema")
-    except Exception as e:
-        logger.warning(f"Error getting raw schema: {e}")
-        return None
 
 
 def get_bbox_annotation_format() -> Optional[Dict[str, Any]]:
@@ -358,11 +335,16 @@ def preprocess_image(image_path: Path) -> Optional[Path]:
         enhancer = ImageEnhance.Sharpness(img)
         img = enhancer.enhance(1.3)
 
-        # Save preprocessed image
+        # Save preprocessed image with format-appropriate parameters
         preprocessed_path = (
             image_path.parent / f"{image_path.stem}_preprocessed{image_path.suffix}"
         )
-        img.save(preprocessed_path, quality=95)
+        if image_path.suffix.lower() in [".jpg", ".jpeg"]:
+            img.save(preprocessed_path, format="JPEG", quality=95, optimize=True)
+        elif image_path.suffix.lower() == ".png":
+            img.save(preprocessed_path, format="PNG", optimize=True)
+        else:
+            img.save(preprocessed_path)
 
         logger.debug(f"Preprocessed image: {image_path.name}")
         return preprocessed_path
@@ -400,7 +382,8 @@ def cleanup_uploaded_files(client: Mistral, days_old: Optional[int] = None) -> i
             """Delete files older than cutoff_date for a given purpose."""
             deleted = 0
             try:
-                files_list = client.files.list(purpose=purpose)
+                files_response = client.files.list(purpose=purpose)
+                files_list = files_response.data if hasattr(files_response, 'data') else files_response
             except Exception as e:
                 logger.debug(f"Error listing {purpose} files for cleanup: {e}")
                 return 0
@@ -534,6 +517,43 @@ def upload_file_for_ocr(client: Mistral, file_path: Path) -> Optional[str]:
         return None
 
 
+def upload_file_for_ocr_chunk(client: Mistral, file_path: Path) -> Optional[Any]:
+    """
+    Upload file and return a FileChunk for direct use with OCR (no signed URL needed).
+
+    This is simpler than the signed URL flow: upload once, pass the file ID directly.
+
+    Args:
+        client: Mistral client instance
+        file_path: Path to file to upload
+
+    Returns:
+        FileChunk instance if successful, None otherwise
+    """
+    if FileChunk is None:
+        logger.debug("FileChunk not available in SDK, falling back to signed URL flow")
+        return None
+
+    try:
+        with open(file_path, "rb") as f:
+            file_content = f.read()
+
+        response = client.files.upload(
+            file={"file_name": file_path.name, "content": file_content},
+            purpose="ocr",
+        )
+
+        if not hasattr(response, "id"):
+            return None
+
+        logger.info(f"File uploaded for FileChunk: {response.id}")
+        return FileChunk(file_id=response.id)
+
+    except Exception as e:
+        logger.warning(f"FileChunk upload failed: {e}, will fall back to signed URL")
+        return None
+
+
 def _cleanup_temp_files(temp_files: List[Path]) -> None:
     """
     Clean up temporary files created during image preprocessing.
@@ -575,6 +595,7 @@ def process_with_ocr(
         model: Optional model override
         pages: Optional specific pages to process (0-indexed)
         progress_callback: Optional callback for progress updates (message, progress_0_to_1)
+        signed_url: Optional pre-obtained signed URL (avoids re-uploading for weak page improvement)
 
     Returns:
         Tuple of (success, ocr_result_dict, error_message)
@@ -676,14 +697,13 @@ def process_with_ocr(
         # OCR 3 (mistral-ocr-2512) parameters
         if config.MISTRAL_TABLE_FORMAT:
             ocr_params["table_format"] = config.MISTRAL_TABLE_FORMAT
-        if config.MISTRAL_EXTRACT_HEADER:
-            ocr_params["extract_header"] = True
-        if config.MISTRAL_EXTRACT_FOOTER:
-            ocr_params["extract_footer"] = True
-        if config.MISTRAL_IMAGE_LIMIT:
-            ocr_params["image_limit"] = int(config.MISTRAL_IMAGE_LIMIT)
-        if config.MISTRAL_IMAGE_MIN_SIZE:
-            ocr_params["image_min_size"] = int(config.MISTRAL_IMAGE_MIN_SIZE)
+        # Always pass header/footer extraction flags so user can disable them
+        ocr_params["extract_header"] = config.MISTRAL_EXTRACT_HEADER
+        ocr_params["extract_footer"] = config.MISTRAL_EXTRACT_FOOTER
+        if config.MISTRAL_IMAGE_LIMIT > 0:
+            ocr_params["image_limit"] = config.MISTRAL_IMAGE_LIMIT
+        if config.MISTRAL_IMAGE_MIN_SIZE > 0:
+            ocr_params["image_min_size"] = config.MISTRAL_IMAGE_MIN_SIZE
 
         # Process with OCR
         response = client.ocr.process(**ocr_params)
@@ -1111,13 +1131,13 @@ def assess_ocr_quality(ocr_result: Dict[str, Any]) -> Dict[str, Any]:
             f"{assessment['weak_page_count']}/{assessment['total_page_count']} pages are weak quality"
         )
 
-    if assessment["digit_count"] < 100:  # Low number count for financial docs
+    if assessment["digit_count"] < config.OCR_MIN_DIGIT_COUNT * 5:  # Aggregate threshold (page threshold * 5)
         assessment["quality_score"] -= 20
         assessment["issues"].append(
             f"Low numerical content ({assessment['digit_count']} digits)"
         )
 
-    if assessment["uniqueness_ratio"] < 0.3:  # Highly repetitive
+    if assessment["uniqueness_ratio"] < config.OCR_MIN_UNIQUENESS_RATIO:  # Configurable threshold
         assessment["quality_score"] -= 30
         assessment["issues"].append(
             f"High repetition (uniqueness: {assessment['uniqueness_ratio']:.1%})"
@@ -1672,10 +1692,10 @@ def query_document(
         if retry_config:
             chat_params["retries"] = retry_config
 
-        if config.MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT:
-            chat_params["document_image_limit"] = int(config.MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT)
-        if config.MISTRAL_QNA_DOCUMENT_PAGE_LIMIT:
-            chat_params["document_page_limit"] = int(config.MISTRAL_QNA_DOCUMENT_PAGE_LIMIT)
+        if config.MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT > 0:
+            chat_params["document_image_limit"] = config.MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT
+        if config.MISTRAL_QNA_DOCUMENT_PAGE_LIMIT > 0:
+            chat_params["document_page_limit"] = config.MISTRAL_QNA_DOCUMENT_PAGE_LIMIT
 
         response = client.chat.complete(**chat_params)
         
@@ -1713,16 +1733,27 @@ def query_document_file(
     client = get_mistral_client()
     if client is None:
         return False, None, "Mistral client not available"
-    
+
+    # Pre-validate file size (Mistral Document QnA limit: 50 MB)
+    try:
+        file_size_mb = file_path.stat().st_size / (1024 * 1024)
+        if file_size_mb > 50:
+            return False, None, (
+                f"File too large for Document QnA ({file_size_mb:.1f} MB). "
+                "Mistral limits documents to 50 MB. Consider splitting the document."
+            )
+    except OSError as e:
+        return False, None, f"Cannot read file: {e}"
+
     try:
         # Upload file and get signed URL
         signed_url = upload_file_for_ocr(client, file_path)
         if not signed_url:
             return False, None, "Failed to upload file for QnA"
-        
+
         # Query using the signed URL
         return query_document(signed_url, question, model)
-    
+
     except Exception as e:
         error_msg = f"Error querying document file: {e}"
         logger.error(error_msg)
@@ -1994,7 +2025,7 @@ def download_batch_results(
         # Get job status to get output file ID
         job = client.batch.jobs.get(job_id=job_id)
         
-        if job.status not in ["SUCCESS", "FAILED"]:
+        if job.status not in ["SUCCESS", "FAILED", "TIMEOUT_EXCEEDED", "CANCELLED"]:
             return False, None, f"Job not complete. Status: {job.status}"
         
         if not job.output_file:
@@ -2047,10 +2078,11 @@ def list_batch_jobs(
         if page_size != 100:
             list_kwargs["page_size"] = page_size
 
-        jobs = client.batch.jobs.list(**list_kwargs)
+        jobs_response = client.batch.jobs.list(**list_kwargs)
+        jobs_data = (jobs_response.data or []) if hasattr(jobs_response, 'data') else jobs_response
 
         jobs_list = []
-        for job in jobs:
+        for job in jobs_data:
             job_info = {
                 "id": job.id,
                 "status": job.status,

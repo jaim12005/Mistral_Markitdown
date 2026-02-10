@@ -429,15 +429,9 @@ def is_page_artifact_row(row: List[str]) -> bool:
     # Join all cells
     row_text = " ".join(str(cell or "") for cell in row).strip()
 
-    # Check for common page artifacts
-    artifacts = [
-        "Page 1", "Page 2", "Page 3", "Page 4", "Page 5",
-        "Page 6", "Page 7", "Page 8", "Page 9", "Page 10",
-    ]
-
-    for artifact in artifacts:
-        if row_text == artifact:
-            return True
+    # Check for page number artifacts (e.g., "Page 1", "Page 42", etc.)
+    if re.match(r'^Page\s+\d+$', row_text):
+        return True
 
     # Check if the row is just a date (e.g., "December 31, 2010")
     # Pattern: single cell or cells that form a date

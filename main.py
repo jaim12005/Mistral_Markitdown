@@ -1,7 +1,7 @@
 """
 Enhanced Document Converter - Main Application
 
-Interactive CLI for document conversion with 8 conversion modes:
+Interactive CLI for document conversion with 10 conversion modes:
 1. HYBRID Mode - Intelligent combined processing
 2. ENHANCED BATCH - Maximum performance batch processing
 3. MarkItDown Only - Fast local conversion
@@ -10,6 +10,8 @@ Interactive CLI for document conversion with 8 conversion modes:
 6. Standard Batch - Simple batch processing
 7. Convert PDFs to Images - Page rendering
 8. Show System Status - Cache and performance metrics
+9. Document QnA - Query documents in natural language
+10. Batch OCR Processing - 50% cost reduction batch jobs
 
 Usage:
     python main.py                      # Interactive menu
@@ -474,13 +476,21 @@ def mode_transcription(file_paths: List[Path]) -> Tuple[bool, str]:
         success, content, error = local_converter.convert_with_markitdown(file_path)
 
         if success:
-            # Save with _transcription suffix
-            output_path = config.OUTPUT_MD_DIR / f"{file_path.stem}_transcription.md"
+            # Rename the default output to _transcription suffix
+            default_path = config.OUTPUT_MD_DIR / f"{file_path.stem}.md"
+            transcription_path = config.OUTPUT_MD_DIR / f"{file_path.stem}_transcription.md"
 
-            with open(output_path, "w", encoding="utf-8") as f:
-                f.write(content)
+            if default_path.exists():
+                default_path.rename(transcription_path)
+            else:
+                with open(transcription_path, "w", encoding="utf-8") as f:
+                    f.write(content)
 
-            utils.save_text_output(output_path, content)
+            # Also rename .txt output if it exists
+            default_txt = config.OUTPUT_TXT_DIR / f"{file_path.stem}.txt"
+            transcription_txt = config.OUTPUT_TXT_DIR / f"{file_path.stem}_transcription.txt"
+            if default_txt.exists():
+                default_txt.rename(transcription_txt)
 
             successful += 1
             logger.info(f"Transcribed: {file_path.name}")
@@ -681,6 +691,161 @@ def mode_system_status() -> Tuple[bool, str]:
 
 
 # ============================================================================
+# Mode 9: Document QnA
+# ============================================================================
+
+
+def mode_document_qna(file_paths: List[Path]) -> Tuple[bool, str]:
+    """
+    Document QnA mode: Query documents in natural language.
+
+    Args:
+        file_paths: List of files to query
+
+    Returns:
+        Tuple of (success, message)
+    """
+    logger.info(f"DOCUMENT QnA MODE: {len(file_paths)} file(s) selected")
+
+    if not config.MISTRAL_API_KEY:
+        return False, "Document QnA requires MISTRAL_API_KEY to be set"
+
+    if len(file_paths) != 1:
+        print("\nPlease select exactly 1 file to query.\n")
+        return False, "Document QnA works on one file at a time"
+
+    file_path = file_paths[0]
+    print(f"\nQuerying: {file_path.name}")
+    print(f"Model: {config.MISTRAL_DOCUMENT_QNA_MODEL}")
+    print("Type 'exit' or 'quit' to return to menu.\n")
+
+    questions_asked = 0
+    while True:
+        try:
+            question = input("Question: ").strip()
+            if not question or question.lower() in ("exit", "quit"):
+                break
+
+            success, answer, error = mistral_converter.query_document_file(
+                file_path, question
+            )
+
+            if success:
+                print(f"\nAnswer: {answer}\n")
+                questions_asked += 1
+            else:
+                print(f"\nError: {error}\n")
+
+        except KeyboardInterrupt:
+            break
+
+    return True, f"Asked {questions_asked} question(s) about {file_path.name}"
+
+
+# ============================================================================
+# Mode 10: Batch OCR Management
+# ============================================================================
+
+
+def mode_batch_ocr(file_paths: List[Path]) -> Tuple[bool, str]:
+    """
+    Batch OCR mode: Submit files for batch processing at 50% cost reduction.
+
+    Args:
+        file_paths: List of files to process
+
+    Returns:
+        Tuple of (success, message)
+    """
+    logger.info(f"BATCH OCR MODE: {len(file_paths)} file(s) selected")
+
+    if not config.MISTRAL_API_KEY:
+        return False, "Batch OCR requires MISTRAL_API_KEY to be set"
+
+    if not config.MISTRAL_BATCH_ENABLED:
+        return False, "Batch processing is disabled (set MISTRAL_BATCH_ENABLED=true)"
+
+    if len(file_paths) < config.MISTRAL_BATCH_MIN_FILES:
+        print(
+            f"\nNote: Batch processing is most cost-effective with {config.MISTRAL_BATCH_MIN_FILES}+ files."
+        )
+        print(f"You selected {len(file_paths)} file(s). Proceeding anyway.\n")
+
+    print("\nBatch OCR Options:")
+    print("  1. Submit new batch job")
+    print("  2. Check job status")
+    print("  3. List all batch jobs")
+    print("  4. Download batch results")
+    print("  0. Cancel\n")
+
+    try:
+        choice = input("Select option: ").strip()
+    except (KeyboardInterrupt, EOFError):
+        return False, "Cancelled"
+
+    if choice == "1":
+        # Submit new batch job
+        batch_file = config.OUTPUT_MD_DIR / "batch_input.jsonl"
+        print(f"\nCreating batch file for {len(file_paths)} document(s)...")
+
+        success, batch_path, error = mistral_converter.create_batch_ocr_file(
+            file_paths, batch_file
+        )
+        if not success:
+            return False, f"Failed to create batch file: {error}"
+
+        print("Submitting batch job...")
+        success, job_id, error = mistral_converter.submit_batch_ocr_job(batch_path)
+        if success:
+            print(f"\nBatch job submitted: {job_id}")
+            print("Use option 2 to check status, option 4 to download results when complete.")
+            return True, f"Batch job submitted: {job_id}"
+        else:
+            return False, f"Failed to submit batch job: {error}"
+
+    elif choice == "2":
+        job_id = input("Enter job ID: ").strip()
+        if not job_id:
+            return False, "No job ID provided"
+        success, status, error = mistral_converter.get_batch_job_status(job_id)
+        if success:
+            print(f"\nJob: {job_id}")
+            print(f"  Status: {status['status']}")
+            print(f"  Progress: {status['progress_percent']}%")
+            print(f"  Succeeded: {status['succeeded_requests']}")
+            print(f"  Failed: {status['failed_requests']}")
+            return True, f"Job {job_id}: {status['status']}"
+        else:
+            return False, f"Error: {error}"
+
+    elif choice == "3":
+        success, jobs, error = mistral_converter.list_batch_jobs()
+        if success and jobs:
+            print(f"\n{len(jobs)} batch job(s):\n")
+            for job in jobs:
+                print(f"  {job['id']} | {job['status']} | {job['total_requests']} requests | {job['created_at']}")
+            return True, f"Listed {len(jobs)} batch jobs"
+        elif success:
+            print("\nNo batch jobs found.")
+            return True, "No batch jobs"
+        else:
+            return False, f"Error: {error}"
+
+    elif choice == "4":
+        job_id = input("Enter job ID: ").strip()
+        if not job_id:
+            return False, "No job ID provided"
+        success, path, error = mistral_converter.download_batch_results(job_id)
+        if success:
+            print(f"\nResults saved to: {path}")
+            return True, f"Results downloaded: {path}"
+        else:
+            return False, f"Error: {error}"
+
+    return False, "Cancelled"
+
+
+# ============================================================================
 # File Selection
 # ============================================================================
 
@@ -776,6 +941,12 @@ def show_menu():
     print("  8. Show System Status")
     print("     Display cache statistics and system info")
     print()
+    print("  9. Document QnA (NEW)")
+    print("     Query documents in natural language")
+    print()
+    print("  10. Batch OCR Processing (NEW)")
+    print("      Submit batch jobs at 50% cost reduction")
+    print()
     print("  0. Exit")
     print("\n" + "=" * 60 + "\n")
 
@@ -786,7 +957,7 @@ def interactive_menu():
         show_menu()
 
         try:
-            choice = input("Enter your choice (0-8): ").strip()
+            choice = input("Enter your choice (0-10): ").strip()
 
             if choice == "0":
                 print("\nExiting. Goodbye!\n")
@@ -797,7 +968,7 @@ def interactive_menu():
                 input("\nPress Enter to continue...")
                 continue
 
-            elif choice in ["1", "2", "3", "4", "5", "6", "7"]:
+            elif choice in ["1", "2", "3", "4", "5", "6", "7", "9", "10"]:
                 files = select_files()
 
                 if not files:
@@ -849,13 +1020,21 @@ def interactive_menu():
                     success, message = mode_pdf_to_images(valid_files)
                     print(f"\n{message}")
 
+                elif choice == "9":
+                    success, message = mode_document_qna(valid_files)
+                    print(f"\n{message}")
+
+                elif choice == "10":
+                    success, message = mode_batch_ocr(valid_files)
+                    print(f"\n{message}")
+
                 elapsed = time.time() - start_time
                 print(f"Total processing time: {elapsed:.2f} seconds")
 
                 input("\nPress Enter to continue...")
 
             else:
-                print("\nInvalid choice. Please enter a number between 0 and 8.\n")
+                print("\nInvalid choice. Please enter a number between 0 and 10.\n")
 
         except KeyboardInterrupt:
             print("\n\nInterrupted. Exiting...\n")
@@ -896,6 +1075,8 @@ Examples:
             "batch",
             "pdf_to_images",
             "status",
+            "qna",
+            "batch_ocr",
         ],
         help="Run specific mode directly",
     )
@@ -977,6 +1158,14 @@ Examples:
             all_success = success
         elif args.mode == "pdf_to_images":
             success, message = mode_pdf_to_images(files)
+            print(f"\n{message}")
+            all_success = success
+        elif args.mode == "qna":
+            success, message = mode_document_qna(files)
+            print(f"\n{message}")
+            all_success = success
+        elif args.mode == "batch_ocr":
+            success, message = mode_batch_ocr(files)
             print(f"\n{message}")
             all_success = success
         elif args.mode == "status":

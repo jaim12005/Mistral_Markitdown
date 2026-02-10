@@ -9,7 +9,11 @@
       "WebFetch(domain:mistral.ai)",
       "WebFetch(domain:dev.to)",
       "WebFetch(domain:www.infoworld.com)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(pip install:*)",
+      "Bash(pip show:*)",
+      "Bash(dir:*)"
     ]
   }
 }
