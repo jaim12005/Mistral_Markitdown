@@ -299,6 +299,7 @@ def extract_tables_camelot(
             if table_data and len(table_data) > 0:
                 # Post-process: fix merged currency cells
                 table_data = _fix_merged_currency_cells(table_data)
+                table_data = _fix_split_headers(table_data)
                 tables.append(table_data)
 
                 # Log quality metrics (using already-fetched values)
@@ -316,6 +317,45 @@ def extract_tables_camelot(
         logger.error(f"Error extracting tables with camelot ({flavor}): {e}")
 
     return tables
+
+def _fix_split_headers(table: List[List[str]], max_header_rows: int = 3) -> List[List[str]]:
+    """
+    Rejoin header text that split_text=True split across column boundaries.
+
+    Example: ['Be', 'ginning', 'January', ...] → ['', 'Beginning', 'January', ...]
+    Example: ['Acct Account Title B', 'alance'] → ['Acct Account Title', 'Balance']
+
+    Only applies to the first few rows (headers), never touches data rows.
+    """
+    for row_idx in range(min(max_header_rows, len(table))):
+        row = table[row_idx]
+        col = 0
+        while col < len(row) - 1:
+            cell = str(row[col]).strip()
+            next_cell = str(row[col + 1]).strip()
+
+            # Skip if next cell is empty, numeric, or starts uppercase (likely a real column)
+            if not next_cell or not next_cell[0].islower():
+                col += 1
+                continue
+
+            # Check if current cell ends with a fragment (partial word)
+            if cell and cell[-1].isalpha():
+                # Find the trailing fragment in current cell
+                parts = cell.rsplit(' ', 1)
+                if len(parts) == 2:
+                    # "Acct Account Title B" + "alance" → "Acct Account Title" + "Balance"
+                    row[col] = parts[0]
+                    row[col + 1] = parts[1] + next_cell
+                else:
+                    # "Be" + "ginning" → "" + "Beginning"
+                    row[col] = ''
+                    row[col + 1] = cell + next_cell
+            col += 1
+        table[row_idx] = row
+
+    return table
+
 
 def _fix_merged_currency_cells(table: List[List[str]]) -> List[List[str]]:
     """
