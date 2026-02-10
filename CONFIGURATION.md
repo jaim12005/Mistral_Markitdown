@@ -1,12 +1,13 @@
 # Configuration Reference
 
-Complete reference for all configuration options in Enhanced Document Converter v2.1.1.
+Complete reference for all configuration options in Enhanced Document Converter v2.2.0.
 
 ## Table of Contents
 
 - [Configuration File](#configuration-file)
 - [API Keys](#api-keys)
 - [Mistral OCR Settings](#mistral-ocr-settings)
+- [OCR 3 Features](#ocr-3-features)
 - [Document QnA](#document-qna)
 - [Batch OCR Processing](#batch-ocr-processing)
 - [File Upload Management](#file-upload-management)
@@ -53,30 +54,11 @@ LOG_LEVEL=INFO
 ### MISTRAL_API_KEY (Required for OCR)
 - **Type:** String
 - **Default:** None (must be set)
-- **Required for:** Modes 1, 2, 4 (all OCR features)
+- **Required for:** Modes 1, 2, 4, 9, 10 (all OCR and cloud features)
 - **Get it from:** https://console.mistral.ai/api-keys/
 
 ```ini
 MISTRAL_API_KEY="your_api_key_here"
-```
-
-### OPENAI_API_KEY (Optional)
-- **Type:** String
-- **Default:** None
-- **Required for:** MarkItDown LLM integration (if MARKITDOWN_USE_LLM=true)
-- **Get it from:** https://platform.openai.com/api-keys
-
-```ini
-OPENAI_API_KEY="sk-..."
-```
-
-### Azure Document Intelligence (Optional)
-- **Required for:** Azure AI integration
-- **Setup at:** https://portal.azure.com/
-
-```ini
-AZURE_DOC_INTEL_ENDPOINT="https://your-resource.cognitiveservices.azure.com/"
-AZURE_DOC_INTEL_KEY="your_azure_key"
 ```
 
 ---
@@ -111,36 +93,6 @@ MISTRAL_INCLUDE_IMAGES=true
 
 ```ini
 SAVE_MISTRAL_JSON=true
-```
-
-### MISTRAL_DOCUMENT_QNA_MODEL
-- **Type:** String
-- **Default:** `"mistral-small-latest"`
-- **Options:** `mistral-small-latest`, `mistral-medium-latest`, or any chat model supporting document_url
-- **Description:** Model to use for Document QnA (natural language queries on documents)
-
-```ini
-MISTRAL_DOCUMENT_QNA_MODEL="mistral-small-latest"
-```
-
-### MISTRAL_BATCH_ENABLED
-- **Type:** Boolean
-- **Default:** `true`
-- **Description:** Enable batch OCR processing for 50% cost reduction
-- **Use for:** Processing large numbers of documents
-
-```ini
-MISTRAL_BATCH_ENABLED=true
-```
-
-### MISTRAL_BATCH_MIN_FILES
-- **Type:** Integer
-- **Default:** `10`
-- **Description:** Minimum number of files to recommend batch processing
-- **Note:** Batch processing is more cost-effective for larger batches
-
-```ini
-MISTRAL_BATCH_MIN_FILES=10
 ```
 
 ### OCR Quality Assessment Thresholds
@@ -243,6 +195,173 @@ OCR_MIN_AVG_LINE_LENGTH=10
 
 ---
 
+## OCR 3 Features
+
+Advanced features available with the `mistral-ocr-2512` model.
+
+### MISTRAL_TABLE_FORMAT
+- **Type:** String
+- **Default:** `""` (inline markdown)
+- **Options:** `""` (inline markdown), `"markdown"` (separate blocks), `"html"` (colspan/rowspan support)
+- **Description:** Controls how tables are formatted in OCR output
+- **Recommendation:** Use `"html"` for complex tables with merged cells
+
+```ini
+MISTRAL_TABLE_FORMAT=""
+```
+
+### MISTRAL_EXTRACT_HEADER
+- **Type:** Boolean
+- **Default:** `true`
+- **Description:** Extract page headers separately from main content
+
+```ini
+MISTRAL_EXTRACT_HEADER=true
+```
+
+### MISTRAL_EXTRACT_FOOTER
+- **Type:** Boolean
+- **Default:** `true`
+- **Description:** Extract page footers separately from main content
+
+```ini
+MISTRAL_EXTRACT_FOOTER=true
+```
+
+### MISTRAL_DOCUMENT_ANNOTATION_PROMPT
+- **Type:** String
+- **Default:** `""` (no custom prompt)
+- **Description:** Custom guidance prompt for the document annotation LLM
+
+```ini
+MISTRAL_DOCUMENT_ANNOTATION_PROMPT=""
+```
+
+### MISTRAL_IMAGE_LIMIT
+- **Type:** Integer
+- **Default:** `0` (no limit)
+- **Description:** Maximum number of images to extract from a document
+
+```ini
+MISTRAL_IMAGE_LIMIT=0
+```
+
+### MISTRAL_IMAGE_MIN_SIZE
+- **Type:** Integer
+- **Default:** `0` (no minimum)
+- **Description:** Minimum pixel dimension for extracted images (smaller images are skipped)
+
+```ini
+MISTRAL_IMAGE_MIN_SIZE=0
+```
+
+### MISTRAL_SIGNED_URL_EXPIRY
+- **Type:** Integer
+- **Default:** `1`
+- **Description:** Signed URL expiry in hours. Increase for large batch jobs that take longer to process.
+
+```ini
+MISTRAL_SIGNED_URL_EXPIRY=1
+```
+
+---
+
+## Document QnA
+
+Query documents in natural language using Mistral's chat completion with document_url content type.
+
+### MISTRAL_DOCUMENT_QNA_MODEL
+- **Type:** String
+- **Default:** `"mistral-small-latest"`
+- **Options:** Any Mistral chat model supporting document_url content type
+- **Description:** Model for natural language document queries
+
+```ini
+MISTRAL_DOCUMENT_QNA_MODEL="mistral-small-latest"
+```
+
+### MISTRAL_QNA_SYSTEM_PROMPT
+- **Type:** String
+- **Default:** `""` (no system prompt)
+- **Description:** Custom system prompt for Document QnA sessions
+
+```ini
+MISTRAL_QNA_SYSTEM_PROMPT=""
+```
+
+### MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT
+- **Type:** Integer
+- **Default:** `0` (API default)
+- **Description:** Maximum images from the document to include in QnA context
+
+```ini
+MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT=0
+```
+
+### MISTRAL_QNA_DOCUMENT_PAGE_LIMIT
+- **Type:** Integer
+- **Default:** `0` (API default)
+- **Description:** Maximum pages from the document to include in QnA context
+
+```ini
+MISTRAL_QNA_DOCUMENT_PAGE_LIMIT=0
+```
+
+**Note:** Documents are limited to 50 MB for QnA. Larger files will be rejected with a clear error message.
+
+**Usage:** Programmatically query documents:
+```python
+from mistral_converter import query_document
+success, answer, error = query_document(
+    "https://example.com/document.pdf",
+    "What is the main topic of this document?"
+)
+```
+
+---
+
+## Batch OCR Processing
+
+Process multiple documents at 50% cost reduction using Mistral's Batch API.
+
+### MISTRAL_BATCH_ENABLED
+- **Type:** Boolean
+- **Default:** `true`
+- **Description:** Enable batch OCR processing
+
+```ini
+MISTRAL_BATCH_ENABLED=true
+```
+
+### MISTRAL_BATCH_MIN_FILES
+- **Type:** Integer
+- **Default:** `10`
+- **Description:** Minimum files to recommend batch processing
+- **Recommendation:** Batch is most cost-effective for 10+ files
+
+```ini
+MISTRAL_BATCH_MIN_FILES=10
+```
+
+### MISTRAL_BATCH_TIMEOUT_HOURS
+- **Type:** Integer
+- **Default:** `24`
+- **Description:** Maximum hours to wait for a batch job to complete
+
+```ini
+MISTRAL_BATCH_TIMEOUT_HOURS=24
+```
+
+**Usage:** Programmatically batch process documents:
+```python
+from mistral_converter import create_batch_ocr_file, submit_batch_ocr_job
+files = [Path("doc1.pdf"), Path("doc2.pdf"), ...]
+success, batch_file, _ = create_batch_ocr_file(files, Path("batch.jsonl"))
+success, job_id, _ = submit_batch_ocr_job(batch_file)
+```
+
+---
+
 ## File Upload Management
 
 ### CLEANUP_OLD_UPLOADS
@@ -312,64 +431,6 @@ MISTRAL_ENABLE_DOCUMENT_ANNOTATION=false
 
 ---
 
-## Document QnA
-
-Query documents in natural language using Mistral's chat completion with document_url content type.
-
-### MISTRAL_DOCUMENT_QNA_MODEL
-- **Type:** String
-- **Default:** `"mistral-small-latest"`
-- **Options:** Any Mistral chat model supporting document_url content type
-- **Description:** Model for natural language document queries
-
-```ini
-MISTRAL_DOCUMENT_QNA_MODEL="mistral-small-latest"
-```
-
-**Usage:** Programmatically query documents:
-```python
-from mistral_converter import query_document
-success, answer, error = query_document(
-    "https://example.com/document.pdf",
-    "What is the main topic of this document?"
-)
-```
-
----
-
-## Batch OCR Processing
-
-Process multiple documents at 50% cost reduction using Mistral's Batch API.
-
-### MISTRAL_BATCH_ENABLED
-- **Type:** Boolean
-- **Default:** `true`
-- **Description:** Enable batch OCR processing
-
-```ini
-MISTRAL_BATCH_ENABLED=true
-```
-
-### MISTRAL_BATCH_MIN_FILES
-- **Type:** Integer
-- **Default:** `10`
-- **Description:** Minimum files to recommend batch processing
-- **Recommendation:** Batch is most cost-effective for 10+ files
-
-```ini
-MISTRAL_BATCH_MIN_FILES=10
-```
-
-**Usage:** Programmatically batch process documents:
-```python
-from mistral_converter import create_batch_ocr_file, submit_batch_ocr_job
-files = [Path("doc1.pdf"), Path("doc2.pdf"), ...]
-success, batch_file, _ = create_batch_ocr_file(files, Path("batch.jsonl"))
-success, job_id, _ = submit_batch_ocr_job(batch_file)
-```
-
----
-
 ## Image Processing
 
 ### MISTRAL_ENABLE_IMAGE_OPTIMIZATION
@@ -433,6 +494,51 @@ CAMELOT_MIN_ACCURACY=75.0
 
 ```ini
 CAMELOT_MAX_WHITESPACE=30.0
+```
+
+### CAMELOT_STREAM_SPLIT_TEXT
+- **Type:** Boolean
+- **Default:** `true`
+- **Description:** Split PDFMiner-merged text strings across cell boundaries. Critical for wide financial tables where adjacent columns get merged into a single string by PDFMiner.
+- **Recommendation:** Always keep `true` unless you have a specific reason to disable
+
+```ini
+CAMELOT_STREAM_SPLIT_TEXT=true
+```
+
+### CAMELOT_STREAM_EDGE_TOL
+- **Type:** Integer
+- **Default:** `50`
+- **Description:** Tolerance (in pixels) for extending textedges vertically in stream mode. Controls how aggressively column boundaries are extended to detect table structure.
+- **Higher values:** Detect more columns but may create false column boundaries
+- **Lower values:** More conservative column detection
+
+```ini
+CAMELOT_STREAM_EDGE_TOL=50
+```
+
+### CAMELOT_STREAM_ROW_TOL
+- **Type:** Integer
+- **Default:** `2`
+- **Description:** Tolerance (in pixels) for combining text into the same row. Text within this vertical distance is merged into one row.
+- **Higher values:** Merge more text into single rows (risk losing rows)
+- **Lower values:** More rows detected (risk splitting single rows)
+- **Note:** Camelot default is 2. Previous value of 5 caused row merging issues.
+
+```ini
+CAMELOT_STREAM_ROW_TOL=2
+```
+
+### CAMELOT_STREAM_COLUMN_TOL
+- **Type:** Integer
+- **Default:** `0`
+- **Description:** Tolerance (in pixels) for merging column boundaries. Only boundaries within this distance are combined.
+- **`0` (recommended):** Only merge exactly overlapping column boundaries
+- **Higher values:** More aggressive column merging (risk combining adjacent columns)
+- **Note:** Camelot default is 0. Previous value of 5 caused adjacent month columns (Jan+Feb, Nov+Dec) to merge on tight financial tables.
+
+```ini
+CAMELOT_STREAM_COLUMN_TOL=0
 ```
 
 ---
@@ -577,15 +683,6 @@ VERBOSE_PROGRESS=true
 MAX_CONCURRENT_FILES=5
 ```
 
-### ENABLE_ASYNC_OPERATIONS
-- **Type:** Boolean
-- **Default:** `true`
-- **Description:** Use async file I/O for better performance
-
-```ini
-ENABLE_ASYNC_OPERATIONS=true
-```
-
 ---
 
 ## API Retry Configuration
@@ -689,23 +786,31 @@ ENABLE_BATCH_METADATA=true
 
 ## MarkItDown Settings
 
-### MARKITDOWN_USE_LLM
+### MARKITDOWN_ENABLE_LLM_DESCRIPTIONS
 - **Type:** Boolean
 - **Default:** `false`
-- **Description:** Use OpenAI LLM for enhanced conversions
-- **Requires:** OPENAI_API_KEY
+- **Description:** Use LLM for enhanced image descriptions via Mistral's OpenAI-compatible endpoint
 
 ```ini
-MARKITDOWN_USE_LLM=false
+MARKITDOWN_ENABLE_LLM_DESCRIPTIONS=false
 ```
 
 ### MARKITDOWN_LLM_MODEL
 - **Type:** String
-- **Default:** `"gpt-4-vision-preview"`
-- **Description:** OpenAI model to use (if LLM enabled)
+- **Default:** `"pixtral-large-latest"`
+- **Description:** Vision model for image descriptions (requires LLM descriptions enabled)
 
 ```ini
-MARKITDOWN_LLM_MODEL="gpt-4-vision-preview"
+MARKITDOWN_LLM_MODEL="pixtral-large-latest"
+```
+
+### MARKITDOWN_LLM_PROMPT
+- **Type:** String
+- **Default:** `""` (MarkItDown default)
+- **Description:** Custom prompt for LLM image descriptions
+
+```ini
+MARKITDOWN_LLM_PROMPT=""
 ```
 
 ### MARKITDOWN_ENABLE_PLUGINS
@@ -717,6 +822,24 @@ MARKITDOWN_LLM_MODEL="gpt-4-vision-preview"
 
 ```ini
 MARKITDOWN_ENABLE_PLUGINS=false
+```
+
+### MARKITDOWN_STYLE_MAP
+- **Type:** String
+- **Default:** `""` (no custom mapping)
+- **Description:** DOCX style mapping for mammoth (e.g., `"p[style-name='Custom Heading'] => h2:fresh"`)
+
+```ini
+MARKITDOWN_STYLE_MAP=""
+```
+
+### MARKITDOWN_EXIFTOOL_PATH
+- **Type:** String
+- **Default:** `""` (auto-detect)
+- **Description:** Path to ExifTool binary for EXIF metadata extraction
+
+```ini
+MARKITDOWN_EXIFTOOL_PATH=""
 ```
 
 ### MARKITDOWN_MAX_FILE_SIZE_MB
@@ -750,9 +873,20 @@ LOG_LEVEL=INFO
 # Advanced Configuration (Optional)
 # ============================================================================
 
+# OCR 3 Features
+MISTRAL_TABLE_FORMAT=""
+MISTRAL_EXTRACT_HEADER=true
+MISTRAL_EXTRACT_FOOTER=true
+
 # Table Extraction Quality
 CAMELOT_MIN_ACCURACY=75.0
 CAMELOT_MAX_WHITESPACE=30.0
+
+# Camelot Stream Mode (for tables without grid lines)
+CAMELOT_STREAM_SPLIT_TEXT=true
+CAMELOT_STREAM_EDGE_TOL=50
+CAMELOT_STREAM_ROW_TOL=2
+CAMELOT_STREAM_COLUMN_TOL=0
 
 # PDF to Image
 PDF_IMAGE_FORMAT=png
@@ -761,7 +895,6 @@ PDF_IMAGE_THREAD_COUNT=4
 
 # Performance
 MAX_CONCURRENT_FILES=5
-ENABLE_ASYNC_OPERATIONS=true
 
 # Output
 GENERATE_TXT_OUTPUT=true
@@ -785,6 +918,7 @@ MISTRAL_DOCUMENT_QNA_MODEL=mistral-small-latest
 # Batch OCR (50% cost reduction)
 MISTRAL_BATCH_ENABLED=true
 MISTRAL_BATCH_MIN_FILES=10
+MISTRAL_BATCH_TIMEOUT_HOURS=24
 
 # ============================================================================
 # Windows-Specific Paths
@@ -819,14 +953,17 @@ CACHE_DURATION_HOURS=72  # Longer cache for expensive OCR
 MISTRAL_API_KEY="your_key"
 CAMELOT_MIN_ACCURACY=85.0  # Stricter quality
 CAMELOT_MAX_WHITESPACE=20.0  # Less whitespace tolerance
+CAMELOT_STREAM_SPLIT_TEXT=true  # Critical for wide tables
+CAMELOT_STREAM_COLUMN_TOL=0  # Prevent column merging
 TABLE_OUTPUT_FORMATS=markdown,csv
 ```
 
 ### For Batch Processing (Performance Optimized)
 ```ini
 MISTRAL_API_KEY="your_key"
+MISTRAL_BATCH_ENABLED=true
+MISTRAL_BATCH_MIN_FILES=10
 MAX_CONCURRENT_FILES=10  # More parallel processing
-ENABLE_ASYNC_OPERATIONS=true
 CACHE_DURATION_HOURS=24
 GENERATE_TXT_OUTPUT=false  # Skip txt to save time
 ```
@@ -846,17 +983,39 @@ VERBOSE_PROGRESS=true
 | Variable | Type | Default | Required | Section |
 |----------|------|---------|----------|---------|
 | MISTRAL_API_KEY | string | - | Yes (for OCR) | API Keys |
-| OPENAI_API_KEY | string | - | No | API Keys |
 | MISTRAL_OCR_MODEL | string | mistral-ocr-latest | No | OCR |
 | MISTRAL_DOCUMENT_QNA_MODEL | string | mistral-small-latest | No | Document QnA |
 | MISTRAL_INCLUDE_IMAGES | bool | true | No | OCR |
 | SAVE_MISTRAL_JSON | bool | true | No | OCR |
+| MISTRAL_TABLE_FORMAT | string | "" | No | OCR 3 |
+| MISTRAL_EXTRACT_HEADER | bool | true | No | OCR 3 |
+| MISTRAL_EXTRACT_FOOTER | bool | true | No | OCR 3 |
+| MISTRAL_DOCUMENT_ANNOTATION_PROMPT | string | "" | No | OCR 3 |
+| MISTRAL_IMAGE_LIMIT | int | 0 | No | OCR 3 |
+| MISTRAL_IMAGE_MIN_SIZE | int | 0 | No | OCR 3 |
+| MISTRAL_SIGNED_URL_EXPIRY | int | 1 | No | OCR 3 |
+| MISTRAL_QNA_SYSTEM_PROMPT | string | "" | No | Document QnA |
+| MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT | int | 0 | No | Document QnA |
+| MISTRAL_QNA_DOCUMENT_PAGE_LIMIT | int | 0 | No | Document QnA |
 | MISTRAL_BATCH_ENABLED | bool | true | No | Batch OCR |
 | MISTRAL_BATCH_MIN_FILES | int | 10 | No | Batch OCR |
+| MISTRAL_BATCH_TIMEOUT_HOURS | int | 24 | No | Batch OCR |
 | CLEANUP_OLD_UPLOADS | bool | true | No | File Management |
 | UPLOAD_RETENTION_DAYS | int | 7 | No | File Management |
+| MISTRAL_ENABLE_STRUCTURED_OUTPUT | bool | true | No | Structured Data |
+| MISTRAL_DOCUMENT_SCHEMA_TYPE | string | auto | No | Structured Data |
+| MISTRAL_ENABLE_BBOX_ANNOTATION | bool | false | No | Structured Data |
+| MISTRAL_ENABLE_DOCUMENT_ANNOTATION | bool | false | No | Structured Data |
+| MISTRAL_ENABLE_IMAGE_OPTIMIZATION | bool | true | No | Image Processing |
+| MISTRAL_ENABLE_IMAGE_PREPROCESSING | bool | false | No | Image Processing |
+| MISTRAL_MAX_IMAGE_DIMENSION | int | 2048 | No | Image Processing |
+| MISTRAL_IMAGE_QUALITY_THRESHOLD | int | 70 | No | Image Processing |
 | CAMELOT_MIN_ACCURACY | float | 75.0 | No | Tables |
 | CAMELOT_MAX_WHITESPACE | float | 30.0 | No | Tables |
+| CAMELOT_STREAM_SPLIT_TEXT | bool | true | No | Tables |
+| CAMELOT_STREAM_EDGE_TOL | int | 50 | No | Tables |
+| CAMELOT_STREAM_ROW_TOL | int | 2 | No | Tables |
+| CAMELOT_STREAM_COLUMN_TOL | int | 0 | No | Tables |
 | PDF_IMAGE_FORMAT | string | png | No | PDF to Image |
 | PDF_IMAGE_DPI | int | 200 | No | PDF to Image |
 | PDF_IMAGE_THREAD_COUNT | int | 4 | No | PDF to Image |
@@ -864,17 +1023,25 @@ VERBOSE_PROGRESS=true
 | AUTO_CLEAR_CACHE | bool | true | No | Caching |
 | LOG_LEVEL | string | INFO | No | Logging |
 | MAX_CONCURRENT_FILES | int | 5 | No | Performance |
-| ENABLE_ASYNC_OPERATIONS | bool | true | No | Performance |
 | GENERATE_TXT_OUTPUT | bool | true | No | Output |
 | INCLUDE_METADATA | bool | true | No | Output |
+| TABLE_OUTPUT_FORMATS | string | markdown,csv | No | Output |
+| ENABLE_BATCH_METADATA | bool | true | No | Output |
+| MARKITDOWN_ENABLE_LLM_DESCRIPTIONS | bool | false | No | MarkItDown |
+| MARKITDOWN_LLM_MODEL | string | pixtral-large-latest | No | MarkItDown |
+| MARKITDOWN_LLM_PROMPT | string | "" | No | MarkItDown |
+| MARKITDOWN_ENABLE_PLUGINS | bool | false | No | MarkItDown |
+| MARKITDOWN_STYLE_MAP | string | "" | No | MarkItDown |
+| MARKITDOWN_EXIFTOOL_PATH | string | "" | No | MarkItDown |
+| MARKITDOWN_MAX_FILE_SIZE_MB | int | 100 | No | MarkItDown |
 
 See README.md for complete feature documentation.
 
 ---
 
-**Last Updated:** 2025-12-18  
+**Last Updated:** 2026-02-10
 
-**Version:** 2.1.1
+**Version:** 2.2.0
 
 **Related Documentation:**
 - **[README.md](README.md)** - Complete feature documentation

@@ -257,14 +257,19 @@ def extract_tables_camelot(
             )
         else:
             # Stream mode: better for tables without clear grid lines
+            # NOTE: split_text is critical for wide financial tables where PDFMiner
+            # merges adjacent column values into a single string. column_tol=0 and
+            # row_tol=2 are the camelot defaults; previous values (5, 5) were causing
+            # column pairs to merge on tight-spaced tables.
             table_list = camelot.read_pdf(
                 str(pdf_path),
                 pages='all',
                 flavor='stream',
                 suppress_stdout=True,
-                edge_tol=50,  # Tolerance for detecting table edges
-                row_tol=5,  # Tolerance for detecting rows
-                column_tol=5,  # Tolerance for detecting columns
+                split_text=config.CAMELOT_STREAM_SPLIT_TEXT,
+                edge_tol=config.CAMELOT_STREAM_EDGE_TOL,
+                row_tol=config.CAMELOT_STREAM_ROW_TOL,
+                column_tol=config.CAMELOT_STREAM_COLUMN_TOL,
             )
 
         for table in table_list:
@@ -314,23 +319,41 @@ def extract_tables_camelot(
 
 def _fix_merged_currency_cells(table: List[List[str]]) -> List[List[str]]:
     """
-    Fix cells where multiple currency values are merged into one cell.
+    Fix cells where multiple numeric/currency values are merged into one cell.
 
-    Example: "$ 1,234.56 $ 5,678.90" should be split into two cells.
+    Handles two scenarios:
+    1. Dollar-sign pairs: "$ 1,234.56 $ 5,678.90" → two cells
+    2. Bare number pairs: "153,990.37 (235,497.83)" → two cells
+       (only when the cell contains no letters, to avoid splitting account names)
 
     This commonly happens when Camelot misses a column boundary between
-    the last two columns (e.g., December and Current Balance).
+    adjacent columns in wide financial tables (e.g., January+February,
+    November+December, or Beginning Balance + Account Title).
 
     Args:
         table: Table as list of rows
 
     Returns:
-        Fixed table with currency cells properly split
+        Fixed table with merged value cells properly split
     """
-    # Pattern to detect multiple currency values in one cell
+    # Pattern 1: Two dollar-sign values in one cell
     # Matches: "$ 1,234.56 $ 5,678.90" or "$ (1,234.56) $ (5,678.90)"
     double_currency_pattern = re.compile(
         r'(\$\s*[\(\-]?[\d,]+\.?\d*[\)]?)\s+(\$\s*[\(\-]?[\d,]+\.?\d*[\)]?)'
+    )
+
+    # Pattern 2: Two bare numbers in one cell (no $ sign)
+    # Matches pairs like:
+    #   "153,990.37 (235,497.83)"  — positive + parenthetical negative
+    #   "55,653.50 55,653.50"     — two positive numbers
+    #   "(18,954.54) (31,090.86)" — two parenthetical negatives
+    #   "1,456.33 .00"            — number + zero shorthand
+    #   ".00 .00"                 — two zero shorthands
+    # Each number: optional leading paren/minus, digits with optional commas,
+    # optional decimal portion, optional closing paren.
+    _NUM = r'[\(\-]?\.?\d[\d,]*\.?\d*\)?'
+    double_bare_number_pattern = re.compile(
+        rf'({_NUM})\s+({_NUM})'
     )
 
     fixed_table = []
@@ -342,23 +365,36 @@ def _fix_merged_currency_cells(table: List[List[str]]) -> List[List[str]]:
                 fixed_row.append(cell)
                 continue
 
-            # Check if this cell contains two currency values
+            # Strategy 1: Check for dollar-sign pairs (unambiguous)
             match = double_currency_pattern.search(cell)
-
             if match:
-                # Split on the second $ sign
                 parts = cell.split('$')
-                if len(parts) >= 3:  # First element is before first $, rest after
-                    # Reconstruct as two separate cells
+                if len(parts) >= 3:
                     first_value = '$' + parts[1].strip()
                     second_value = '$' + parts[2].strip()
                     fixed_row.append(first_value)
                     fixed_row.append(second_value)
                     logger.debug(f"Split merged currency cell: '{cell}' → '{first_value}' + '{second_value}'")
-                else:
-                    fixed_row.append(cell)
-            else:
-                fixed_row.append(cell)
+                    continue
+
+            # Strategy 2: Check for bare number pairs (only in numeric-only cells)
+            # Safety: skip cells containing letters to avoid splitting things like
+            # "10201 Cash - Operating 1" or "Fund 5151 E Broadway"
+            cell_stripped = cell.strip()
+            if cell_stripped and not re.search(r'[a-zA-Z]', cell_stripped):
+                bare_match = double_bare_number_pattern.search(cell_stripped)
+                if bare_match:
+                    first_value = bare_match.group(1).strip()
+                    second_value = bare_match.group(2).strip()
+                    # Validate both parts look like real numbers (not just a stray digit)
+                    if (len(first_value) >= 2 or first_value == '.00') and \
+                       (len(second_value) >= 2 or second_value == '.00'):
+                        fixed_row.append(first_value)
+                        fixed_row.append(second_value)
+                        logger.debug(f"Split merged bare number cell: '{cell_stripped}' → '{first_value}' + '{second_value}'")
+                        continue
+
+            fixed_row.append(cell)
 
         fixed_table.append(fixed_row)
 
