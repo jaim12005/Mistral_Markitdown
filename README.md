@@ -12,6 +12,18 @@ A powerful, production-ready document conversion system that combines Microsoft'
 | **[KNOWN_ISSUES.md](KNOWN_ISSUES.md)** | Known issues, limitations, and troubleshooting |
 | **[CONTRIBUTING.md](CONTRIBUTING.md)** | Development setup and contribution guidelines |
 
+## Upstream Alignment (verified)
+
+This repo is aligned to current upstream references:
+- MarkItDown: `v0.1.4` (https://github.com/microsoft/markitdown/releases/tag/v0.1.4)
+- Mistral Python SDK: `v1.12.0` (https://github.com/mistralai/client-python/releases/tag/v1.12.0)
+- Mistral Document AI docs:
+  - Document AI: https://docs.mistral.ai/capabilities/document_ai/
+  - OCR Processor: https://docs.mistral.ai/capabilities/document_ai/basic_ocr
+  - Annotations: https://docs.mistral.ai/capabilities/document_ai/annotations
+  - Document QnA: https://docs.mistral.ai/capabilities/document_ai/document_qna
+  - Batch Inference: https://docs.mistral.ai/capabilities/batch
+
 ## Features
 
 ### Core Capabilities
@@ -25,7 +37,7 @@ A powerful, production-ready document conversion system that combines Microsoft'
 - **Multi-Format Support**: PDF, DOCX, PPTX, XLSX, images, audio/video
 - **Consecutive Duplicate Cleaning**: Removes OCR artifacts like repeated headers automatically
 
-### Advanced Features (NEW in v2.1)
+### Advanced Features (v2.2)
 
 - **Structured Data Extraction**: JSON schema-based extraction for invoices, financial statements, forms
 - **Concurrent Processing**: Thread-pool based batch processing for better performance and throughput

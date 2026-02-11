@@ -1,6 +1,6 @@
 # Known Issues and Limitations
 
-Current known issues, design limitations, and troubleshooting guide for Enhanced Document Converter v2.1.1.
+Current known issues, design limitations, and troubleshooting guide for Enhanced Document Converter v2.2.0.
 
 This document consolidates all troubleshooting information. If you encounter an issue, check here first.
 
@@ -83,7 +83,7 @@ The OCR API returns a comprehensive response including:
 **Impact:** Low - The OCR service works as designed without chat completion parameters.
 
 **References:**
-- [Mistral OCR Documentation](https://docs.mistral.ai/capabilities/document/ocr/)
+- [Mistral OCR Documentation](https://docs.mistral.ai/capabilities/document_ai/basic_ocr/)
 - [Mistral Python SDK - OCR Endpoint](https://github.com/mistralai/client-python)
 
 ---
@@ -240,6 +240,8 @@ Understanding mode capabilities helps avoid common issues:
 | **Mode 6 (Standard Batch)** | Varies | Fast | Simple batch operations, mixed file types |
 | **Mode 7 (PDF to Images)** | $0 | Fast | Page rendering, image extraction, thumbnails |
 | **Mode 8 (System Status)** | $0 | Instant | Monitoring, troubleshooting, cache management |
+| **Mode 9 (Document QnA)** | Mistral API | Interactive | Ask natural-language questions about a document |
+| **Mode 10 (Batch OCR)** | Mistral API (discounted) | Async | Large-volume OCR jobs with Batch API |
 
 ---
 
@@ -347,21 +349,18 @@ If you encounter issues not listed here:
 
 ## Version History
 
-**v2.1.1** (December 2025)
-- Fixed OCR API parameter handling
-- Updated to latest Mistral OCR API response format
-- Added support for WEBP, AVIF, TIFF image formats
-- Added Document QnA capability (natural language document queries)
-- Added Batch OCR processing (50% cost reduction)
-- Enhanced OCR response parsing (dimensions, tables, hyperlinks, header, footer, usage_info)
-- Improved documentation clarity
-- Enhanced error messages
-- Better Windows support
+**v2.2.0** (February 2026)
+- Added OCR 3 controls: table formatting, header/footer extraction, image limits, annotation prompt controls.
+- Added Document QnA mode and Batch OCR mode with job management helpers.
+- Added stronger SSRF validation for Document QnA URL input.
+- Added configurable OCR quality gates and weak-page reprocessing controls.
+- Added expanded test coverage for config, schemas, OCR helpers, and URL validation.
+- Refreshed docs for current Mistral Document AI + SDK behavior.
 
 ---
 
-**Last Updated:** July 2025  
-**Version:** 2.1.1
+**Last Updated:** 2026-02-10  
+**Version:** 2.2.0
 
 **Related Documentation:**
 - **[README.md](README.md)** - Complete feature documentation

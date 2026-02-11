@@ -1,6 +1,6 @@
 # Contributing to Enhanced Document Converter
 
-Thank you for your interest in contributing to Enhanced Document Converter v2.1.1! This document provides guidelines and setup instructions for developers.
+Thank you for your interest in contributing to Enhanced Document Converter v2.2.0! This document provides guidelines and setup instructions for developers.
 
 ## Development Setup
 
@@ -178,8 +178,8 @@ Common fixtures are available in `tests/conftest.py`:
 
 ```
 Mistral_Markitdown/
-├── main.py                  # Main application entry point (8 modes)
-├── config.py                # Configuration management (50+ options)
+├── main.py                  # Main application entry point (10 modes)
+├── config.py                # Configuration management (65+ options)
 ├── local_converter.py       # MarkItDown integration & table extraction
 ├── mistral_converter.py     # Mistral AI OCR integration
 ├── utils.py                 # Utility functions (caching, logging, formatting)
@@ -207,6 +207,8 @@ Mistral_Markitdown/
 │   ├── __init__.py
 │   ├── conftest.py          # Pytest fixtures
 │   ├── test_config.py       # Configuration tests
+│   ├── test_mistral_converter.py  # OCR/QnA/Batch helper tests
+│   ├── test_schemas.py      # Schema validation tests
 │   └── test_utils.py        # Utility function tests
 │
 ├── .github/workflows/       # CI/CD automation
@@ -308,8 +310,8 @@ pre-commit run --all-files
    ```
 4. **Create git tag**
    ```bash
-   git tag -a v2.1.0 -m "Release v2.1.0"
-   git push origin v2.1.0
+   git tag -a v2.2.0 -m "Release v2.2.0"
+   git push origin v2.2.0
    ```
 
 ## Getting Help
@@ -342,7 +344,7 @@ By contributing, you agree that your contributions will be licensed under the sa
 
 Thank you for contributing to Enhanced Document Converter! 🎉
 
-**Version:** 2.1.1
+**Version:** 2.2.0
 
 **Related Documentation:**
 - **[README.md](README.md)** - Complete feature documentation

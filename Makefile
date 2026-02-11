@@ -1,10 +1,10 @@
-# Enhanced Document Converter v2.1.1 - Makefile
+# Enhanced Document Converter v2.2.0 - Makefile
 # Convenience commands for development and testing
 
 .PHONY: help install install-dev test lint format type-check clean run
 
 help:
-	@echo "Enhanced Document Converter v2.1 - Development Commands"
+	@echo "Enhanced Document Converter v2.2 - Development Commands"
 	@echo ""
 	@echo "Available commands:"
 	@echo "  make install      - Install production dependencies"

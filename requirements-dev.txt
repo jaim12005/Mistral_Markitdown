@@ -1,5 +1,5 @@
 # ============================================================================
-# Enhanced Document Converter v2.1 - Development Dependencies
+# Enhanced Document Converter v2.2 - Development Dependencies
 # ============================================================================
 
 # Testing

@@ -1,6 +1,6 @@
 # Dependencies Guide
 
-Complete reference for all dependencies used in Enhanced Document Converter v2.1.1.
+Complete reference for all dependencies used in Enhanced Document Converter v2.2.0.
 
 ## Table of Contents
 
@@ -28,7 +28,7 @@ Provides:
 - ✓ Document QnA (natural language document queries)
 - ✓ Batch OCR (50% cost reduction for bulk processing)
 - ✓ Advanced table extraction
-- ✓ All 8 conversion modes (except audio/YouTube transcription)
+- ✓ All 10 conversion modes (Mode 5 still requires plugin enablement + ffmpeg)
 
 ### Full Installation (All Features)
 
@@ -64,8 +64,8 @@ These are **REQUIRED** for basic operation and are installed via `requirements.t
 
 | Package | Version | Purpose | Documentation |
 |---------|---------|---------|---------------|
-| **markitdown** | ≥0.1.3 | Microsoft's document-to-markdown converter | [GitHub](https://github.com/microsoft/markitdown) |
-| **mistralai** | ≥1.0.0 | Mistral AI SDK for OCR, Document QnA, and Batch API | [Docs](https://docs.mistral.ai) |
+| **markitdown** | ≥0.1.4 | Microsoft's document-to-markdown converter | [GitHub](https://github.com/microsoft/markitdown) |
+| **mistralai** | ≥1.12.0 | Mistral AI SDK for OCR, Document QnA, and Batch API | [Docs](https://docs.mistral.ai) |
 | **python-dotenv** | ≥1.0.0 | Environment variable management | [PyPI](https://pypi.org/project/python-dotenv/) |
 
 **MarkItDown Auto-Installed Dependencies:**
@@ -398,8 +398,8 @@ python -c "from mistralai import Mistral; print('Mistral SDK OK')"
 
 ---
 
-**Last Updated:** 2025-12-18
-**Version:** 2.1.1
+**Last Updated:** 2026-02-10
+**Version:** 2.2.0
 
 **Related Documentation:**
 - **[README.md](README.md)** - Complete feature documentation
