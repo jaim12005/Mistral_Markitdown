@@ -11,6 +11,7 @@ A powerful, production-ready document conversion system that combines Microsoft'
 | **[DEPENDENCIES.md](DEPENDENCIES.md)** | Dependency guide and system requirements |
 | **[KNOWN_ISSUES.md](KNOWN_ISSUES.md)** | Known issues, limitations, and troubleshooting |
 | **[CONTRIBUTING.md](CONTRIBUTING.md)** | Development setup and contribution guidelines |
+| **[INTEGRATION_CONTRACT.md](INTEGRATION_CONTRACT.md)** | Trigger rules and handoff contract for stack integration |
 
 ## Upstream Alignment (verified)
 
