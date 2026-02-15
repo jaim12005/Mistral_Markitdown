@@ -35,9 +35,16 @@ class TestValidateDocumentUrl:
     """Test SSRF prevention in _validate_document_url."""
 
     def test_valid_https_url(self):
-        ok, err = mistral_converter._validate_document_url("https://example.com/doc.pdf")
+        with patch("socket.getaddrinfo", return_value=[(None, None, None, None, ("93.184.216.34", 0))]):
+            ok, err = mistral_converter._validate_document_url("https://example.com/doc.pdf")
         assert ok is True
         assert err is None
+
+    def test_rejects_hostname_resolving_to_loopback(self):
+        with patch("socket.getaddrinfo", return_value=[(None, None, None, None, ("127.0.0.1", 0))]):
+            ok, err = mistral_converter._validate_document_url("https://localtest.me/doc.pdf")
+        assert ok is False
+        assert "internal" in err.lower()
 
     def test_rejects_http(self):
         ok, err = mistral_converter._validate_document_url("http://example.com/doc.pdf")

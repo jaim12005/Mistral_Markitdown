@@ -2,6 +2,8 @@
 Tests for utils.py module
 """
 
+import concurrent.futures
+import json
 import os
 import tempfile
 from pathlib import Path
@@ -87,6 +89,36 @@ class TestIntelligentCache:
         assert stats["cache_hits"] == 1
         assert stats["cache_misses"] == 1
         assert stats["hit_rate"] == 50.0
+
+    def test_hash_memo_is_bounded(self, tmp_path):
+        """Ensure hash memoization does not grow unbounded."""
+        cache = utils.IntelligentCache(cache_dir=tmp_path)
+
+        for i in range(1200):
+            f = tmp_path / f"f-{i}.txt"
+            f.write_text(f"content-{i}")
+            cache._get_file_hash(f)
+
+        assert len(cache._hash_memo) <= cache._hash_memo_max_entries
+
+    def test_cache_set_atomic_under_concurrency(self, tmp_path):
+        """Concurrent writes to same cache key should not produce corrupt JSON."""
+        cache = utils.IntelligentCache(cache_dir=tmp_path)
+        test_file = tmp_path / "shared.txt"
+        test_file.write_text("shared-content")
+
+        def _writer(i: int):
+            cache.set(test_file, {"writer": i, "payload": "x" * 1000}, cache_type="test")
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+            list(ex.map(_writer, range(50)))
+
+        file_hash = cache._get_file_hash(test_file)
+        cache_path = cache._get_cache_path(file_hash, "test")
+        with open(cache_path, "r", encoding="utf-8") as f:
+            parsed = json.load(f)
+        assert parsed.get("type") == "test"
+        assert "data" in parsed
 
 
 class TestMarkdownFormatting:
@@ -231,6 +263,16 @@ class TestYAMLFrontmatter:
 
         assert "page_count: 5" in result
         assert "has_tables: True" in result
+
+    def test_generate_yaml_frontmatter_escapes_quotes(self):
+        """String values should be safely escaped to valid YAML/JSON string form."""
+        result = utils.generate_yaml_frontmatter(
+            title='Report "2026"',
+            file_name="test.pdf",
+            conversion_method="Method",
+        )
+
+        assert 'title: "Report \\"2026\\""' in result
 
     def test_strip_yaml_frontmatter(self):
         """Test frontmatter removal."""

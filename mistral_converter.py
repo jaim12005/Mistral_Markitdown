@@ -158,6 +158,15 @@ def get_retry_config() -> Optional[Any]:
 # ============================================================================
 
 
+def _extract_model_json_schema(pydantic_model: Any) -> Optional[Dict[str, Any]]:
+    """Return JSON schema dict from a Pydantic model across v1/v2 APIs."""
+    if hasattr(pydantic_model, "model_json_schema"):
+        return pydantic_model.model_json_schema()
+    if hasattr(pydantic_model, "schema"):
+        return pydantic_model.schema()
+    return None
+
+
 def get_bbox_annotation_format() -> Optional[Dict[str, Any]]:
     """
     Get schema format for bounding box annotation.
@@ -177,11 +186,11 @@ def get_bbox_annotation_format() -> Optional[Dict[str, Any]]:
     pydantic_model = schemas.get_bbox_pydantic_model()
     if pydantic_model is not None:
         try:
-            # Extract raw JSON schema from Pydantic model
-            # This returns a dict compatible with the OCR API
-            json_schema = pydantic_model.model_json_schema()
-            logger.debug(f"Using Pydantic-derived JSON schema for bbox annotation")
-            return json_schema
+            # Extract raw JSON schema from Pydantic model (v1/v2 compatible)
+            json_schema = _extract_model_json_schema(pydantic_model)
+            if json_schema:
+                logger.debug("Using Pydantic-derived JSON schema for bbox annotation")
+                return json_schema
         except Exception as e:
             logger.debug(f"Could not get JSON schema from Pydantic model: {e}, falling back to predefined schema")
 
@@ -222,11 +231,11 @@ def get_document_annotation_format(doc_type: str = "auto") -> Optional[Dict[str,
     pydantic_model = schemas.get_document_pydantic_model(doc_type)
     if pydantic_model is not None:
         try:
-            # Extract raw JSON schema from Pydantic model
-            # This returns a dict compatible with the OCR API
-            json_schema = pydantic_model.model_json_schema()
-            logger.debug(f"Using Pydantic-derived JSON schema for document annotation (type: {doc_type})")
-            return json_schema
+            # Extract raw JSON schema from Pydantic model (v1/v2 compatible)
+            json_schema = _extract_model_json_schema(pydantic_model)
+            if json_schema:
+                logger.debug(f"Using Pydantic-derived JSON schema for document annotation (type: {doc_type})")
+                return json_schema
         except Exception as e:
             logger.debug(f"Could not get JSON schema from Pydantic model: {e}, falling back to predefined schema")
 
@@ -381,35 +390,50 @@ def cleanup_uploaded_files(client: Mistral, days_old: Optional[int] = None) -> i
         def _cleanup_files_by_purpose(purpose: str) -> int:
             """Delete files older than cutoff_date for a given purpose."""
             deleted = 0
-            try:
-                files_response = client.files.list(purpose=purpose)
-                files_list = files_response.data if hasattr(files_response, 'data') else files_response
-            except Exception as e:
-                logger.debug(f"Error listing {purpose} files for cleanup: {e}")
-                return 0
+            page = 0
+            page_size = 100
 
-            for file in files_list:
+            while True:
                 try:
-                    if not hasattr(file, 'created_at'):
-                        continue
-
-                    if isinstance(file.created_at, str):
-                        file_created = datetime.fromisoformat(file.created_at.replace('Z', '+00:00'))
-                    elif hasattr(file.created_at, 'replace'):
-                        file_created = file.created_at
-                        if file_created.tzinfo is None:
-                            file_created = file_created.replace(tzinfo=timezone.utc)
-                    else:
-                        logger.debug(f"Unexpected created_at type for file {file.id}: {type(file.created_at)}")
-                        continue
-
-                    if file_created < cutoff_date:
-                        client.files.delete(file_id=file.id)
-                        deleted += 1
-                        logger.debug(f"Deleted old {purpose} file: {file.id} (created {file_created})")
+                    files_response = client.files.list(purpose=purpose, page=page, page_size=page_size)
+                    files_list = files_response.data if hasattr(files_response, 'data') else files_response
                 except Exception as e:
-                    logger.debug(f"Error processing {purpose} file {file.id}: {e}")
-                    continue
+                    logger.debug(f"Error listing {purpose} files for cleanup (page {page}): {e}")
+                    break
+
+                if not files_list:
+                    break
+
+                for file in files_list:
+                    try:
+                        if not hasattr(file, 'created_at'):
+                            continue
+
+                        if isinstance(file.created_at, str):
+                            file_created = datetime.fromisoformat(file.created_at.replace('Z', '+00:00'))
+                        elif hasattr(file.created_at, 'replace'):
+                            file_created = file.created_at
+                            if file_created.tzinfo is None:
+                                file_created = file_created.replace(tzinfo=timezone.utc)
+                        else:
+                            logger.debug(f"Unexpected created_at type for file {file.id}: {type(file.created_at)}")
+                            continue
+
+                        if file_created < cutoff_date:
+                            client.files.delete(file_id=file.id)
+                            deleted += 1
+                            logger.debug(f"Deleted old {purpose} file: {file.id} (created {file_created})")
+                    except Exception as e:
+                        logger.debug(f"Error processing {purpose} file {file.id}: {e}")
+                        continue
+
+                total = getattr(files_response, 'total', None)
+                if isinstance(total, int) and total >= 0 and (page + 1) * page_size >= total:
+                    break
+                if len(files_list) < page_size:
+                    break
+                page += 1
+
             return deleted
 
         deleted = _cleanup_files_by_purpose("ocr")
@@ -430,8 +454,8 @@ def upload_file_for_ocr(client: Mistral, file_path: Path) -> Optional[str]:
     Upload file to Mistral using Files API with purpose="ocr" and get signed URL.
 
     For PDFs, this uploads directly. For images, preprocessing is applied first if enabled.
-    Temporary files created during preprocessing are automatically cleaned up after upload.
-    
+    Temporary files created during preprocessing are always cleaned up.
+
     Note: Image preprocessing (optimization/enhancement) only works on individual image files,
     NOT on PDFs. PDFs are processed as-is by Mistral OCR which handles them natively.
 
@@ -442,58 +466,52 @@ def upload_file_for_ocr(client: Mistral, file_path: Path) -> Optional[str]:
     Returns:
         Signed URL if successful, None otherwise
     """
-    # Track temporary files to clean up
-    temp_files_to_cleanup = []
-    
+    temp_files_to_cleanup: List[Path] = []
+
     try:
         # Apply preprocessing to images (if enabled)
         # Note: This does NOT work for PDFs - only for standalone image files
         processed_file_path = file_path
         if file_path.suffix.lower() in ['.png', '.jpg', '.jpeg', '.gif', '.bmp']:
             logger.debug(f"Image file detected: {file_path.suffix}")
-            
+
             # Apply image preprocessing if enabled (contrast, sharpness)
             if config.MISTRAL_ENABLE_IMAGE_PREPROCESSING:
                 preprocessed_path = preprocess_image(file_path)
                 if preprocessed_path and preprocessed_path != file_path:
                     processed_file_path = preprocessed_path
-                    temp_files_to_cleanup.append(preprocessed_path)  # Track for cleanup
+                    temp_files_to_cleanup.append(preprocessed_path)
                     logger.info(f"Image preprocessed: {processed_file_path.name}")
-            
+
             # Apply image optimization if enabled (resize, compress)
             if config.MISTRAL_ENABLE_IMAGE_OPTIMIZATION:
                 optimized_path = optimize_image(processed_file_path)
                 if optimized_path and optimized_path != processed_file_path:
                     processed_file_path = optimized_path
-                    temp_files_to_cleanup.append(optimized_path)  # Track for cleanup
+                    temp_files_to_cleanup.append(optimized_path)
                     logger.info(f"Image optimized: {processed_file_path.name}")
         else:
-            logger.debug(f"PDF/document file - preprocessing skipped (not applicable)")
-        
+            logger.debug("PDF/document file - preprocessing skipped (not applicable)")
+
         logger.info(f"Uploading file to Mistral: {processed_file_path.name}")
 
+        # Stream file object directly (avoids loading full file bytes into memory first).
         with open(processed_file_path, "rb") as f:
-            file_content = f.read()
-
-        # Upload with purpose="ocr"
-        response = client.files.upload(
-            file={
-                "file_name": file_path.name,  # Use original name
-                "content": file_content,
-            },
-            purpose="ocr",  # Critical: Must specify purpose="ocr"
-        )
+            response = client.files.upload(
+                file={
+                    "file_name": file_path.name,  # Use original name
+                    "content": f,
+                },
+                purpose="ocr",  # Critical: Must specify purpose="ocr"
+            )
 
         if not hasattr(response, "id"):
             logger.error("Upload response missing file ID")
-            # Clean up temp files before returning
-            _cleanup_temp_files(temp_files_to_cleanup)
             return None
 
         logger.info(f"File uploaded successfully: {response.id}")
 
         # Get signed URL for the uploaded file
-        # The signed URL is required to process the file with OCR
         signed_url_response = client.files.get_signed_url(
             file_id=response.id,
             expiry=config.MISTRAL_SIGNED_URL_EXPIRY,  # URL expiry in hours
@@ -501,20 +519,16 @@ def upload_file_for_ocr(client: Mistral, file_path: Path) -> Optional[str]:
 
         if hasattr(signed_url_response, "url"):
             logger.debug(f"Got signed URL for file {response.id}")
-            # Clean up temp files after successful upload
-            _cleanup_temp_files(temp_files_to_cleanup)
             return signed_url_response.url
-        else:
-            logger.error("Failed to get signed URL for uploaded file")
-            # Clean up temp files before returning
-            _cleanup_temp_files(temp_files_to_cleanup)
-            return None
+
+        logger.error("Failed to get signed URL for uploaded file")
+        return None
 
     except Exception as e:
         logger.error(f"Error uploading file: {e}")
-        # Clean up temp files on error
-        _cleanup_temp_files(temp_files_to_cleanup)
         return None
+    finally:
+        _cleanup_temp_files(temp_files_to_cleanup)
 
 
 def upload_file_for_ocr_chunk(client: Mistral, file_path: Path) -> Optional[Any]:
@@ -536,12 +550,10 @@ def upload_file_for_ocr_chunk(client: Mistral, file_path: Path) -> Optional[Any]
 
     try:
         with open(file_path, "rb") as f:
-            file_content = f.read()
-
-        response = client.files.upload(
-            file={"file_name": file_path.name, "content": file_content},
-            purpose="ocr",
-        )
+            response = client.files.upload(
+                file={"file_name": file_path.name, "content": f},
+                purpose="ocr",
+            )
 
         if not hasattr(response, "id"):
             return None
@@ -1552,7 +1564,27 @@ def _validate_document_url(url: str) -> Tuple[bool, Optional[str]]:
         Tuple of (is_valid, error_message)
     """
     import ipaddress
+    import socket
     from urllib.parse import urlparse
+
+    def _is_forbidden_address(addr: Any) -> bool:
+        if addr.is_private or addr.is_reserved or addr.is_loopback or addr.is_link_local or addr.is_multicast:
+            return True
+        # IPv6-mapped IPv4 (e.g. ::ffff:127.0.0.1)
+        if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:
+            mapped = addr.ipv4_mapped
+            if mapped.is_private or mapped.is_loopback or mapped.is_reserved or mapped.is_link_local:
+                return True
+        return False
+
+    def _validate_ip_str(ip_str: str, source: str) -> Tuple[bool, Optional[str]]:
+        try:
+            addr = ipaddress.ip_address(ip_str)
+        except ValueError:
+            return True, None
+        if _is_forbidden_address(addr):
+            return False, f"URLs pointing to private/internal networks are not allowed: {source}"
+        return True, None
 
     try:
         parsed = urlparse(url)
@@ -1567,9 +1599,7 @@ def _validate_document_url(url: str) -> Tuple[bool, Optional[str]]:
     if parsed.username or parsed.password:
         return False, "URLs with embedded credentials are not allowed"
 
-    # Reject obviously internal/private hostnames
     hostname = (parsed.hostname or "").lower()
-
     if not hostname:
         return False, "URL must include a hostname"
 
@@ -1586,30 +1616,24 @@ def _validate_document_url(url: str) -> Tuple[bool, Optional[str]]:
     if hostname in blocked_hosts:
         return False, f"URLs pointing to internal hosts are not allowed: {hostname}"
 
-    # Strip IPv6 brackets for ipaddress parsing
-    ip_str = hostname.strip("[]")
+    # Fast path: direct IP literal
+    ok, err = _validate_ip_str(hostname.strip("[]"), hostname)
+    if not ok:
+        return ok, err
 
-    # Check if hostname is an IP address and validate against private/reserved ranges
+    # Defense-in-depth: resolve hostname and reject if any resolved address is internal.
+    # If DNS resolution fails locally, defer handling to the upstream request.
     try:
-        addr = ipaddress.ip_address(ip_str)
-        if addr.is_private:
-            return False, f"URLs pointing to private networks are not allowed: {hostname}"
-        if addr.is_reserved:
-            return False, f"URLs pointing to reserved addresses are not allowed: {hostname}"
-        if addr.is_loopback:
-            return False, f"URLs pointing to loopback addresses are not allowed: {hostname}"
-        if addr.is_link_local:
-            return False, f"URLs pointing to link-local addresses are not allowed: {hostname}"
-        if addr.is_multicast:
-            return False, f"URLs pointing to multicast addresses are not allowed: {hostname}"
-        # IPv6-mapped IPv4 (e.g. ::ffff:127.0.0.1)
-        if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:
-            mapped = addr.ipv4_mapped
-            if mapped.is_private or mapped.is_loopback or mapped.is_reserved or mapped.is_link_local:
-                return False, f"URLs pointing to private/internal networks via IPv4-mapped IPv6 are not allowed: {hostname}"
-    except ValueError:
-        # Not an IP address - hostname string, which is fine
-        pass
+        infos = socket.getaddrinfo(hostname, None, proto=socket.IPPROTO_TCP)
+        resolved_ips = {info[4][0] for info in infos if info and info[4]}
+        for ip in resolved_ips:
+            ok, err = _validate_ip_str(ip, f"{hostname} -> {ip}")
+            if not ok:
+                return ok, err
+    except socket.gaierror:
+        logger.debug(f"Could not resolve hostname during SSRF validation: {hostname}")
+    except Exception as e:
+        logger.debug(f"DNS resolution check skipped for {hostname}: {e}")
 
     return True, None
 

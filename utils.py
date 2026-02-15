@@ -15,8 +15,10 @@ import json
 import logging
 import re
 import sys
+import tempfile
 import threading
 import time
+from collections import OrderedDict
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -92,7 +94,9 @@ class IntelligentCache:
         self.misses = 0
         # In-memory hash cache keyed by (path, mtime_ns, size) to avoid
         # re-reading file contents on every cache lookup.
-        self._hash_memo: Dict[Tuple[str, int, int], str] = {}
+        # Keep this bounded to avoid unbounded growth in long-running processes.
+        self._hash_memo: "OrderedDict[Tuple[str, int, int], str]" = OrderedDict()
+        self._hash_memo_max_entries = 1000
 
     def _get_file_hash(self, file_path: Path) -> str:
         """
@@ -112,8 +116,10 @@ class IntelligentCache:
 
         with self._lock:
             cached_hash = self._hash_memo.get(memo_key)
-        if cached_hash is not None:
-            return cached_hash
+            if cached_hash is not None:
+                # LRU refresh
+                self._hash_memo.move_to_end(memo_key)
+                return cached_hash
 
         hasher = hashlib.sha256()
         with open(file_path, 'rb') as f:
@@ -124,6 +130,9 @@ class IntelligentCache:
 
         with self._lock:
             self._hash_memo[memo_key] = file_hash
+            self._hash_memo.move_to_end(memo_key)
+            while len(self._hash_memo) > self._hash_memo_max_entries:
+                self._hash_memo.popitem(last=False)
         return file_hash
 
     def _get_cache_path(self, file_hash: str, cache_type: str = "ocr") -> Path:
@@ -238,8 +247,19 @@ class IntelligentCache:
                 "metadata": metadata or {},
             }
 
-            with open(cache_path, 'w', encoding='utf-8') as f:
-                json.dump(cache_entry, f, indent=2, ensure_ascii=False)
+            # Atomic write to avoid partial/corrupt cache files under concurrency.
+            # os.replace/Path.replace is atomic on the same filesystem.
+            with tempfile.NamedTemporaryFile(
+                mode='w',
+                encoding='utf-8',
+                dir=str(self.cache_dir),
+                suffix='.tmp',
+                delete=False,
+            ) as tmp_file:
+                json.dump(cache_entry, tmp_file, indent=2, ensure_ascii=False)
+                temp_path = Path(tmp_file.name)
+
+            temp_path.replace(cache_path)
 
             logger.debug(f"Cached result for {file_path.name}")
 
@@ -787,10 +807,11 @@ def generate_yaml_frontmatter(
         metadata.update(additional_fields)
 
     # Build YAML
+    # Use json.dumps for strings so quotes/newlines are escaped safely.
     lines = ["---"]
     for key, value in metadata.items():
         if isinstance(value, str):
-            lines.append(f'{key}: "{value}"')
+            lines.append(f"{key}: {json.dumps(value, ensure_ascii=False)}")
         else:
             lines.append(f'{key}: {value}')
     lines.append("---\n")
