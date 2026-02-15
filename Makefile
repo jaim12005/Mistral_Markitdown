@@ -25,7 +25,7 @@ install-dev:
 	pip install -r requirements-dev.txt
 
 test:
-	pytest tests/ -v --cov=. --cov-report=html --cov-report=term-missing
+	./scripts/test-safe.sh tests/
 
 lint:
 	flake8 *.py
