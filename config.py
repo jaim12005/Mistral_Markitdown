@@ -12,6 +12,7 @@ Documentation references:
 
 import os
 import sys
+from importlib.metadata import version as _pkg_version, PackageNotFoundError
 from pathlib import Path
 from typing import List, Optional
 from dotenv import load_dotenv
@@ -64,7 +65,10 @@ def _safe_float(env_var: str, default: float) -> float:
 # Version (single source of truth)
 # ============================================================================
 
-VERSION = "2.2.0"
+try:
+    VERSION = _pkg_version("mistral-markitdown")
+except PackageNotFoundError:
+    VERSION = "3.0.0"
 
 # ============================================================================
 # Project Paths
@@ -224,6 +228,16 @@ MARKITDOWN_ENABLE_PLUGINS = (
     os.getenv("MARKITDOWN_ENABLE_PLUGINS", "false").lower() == "true"
 )
 
+# Enable/disable built-in converters (v0.1.5+). Disable to selectively re-enable.
+MARKITDOWN_ENABLE_BUILTINS = (
+    os.getenv("MARKITDOWN_ENABLE_BUILTINS", "true").lower() == "true"
+)
+
+# Preserve base64-encoded images from HTML/DOCX/PPTX in Markdown output (v0.1.5+)
+MARKITDOWN_KEEP_DATA_URIS = (
+    os.getenv("MARKITDOWN_KEEP_DATA_URIS", "false").lower() == "true"
+)
+
 # DOCX style mapping for mammoth (e.g., "p[style-name='Custom Heading'] => h2:fresh")
 MARKITDOWN_STYLE_MAP = os.getenv("MARKITDOWN_STYLE_MAP", "")
 
@@ -279,6 +293,10 @@ VERBOSE_PROGRESS = os.getenv("VERBOSE_PROGRESS", "true").lower() == "true"
 
 # Performance
 MAX_CONCURRENT_FILES = _safe_int("MAX_CONCURRENT_FILES", 5)
+
+# API cost guardrails
+MAX_BATCH_FILES = _safe_int("MAX_BATCH_FILES", 100)
+MAX_PAGES_PER_SESSION = _safe_int("MAX_PAGES_PER_SESSION", 1000)
 
 # Document QnA configuration
 MISTRAL_QNA_SYSTEM_PROMPT = os.getenv("MISTRAL_QNA_SYSTEM_PROMPT", "")  # Custom system prompt for QnA
@@ -409,6 +427,7 @@ MARKITDOWN_SUPPORTED = {
     "ipynb", # Jupyter notebooks
     "msg",   # Outlook MSG (requires extract-msg)
     "txt",   # Plain text
+    "rtf",   # Rich Text Format (via plugins)
     "rss",   # RSS feeds
 }
 

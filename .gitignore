@@ -4,9 +4,6 @@ __pycache__/
 *$py.class
 *.so
 .Python
-env/
-venv/
-ENV/
 build/
 develop-eggs/
 dist/
@@ -22,10 +19,12 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+pip-log.txt
 
-# Virtual Environment
+# Virtual environments
 env/
 venv/
+.venv/
 ENV/
 env.bak/
 venv.bak/
@@ -36,13 +35,13 @@ venv.bak/
 *.swp
 *.swo
 *~
-.DS_Store
 
 # Project specific
 .env
 !.env.example
-!.env.template
 *.log
+*.tmp
+*.bak
 cache/
 logs/
 output_md/
@@ -62,5 +61,5 @@ htmlcov/
 docs/_build/
 
 # OS
-Thumbs.db
 .DS_Store
+Thumbs.db

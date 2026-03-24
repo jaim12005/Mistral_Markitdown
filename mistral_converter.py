@@ -57,6 +57,28 @@ logger = utils.logger
 # This ensures .env settings are honored as documented in README.md
 # See: config.OCR_MIN_TEXT_LENGTH, config.OCR_MIN_DIGIT_COUNT, etc.
 
+import threading
+
+_session_pages_processed = 0
+_session_pages_lock = threading.Lock()
+
+
+def _track_pages(count: int) -> None:
+    """Increment the session page counter and warn if approaching the limit."""
+    global _session_pages_processed
+    with _session_pages_lock:
+        _session_pages_processed += count
+        if (
+            config.MAX_PAGES_PER_SESSION > 0
+            and _session_pages_processed >= config.MAX_PAGES_PER_SESSION
+        ):
+            logger.warning(
+                "Session page limit reached (%d/%d). Consider splitting into smaller batches.",
+                _session_pages_processed,
+                config.MAX_PAGES_PER_SESSION,
+            )
+
+
 # ============================================================================
 # Mistral Client Initialization
 # ============================================================================
@@ -167,17 +189,48 @@ def _extract_model_json_schema(pydantic_model: Any) -> Optional[Dict[str, Any]]:
     return None
 
 
-def get_bbox_annotation_format() -> Optional[Dict[str, Any]]:
-    """
-    Get schema format for bounding box annotation.
+def _wrap_response_format(raw_schema: Dict[str, Any], name: str) -> Dict[str, Any]:
+    """Wrap a raw JSON schema dict in the ResponseFormat envelope the OCR API expects.
 
-    IMPORTANT: The OCR API expects raw JSON schema dicts, NOT ResponseFormat objects.
-    ResponseFormat (from response_format_from_pydantic_model) is for chat completion
-    structured outputs only. The OCR endpoint's bbox_annotation_format and
-    document_annotation_format parameters require plain JSON schema dictionaries.
+    The OCR endpoint requires ``bbox_annotation_format`` and
+    ``document_annotation_format`` to be ``ResponseFormat`` objects of the form::
+
+        {
+            "type": "json_schema",
+            "json_schema": {
+                "schema": { ... },
+                "name": "...",
+                "strict": true
+            }
+        }
+
+    Args:
+        raw_schema: The JSON schema dict (e.g. from Pydantic ``model_json_schema()``).
+        name: A short identifier for the schema (e.g. ``"bbox_annotation"``).
 
     Returns:
-        Raw JSON schema dict for bbox annotation, or None if disabled
+        Wrapped ResponseFormat dict ready for the OCR API.
+    """
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "schema": raw_schema,
+            "name": name,
+            "strict": True,
+        },
+    }
+
+
+def get_bbox_annotation_format() -> Optional[Dict[str, Any]]:
+    """
+    Get ResponseFormat for bounding box annotation.
+
+    The OCR API expects a ResponseFormat envelope wrapping the raw JSON schema::
+
+        {"type": "json_schema", "json_schema": {"schema": ..., "name": ..., "strict": true}}
+
+    Returns:
+        ResponseFormat dict for bbox annotation, or None if disabled
     """
     if not config.MISTRAL_ENABLE_BBOX_ANNOTATION:
         return None
@@ -186,27 +239,28 @@ def get_bbox_annotation_format() -> Optional[Dict[str, Any]]:
     pydantic_model = schemas.get_bbox_pydantic_model()
     if pydantic_model is not None:
         try:
-            # Extract raw JSON schema from Pydantic model (v1/v2 compatible)
             json_schema = _extract_model_json_schema(pydantic_model)
             if json_schema:
                 logger.debug("Using Pydantic-derived JSON schema for bbox annotation")
-                return json_schema
+                return _wrap_response_format(json_schema, "bbox_annotation")
         except Exception as e:
             logger.debug(f"Could not get JSON schema from Pydantic model: {e}, falling back to predefined schema")
 
     # Fallback to predefined JSON schema from schemas.py
     bbox_schema = schemas.get_bbox_schema("structured")
-    return bbox_schema.get("schema")
+    raw = bbox_schema.get("schema")
+    if raw:
+        return _wrap_response_format(raw, "bbox_annotation")
+    return None
 
 
 def get_document_annotation_format(doc_type: str = "auto") -> Optional[Dict[str, Any]]:
     """
-    Get schema format for document-level annotation.
+    Get ResponseFormat for document-level annotation.
 
-    IMPORTANT: The OCR API expects raw JSON schema dicts, NOT ResponseFormat objects.
-    ResponseFormat (from response_format_from_pydantic_model) is for chat completion
-    structured outputs only. The OCR endpoint's document_annotation_format parameter
-    requires a plain JSON schema dictionary.
+    The OCR API expects a ResponseFormat envelope wrapping the raw JSON schema::
+
+        {"type": "json_schema", "json_schema": {"schema": ..., "name": ..., "strict": true}}
 
     Args:
         doc_type: Document type (invoice, financial_statement, form, generic, auto).
@@ -216,32 +270,35 @@ def get_document_annotation_format(doc_type: str = "auto") -> Optional[Dict[str,
                   implemented; set the schema type explicitly for best results.
 
     Returns:
-        Raw JSON schema dict for document annotation, or None if disabled
+        ResponseFormat dict for document annotation, or None if disabled
     """
     if not config.MISTRAL_ENABLE_DOCUMENT_ANNOTATION:
         return None
 
-    # Auto-detect based on config if set to auto
     if doc_type == "auto":
         doc_type = config.MISTRAL_DOCUMENT_SCHEMA_TYPE
         if doc_type == "auto":
-            doc_type = "generic"  # Default fallback
+            doc_type = "generic"
+
+    schema_name = f"document_annotation_{doc_type}"
 
     # Try to get JSON schema from Pydantic model (preferred - type-safe)
     pydantic_model = schemas.get_document_pydantic_model(doc_type)
     if pydantic_model is not None:
         try:
-            # Extract raw JSON schema from Pydantic model (v1/v2 compatible)
             json_schema = _extract_model_json_schema(pydantic_model)
             if json_schema:
-                logger.debug(f"Using Pydantic-derived JSON schema for document annotation (type: {doc_type})")
-                return json_schema
+                logger.debug("Using Pydantic-derived JSON schema for document annotation (type: %s)", doc_type)
+                return _wrap_response_format(json_schema, schema_name)
         except Exception as e:
-            logger.debug(f"Could not get JSON schema from Pydantic model: {e}, falling back to predefined schema")
+            logger.debug("Could not get JSON schema from Pydantic model: %s, falling back to predefined schema", e)
 
     # Fallback to predefined JSON schema from schemas.py
     document_schema = schemas.get_document_schema(doc_type)
-    return document_schema.get("schema")
+    raw = document_schema.get("schema")
+    if raw:
+        return _wrap_response_format(raw, schema_name)
+    return None
 
 
 # ============================================================================
@@ -472,7 +529,7 @@ def upload_file_for_ocr(client: Mistral, file_path: Path) -> Optional[str]:
         # Apply preprocessing to images (if enabled)
         # Note: This does NOT work for PDFs - only for standalone image files
         processed_file_path = file_path
-        if file_path.suffix.lower() in ['.png', '.jpg', '.jpeg', '.gif', '.bmp']:
+        if file_path.suffix.lower().lstrip(".") in config.IMAGE_EXTENSIONS:
             logger.debug(f"Image file detected: {file_path.suffix}")
 
             # Apply image preprocessing if enabled (contrast, sharpness)
@@ -493,7 +550,7 @@ def upload_file_for_ocr(client: Mistral, file_path: Path) -> Optional[str]:
         else:
             logger.debug("PDF/document file - preprocessing skipped (not applicable)")
 
-        logger.info(f"Uploading file to Mistral: {processed_file_path.name}")
+        logger.info("Uploading file to Mistral: %s", processed_file_path.name)
 
         # Stream file object directly (avoids loading full file bytes into memory first).
         with open(processed_file_path, "rb") as f:
@@ -509,7 +566,7 @@ def upload_file_for_ocr(client: Mistral, file_path: Path) -> Optional[str]:
             logger.error("Upload response missing file ID")
             return None
 
-        logger.info(f"File uploaded successfully: {response.id}")
+        logger.info("File uploaded successfully: %s", response.id)
 
         # Get signed URL for the uploaded file
         signed_url_response = client.files.get_signed_url(
@@ -597,6 +654,7 @@ def process_with_ocr(
     pages: Optional[List[int]] = None,
     progress_callback: Optional[Callable[[str, float], None]] = None,
     signed_url: Optional[str] = None,
+    ocr_id: Optional[str] = None,
 ) -> Tuple[bool, Optional[Dict[str, Any]], Optional[str]]:
     """
     Process file with Mistral OCR.
@@ -608,6 +666,7 @@ def process_with_ocr(
         pages: Optional specific pages to process (0-indexed)
         progress_callback: Optional callback for progress updates (message, progress_0_to_1)
         signed_url: Optional pre-obtained signed URL (avoids re-uploading for weak page improvement)
+        ocr_id: Optional task identifier for tracking/debugging
 
     Returns:
         Tuple of (success, ocr_result_dict, error_message)
@@ -624,7 +683,7 @@ def process_with_ocr(
         if model is None:
             model = config.get_ocr_model()
 
-        logger.info(f"Processing with Mistral OCR using model: {model}")
+        logger.info("Processing with Mistral OCR using model: %s", model)
 
         _report_progress("Preparing document...", 0.2)
 
@@ -695,6 +754,8 @@ def process_with_ocr(
         }
         
         # Add optional parameters (only those supported by OCR API)
+        if ocr_id is not None:
+            ocr_params["id"] = ocr_id
         if pages is not None:
             ocr_params["pages"] = pages
         
@@ -733,6 +794,7 @@ def process_with_ocr(
                 logger.warning(error_msg)
                 return False, None, error_msg
 
+            _track_pages(len(result.get("pages", [])))
             _report_progress("OCR processing complete", 1.0)
             return True, result, None
         else:
@@ -752,15 +814,172 @@ def process_with_ocr(
         return False, None, error_msg
 
 
+def _extract_page_text(page: Any) -> str:
+    """Extract text content from a single OCR page object."""
+    if hasattr(page, "markdown") and page.markdown:
+        return page.markdown
+    if hasattr(page, "text") and page.text:
+        return page.text
+    if hasattr(page, "content") and page.content:
+        return page.content
+    if isinstance(page, dict):
+        return page.get("markdown", page.get("text", page.get("content", "")))
+    if isinstance(page, str):
+        return page
+    return ""
+
+
+def _parse_page_object(page: Any, idx: int) -> Dict[str, Any]:
+    """Parse a single OCR page object into a standardised dict."""
+    raw_text = _extract_page_text(page)
+    page_text = utils.clean_consecutive_duplicates(raw_text)
+
+    api_index = getattr(page, "index", None)
+    if api_index is None and isinstance(page, dict):
+        api_index = page.get("index")
+    if api_index is None:
+        api_index = idx + 1
+
+    page_data: Dict[str, Any] = {
+        "page_number": api_index,
+        "text": page_text,
+        "images": [],
+        "dimensions": None,
+        "tables": [],
+        "hyperlinks": [],
+        "header": None,
+        "footer": None,
+    }
+
+    # Images
+    if hasattr(page, "images") and page.images:
+        for img in page.images:
+            page_data["images"].append({
+                "id": getattr(img, "id", None),
+                "top_left_x": getattr(img, "top_left_x", None),
+                "top_left_y": getattr(img, "top_left_y", None),
+                "bottom_right_x": getattr(img, "bottom_right_x", None),
+                "bottom_right_y": getattr(img, "bottom_right_y", None),
+                "bbox": getattr(img, "bbox", None),
+                "base64": (
+                    getattr(img, "image_base64", None) or getattr(img, "base64", None)
+                ) if config.MISTRAL_INCLUDE_IMAGES else None,
+            })
+
+    # Dimensions
+    if hasattr(page, "dimensions") and page.dimensions:
+        dims = page.dimensions
+        page_data["dimensions"] = {
+            "dpi": getattr(dims, "dpi", None),
+            "height": getattr(dims, "height", None),
+            "width": getattr(dims, "width", None),
+        }
+
+    # Tables
+    if hasattr(page, "tables") and page.tables:
+        page_data["tables"] = [
+            t.model_dump() if hasattr(t, "model_dump") else t for t in page.tables
+        ]
+
+    # Hyperlinks
+    if hasattr(page, "hyperlinks") and page.hyperlinks:
+        page_data["hyperlinks"] = [
+            h.model_dump() if hasattr(h, "model_dump") else h for h in page.hyperlinks
+        ]
+
+    # Header / footer
+    if hasattr(page, "header") and page.header:
+        page_data["header"] = page.header
+    if hasattr(page, "footer") and page.footer:
+        page_data["footer"] = page.footer
+
+    return page_data
+
+
+def _parse_pages_response(response: Any, result: Dict[str, Any]) -> None:
+    """Parse a multi-page OCR response (``response.pages``) into *result*."""
+    for idx, page in enumerate(response.pages):
+        page_data = _parse_page_object(page, idx)
+        result["pages"].append(page_data)
+        if page_data["text"]:
+            result["full_text"] += page_data["text"] + "\n\n"
+
+
+def _parse_single_text_response(text: str, result: Dict[str, Any]) -> None:
+    """Handle responses that carry a single text field (markdown / text / content)."""
+    cleaned = utils.clean_consecutive_duplicates(text)
+    result["full_text"] = cleaned
+    result["pages"].append({"page_number": 1, "text": cleaned, "images": []})
+
+
+def _parse_dict_response(response: dict, result: Dict[str, Any]) -> None:
+    """Handle responses that arrive as plain Python dicts."""
+    if "pages" in response:
+        for idx, page in enumerate(response["pages"]):
+            page_text = page.get("markdown", page.get("text", page.get("content", "")))
+            page_text = utils.clean_consecutive_duplicates(page_text)
+            result["pages"].append({
+                "page_number": page.get("index", idx + 1),
+                "text": page_text,
+                "images": page.get("images", []),
+            })
+            if page_text:
+                result["full_text"] += page_text + "\n\n"
+    else:
+        text = response.get("markdown", response.get("text", ""))
+        if text:
+            _parse_single_text_response(text, result)
+
+
+def _extract_structured_outputs(response: Any, result: Dict[str, Any]) -> None:
+    """Extract bbox_annotations and document_annotation from the response."""
+    if hasattr(response, "bbox_annotations") and response.bbox_annotations:
+        result["bbox_annotations"] = [
+            bbox.model_dump() if hasattr(bbox, "model_dump") else bbox
+            for bbox in response.bbox_annotations
+        ]
+
+    if hasattr(response, "document_annotation") and response.document_annotation:
+        annotation = response.document_annotation
+        if isinstance(annotation, str):
+            try:
+                result["document_annotation"] = json.loads(annotation)
+            except (json.JSONDecodeError, TypeError):
+                result["document_annotation"] = annotation
+        elif hasattr(annotation, "model_dump"):
+            result["document_annotation"] = annotation.model_dump()
+        else:
+            result["document_annotation"] = annotation
+
+
+def _extract_response_metadata(response: Any, result: Dict[str, Any]) -> None:
+    """Extract metadata, usage_info, and model from the response."""
+    if hasattr(response, "metadata"):
+        result["metadata"] = response.metadata
+    elif isinstance(response, dict) and "metadata" in response:
+        result["metadata"] = response["metadata"]
+
+    if hasattr(response, "usage_info") and response.usage_info:
+        usage = response.usage_info
+        result["usage_info"] = {
+            "pages_processed": getattr(usage, "pages_processed", None),
+            "doc_size_bytes": getattr(usage, "doc_size_bytes", None),
+        }
+    elif isinstance(response, dict) and "usage_info" in response:
+        result["usage_info"] = response["usage_info"]
+
+    if hasattr(response, "model") and response.model:
+        result["model"] = response.model
+    elif isinstance(response, dict) and "model" in response:
+        result["model"] = response["model"]
+
+
 def _parse_ocr_response(response: Any, file_path: Path) -> Dict[str, Any]:
     """
     Parse OCR response into structured dictionary.
 
-    Handles the full OCR response format including:
-    - pages: List of OCRPageObject with markdown, images, dimensions, tables, etc.
-    - usage_info: pages_processed, doc_size_bytes
-    - document_annotation: Structured output if document_annotation_format was provided
-    - model: The model used for OCR
+    Delegates to focused helpers for pages, single-text, dict, annotations
+    and metadata extraction.
 
     Args:
         response: Mistral OCR response
@@ -769,244 +988,41 @@ def _parse_ocr_response(response: Any, file_path: Path) -> Dict[str, Any]:
     Returns:
         Parsed OCR result
     """
-    result = {
+    result: Dict[str, Any] = {
         "file_name": file_path.name,
         "pages": [],
         "full_text": "",
         "images": [],
         "metadata": {},
-        "bbox_annotations": [],  # Structured bounding box data
-        "document_annotation": None,  # Structured document-level data
-        "usage_info": {},  # NEW: OCR usage information
-        "model": None,  # NEW: Model used for OCR
+        "bbox_annotations": [],
+        "document_annotation": None,
+        "usage_info": {},
+        "model": None,
     }
 
     try:
-        # Extract structured outputs if present
-        if hasattr(response, "bbox_annotations") and response.bbox_annotations:
-            result["bbox_annotations"] = [
-                bbox.model_dump() if hasattr(bbox, "model_dump") else bbox
-                for bbox in response.bbox_annotations
-            ]
-            logger.debug(
-                f"Extracted {len(result['bbox_annotations'])} bbox annotations"
-            )
+        _extract_structured_outputs(response, result)
 
-        if hasattr(response, "document_annotation") and response.document_annotation:
-            result["document_annotation"] = (
-                response.document_annotation.model_dump()
-                if hasattr(response.document_annotation, "model_dump")
-                else response.document_annotation
-            )
-            logger.debug("Extracted document annotation")
-        # Try different response formats
-        # Format 1: response.pages (list of page objects)
         if hasattr(response, "pages") and response.pages:
-            logger.debug(f"Found {len(response.pages)} pages in response")
-
-            for idx, page in enumerate(response.pages):
-                # Try different text attributes (markdown is the primary one for Mistral OCR)
-                page_text = ""
-
-                if hasattr(page, "markdown") and page.markdown:
-                    page_text = page.markdown
-                elif hasattr(page, "text") and page.text:
-                    page_text = page.text
-                elif hasattr(page, "content") and page.content:
-                    page_text = page.content
-                elif isinstance(page, dict):
-                    page_text = page.get(
-                        "markdown", page.get("text", page.get("content", ""))
-                    )
-                elif isinstance(page, str):
-                    page_text = page
-
-                # Apply cleaning to remove consecutive duplicate lines (OCR artifacts)
-                original_length = len(page_text)
-                page_text = utils.clean_consecutive_duplicates(page_text)
-                cleaned_length = len(page_text)
-
-                if cleaned_length < original_length:
-                    reduction = original_length - cleaned_length
-                    logger.debug(
-                        f"Page {idx}: Cleaned {reduction} chars of consecutive duplicates."
-                    )
-
-                logger.debug(f"Page {idx}: {len(page_text)} chars extracted")
-
-                page_data = {
-                    # Enforce standardized 0-based index instead of relying on OCR metadata
-                    "page_number": idx,
-                    "text": page_text,
-                    "images": [],
-                    # NEW: Additional page metadata from updated API
-                    "dimensions": None,
-                    "tables": [],
-                    "hyperlinks": [],
-                    "header": None,
-                    "footer": None,
-                }
-
-                # Extract images from page
-                if hasattr(page, "images") and page.images:
-                    logger.debug(f"Page {idx} has {len(page.images)} images")
-                    for img in page.images:
-                        image_data = {
-                            "id": getattr(img, "id", None),  # NEW: image ID
-                            "top_left_x": getattr(img, "top_left_x", None),  # NEW: position
-                            "top_left_y": getattr(img, "top_left_y", None),
-                            "bottom_right_x": getattr(img, "bottom_right_x", None),
-                            "bottom_right_y": getattr(img, "bottom_right_y", None),
-                            "bbox": getattr(img, "bbox", None),  # Legacy format
-                            "base64": getattr(img, "image_base64", None) or getattr(img, "base64", None)
-                            if config.MISTRAL_INCLUDE_IMAGES
-                            else None,
-                        }
-                        page_data["images"].append(image_data)
-
-                # NEW: Extract dimensions (dpi, height, width)
-                if hasattr(page, "dimensions") and page.dimensions:
-                    dims = page.dimensions
-                    page_data["dimensions"] = {
-                        "dpi": getattr(dims, "dpi", None),
-                        "height": getattr(dims, "height", None),
-                        "width": getattr(dims, "width", None),
-                    }
-                    logger.debug(f"Page {idx} dimensions: {page_data['dimensions']}")
-
-                # NEW: Extract tables from page
-                if hasattr(page, "tables") and page.tables:
-                    page_data["tables"] = [
-                        t.model_dump() if hasattr(t, "model_dump") else t
-                        for t in page.tables
-                    ]
-                    logger.debug(f"Page {idx} has {len(page_data['tables'])} tables")
-
-                # NEW: Extract hyperlinks from page
-                if hasattr(page, "hyperlinks") and page.hyperlinks:
-                    page_data["hyperlinks"] = [
-                        h.model_dump() if hasattr(h, "model_dump") else h
-                        for h in page.hyperlinks
-                    ]
-                    logger.debug(f"Page {idx} has {len(page_data['hyperlinks'])} hyperlinks")
-
-                # NEW: Extract header and footer
-                if hasattr(page, "header") and page.header:
-                    page_data["header"] = page.header
-                if hasattr(page, "footer") and page.footer:
-                    page_data["footer"] = page.footer
-
-                result["pages"].append(page_data)
-                if page_text:
-                    result["full_text"] += page_text + "\n\n"
-
-        # Format 2: response.markdown (Mistral OCR format)
+            _parse_pages_response(response, result)
         elif hasattr(response, "markdown") and response.markdown:
-            cleaned_text = utils.clean_consecutive_duplicates(response.markdown)
-            result["full_text"] = cleaned_text
-            result["pages"].append(
-                {
-                    "page_number": 0,
-                    "text": cleaned_text,
-                    "images": [],
-                }
-            )
-
-        # Format 3: response.text (direct text)
+            _parse_single_text_response(response.markdown, result)
         elif hasattr(response, "text") and response.text:
-            cleaned_text = utils.clean_consecutive_duplicates(response.text)
-            result["full_text"] = cleaned_text
-            result["pages"].append(
-                {
-                    "page_number": 0,
-                    "text": cleaned_text,
-                    "images": [],
-                }
-            )
-
-        # Format 4: response.content
+            _parse_single_text_response(response.text, result)
         elif hasattr(response, "content") and response.content:
-            cleaned_text = utils.clean_consecutive_duplicates(response.content)
-            result["full_text"] = cleaned_text
-            result["pages"].append(
-                {
-                    "page_number": 0,
-                    "text": cleaned_text,
-                    "images": [],
-                }
-            )
-
-        # Format 5: response as dict
+            _parse_single_text_response(response.content, result)
         elif isinstance(response, dict):
-            if "pages" in response:
-                for idx, page in enumerate(response["pages"]):
-                    page_text = page.get(
-                        "markdown", page.get("text", page.get("content", ""))
-                    )
-                    # Apply cleaning to dict-based pages
-                    page_text = utils.clean_consecutive_duplicates(page_text)
-                    result["pages"].append(
-                        {
-                            "page_number": idx,  # Standardized numbering
-                            "text": page_text,
-                            "images": page.get("images", []),
-                        }
-                    )
-                    if page_text:
-                        result["full_text"] += page_text + "\n\n"
-            elif "markdown" in response:
-                cleaned_text = utils.clean_consecutive_duplicates(response["markdown"])
-                result["full_text"] = cleaned_text
-                result["pages"].append(
-                    {
-                        "page_number": 0,
-                        "text": cleaned_text,
-                        "images": [],
-                    }
-                )
-            elif "text" in response:
-                cleaned_text = utils.clean_consecutive_duplicates(response["text"])
-                result["full_text"] = cleaned_text
-                result["pages"].append(
-                    {
-                        "page_number": 0,
-                        "text": cleaned_text,
-                        "images": [],
-                    }
-                )
+            _parse_dict_response(response, result)
 
-        # Extract metadata
-        if hasattr(response, "metadata"):
-            result["metadata"] = response.metadata
-        elif isinstance(response, dict) and "metadata" in response:
-            result["metadata"] = response["metadata"]
+        _extract_response_metadata(response, result)
 
-        # NEW: Extract usage_info (pages_processed, doc_size_bytes)
-        if hasattr(response, "usage_info") and response.usage_info:
-            usage = response.usage_info
-            result["usage_info"] = {
-                "pages_processed": getattr(usage, "pages_processed", None),
-                "doc_size_bytes": getattr(usage, "doc_size_bytes", None),
-            }
-            logger.debug(f"Usage info: {result['usage_info']}")
-        elif isinstance(response, dict) and "usage_info" in response:
-            result["usage_info"] = response["usage_info"]
-
-        # NEW: Extract model used for OCR
-        if hasattr(response, "model") and response.model:
-            result["model"] = response.model
-            logger.debug(f"OCR model: {result['model']}")
-        elif isinstance(response, dict) and "model" in response:
-            result["model"] = response["model"]
-
-        # Log final result
         logger.debug(
-            f"Extracted {len(result['pages'])} pages, {len(result['full_text'])} chars"
+            "Extracted %d pages, %d chars", len(result["pages"]), len(result["full_text"])
         )
 
     except Exception as e:
-        logger.error(f"Error parsing OCR response: {e}")
-        logger.debug(f"Traceback: {traceback.format_exc()}")
+        logger.error("Error parsing OCR response: %s", e)
+        logger.debug("Traceback: %s", traceback.format_exc())
 
     return result
 
@@ -1220,26 +1236,33 @@ def improve_weak_pages(
         logger.warning(f"Failed to pre-upload for weak pages: {e}")
         # Continue anyway, process_with_ocr will handle upload individually if needed
 
-    # Re-OCR weak pages
-    for page_idx in weak_pages:
+    # Re-OCR weak pages concurrently for faster improvement
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    def _improve_page(page_idx: int) -> Tuple[int, Optional[Dict[str, Any]]]:
+        """Re-OCR a single page; returns (page_idx, improved_page_data) or (page_idx, None)."""
         try:
-            success, improved_result, error = process_with_ocr(
+            ok, improved_result, _ = process_with_ocr(
                 client, file_path, model=model, pages=[page_idx], signed_url=signed_url
             )
-
-            if success and improved_result:
-                # Replace weak page with improved result
-                if improved_result.get("pages") and len(improved_result["pages"]) > 0:
-                    improved_page = improved_result["pages"][0]
-
-                    if len(improved_page.get("text", "")) > len(
-                        ocr_result["pages"][page_idx].get("text", "")
-                    ):
-                        logger.info(f"Improved page {page_idx + 1}")
-                        ocr_result["pages"][page_idx] = improved_page
-
+            if ok and improved_result and improved_result.get("pages"):
+                return page_idx, improved_result["pages"][0]
         except Exception as e:
-            logger.warning(f"Error improving page {page_idx + 1}: {e}")
+            logger.warning("Error improving page %d: %s", page_idx + 1, e)
+        return page_idx, None
+
+    max_workers = min(len(weak_pages), config.MAX_CONCURRENT_FILES)
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(_improve_page, idx): idx for idx in weak_pages}
+        for future in as_completed(futures):
+            page_idx, improved_page = future.result()
+            if improved_page is None:
+                continue
+            original_len = len(ocr_result["pages"][page_idx].get("text", ""))
+            improved_len = len(improved_page.get("text", ""))
+            if improved_len > original_len:
+                logger.info("Improved page %d", page_idx + 1)
+                ocr_result["pages"][page_idx] = improved_page
 
     # Rebuild full text
     ocr_result["full_text"] = "\n\n".join(
@@ -1277,7 +1300,7 @@ def save_extracted_images(ocr_result: Dict[str, Any], file_path: Path) -> List[P
     image_count = 0
 
     for page in ocr_result.get("pages", []):
-        page_num = page.get("page_number", 0)
+        page_num = page.get("page_number", 1)
 
         for img in page.get("images", []):
             image_base64 = img.get("base64")
@@ -1514,12 +1537,10 @@ def _create_markdown_output(file_path: Path, ocr_result: Dict[str, Any]) -> Path
             f"## OCR Content ({total_pages} page{'s' if total_pages != 1 else ''})\n\n"
         )
 
-        # Iterate directly over pages. Since page_number is standardized to 0-based index in _parse_ocr_response,
-        # we just need to add 1 for 1-based display (Page 1, Page 2, etc.)
+        # page_number is now preserved as the API's 1-based index
         for page in ocr_result["pages"]:
             text = page.get("text", "")
-            # Display as 1-based index using the standardized 0-based page_number
-            display_page_num = page.get("page_number", 0) + 1
+            display_page_num = page.get("page_number", 1)
 
             md_content += f"### Page {display_page_num}\n\n"
             md_content += text

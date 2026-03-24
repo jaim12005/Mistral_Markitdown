@@ -74,12 +74,12 @@ def sample_ocr_result():
         "file_name": "test.pdf",
         "pages": [
             {
-                "page_number": 0,
+                "page_number": 1,
                 "text": "Sample page 1 text with multiple words and numbers 123 456.",
                 "images": [],
             },
             {
-                "page_number": 1,
+                "page_number": 2,
                 "text": "Sample page 2 text with more content and data 789 012.",
                 "images": [],
             },

@@ -1,5 +1,5 @@
 # ============================================================================
-# Enhanced Document Converter v2.2.0 - Core Dependencies
+# Enhanced Document Converter - Core Dependencies
 # ============================================================================
 # This file contains REQUIRED dependencies for the converter to function.
 # For OPTIONAL MarkItDown features, see requirements-optional.txt
@@ -13,7 +13,7 @@
 # MarkItDown - Microsoft's document-to-markdown converter
 # Includes: PDF, DOCX, PPTX, XLSX, HTML, images, and more
 # Core dependencies (beautifulsoup4, requests, etc.) are auto-installed
-markitdown[all]>=0.1.4
+markitdown[all]>=0.1.5
 
 # Mistral AI SDK - For OCR and document AI capabilities
 mistralai>=1.12.0

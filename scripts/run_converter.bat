@@ -1,12 +1,12 @@
 @echo off
-REM Enhanced Document Converter v2.1 - Windows Quick Start Script
+REM Enhanced Document Converter - Windows Quick Start Script
 REM This script sets up the virtual environment, installs dependencies,
 REM and launches the document converter.
 
 setlocal enabledelayedexpansion
 
 echo ============================================================
-echo   Enhanced Document Converter v2.1 - Setup and Launch
+echo   Enhanced Document Converter - Setup and Launch
 echo ============================================================
 echo.
 

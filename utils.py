@@ -207,6 +207,15 @@ class IntelligentCache:
             with self._lock:
                 self.misses += 1
             return None
+        except json.JSONDecodeError:
+            logger.warning(f"Corrupt cache file, removing: {cache_path}")
+            try:
+                cache_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            with self._lock:
+                self.misses += 1
+            return None
         except Exception as e:
             logger.warning(f"Error reading cache for {file_path.name}: {e}")
             with self._lock:

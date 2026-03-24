@@ -222,7 +222,7 @@ INVOICE_DOCUMENT_SCHEMA: Dict[str, Any] = {
         },
         "vendor": {
             "type": "object",
-    "additionalProperties": False,
+            "additionalProperties": False,
             "properties": {
                 "name": {"type": "string", "description": "Vendor name"},
                 "address": {"type": "string", "description": "Vendor address"},
@@ -233,7 +233,7 @@ INVOICE_DOCUMENT_SCHEMA: Dict[str, Any] = {
         },
         "customer": {
             "type": "object",
-    "additionalProperties": False,
+            "additionalProperties": False,
             "properties": {
                 "name": {"type": "string", "description": "Customer name"},
                 "address": {"type": "string", "description": "Customer address"},
@@ -242,7 +242,7 @@ INVOICE_DOCUMENT_SCHEMA: Dict[str, Any] = {
         },
         "invoice_details": {
             "type": "object",
-    "additionalProperties": False,
+            "additionalProperties": False,
             "properties": {
                 "invoice_number": {"type": "string", "description": "Invoice number"},
                 "invoice_date": {
@@ -261,7 +261,7 @@ INVOICE_DOCUMENT_SCHEMA: Dict[str, Any] = {
             "type": "array",
             "items": {
                 "type": "object",
-    "additionalProperties": False,
+                "additionalProperties": False,
                 "properties": {
                     "description": {"type": "string"},
                     "quantity": {"type": "number"},
@@ -275,7 +275,7 @@ INVOICE_DOCUMENT_SCHEMA: Dict[str, Any] = {
         },
         "totals": {
             "type": "object",
-    "additionalProperties": False,
+            "additionalProperties": False,
             "properties": {
                 "subtotal": {"type": "number", "description": "Subtotal before tax"},
                 "tax": {"type": "number", "description": "Total tax amount"},
@@ -308,7 +308,7 @@ FINANCIAL_STATEMENT_SCHEMA: Dict[str, Any] = {
         },
         "company": {
             "type": "object",
-    "additionalProperties": False,
+            "additionalProperties": False,
             "properties": {
                 "name": {"type": "string"},
                 "registration_number": {"type": "string"},
@@ -318,7 +318,7 @@ FINANCIAL_STATEMENT_SCHEMA: Dict[str, Any] = {
         },
         "period": {
             "type": "object",
-    "additionalProperties": False,
+            "additionalProperties": False,
             "properties": {
                 "start_date": {
                     "type": "string",
@@ -336,7 +336,7 @@ FINANCIAL_STATEMENT_SCHEMA: Dict[str, Any] = {
             "type": "array",
             "items": {
                 "type": "object",
-    "additionalProperties": False,
+                "additionalProperties": False,
                 "properties": {
                     "account_number": {"type": "string"},
                     "account_name": {"type": "string"},
@@ -354,7 +354,7 @@ FINANCIAL_STATEMENT_SCHEMA: Dict[str, Any] = {
         },
         "totals": {
             "type": "object",
-    "additionalProperties": False,
+            "additionalProperties": False,
             "properties": {
                 "total_assets": {"type": "number"},
                 "total_liabilities": {"type": "number"},
@@ -393,7 +393,7 @@ FORM_DOCUMENT_SCHEMA: Dict[str, Any] = {
             "type": "array",
             "items": {
                 "type": "object",
-    "additionalProperties": False,
+                "additionalProperties": False,
                 "properties": {
                     "field_name": {"type": "string"},
                     "field_type": {
@@ -418,7 +418,7 @@ FORM_DOCUMENT_SCHEMA: Dict[str, Any] = {
             "type": "array",
             "items": {
                 "type": "object",
-    "additionalProperties": False,
+                "additionalProperties": False,
                 "properties": {
                     "signer_name": {"type": "string"},
                     "title": {"type": "string"},
@@ -430,7 +430,7 @@ FORM_DOCUMENT_SCHEMA: Dict[str, Any] = {
         },
         "dates": {
             "type": "object",
-    "additionalProperties": False,
+            "additionalProperties": False,
             "properties": {
                 "submission_date": {"type": "string"},
                 "effective_date": {"type": "string"},
@@ -461,7 +461,7 @@ GENERIC_DOCUMENT_SCHEMA: Dict[str, Any] = {
             "type": "array",
             "items": {
                 "type": "object",
-    "additionalProperties": False,
+                "additionalProperties": False,
                 "properties": {
                     "heading": {"type": "string"},
                     "level": {"type": "integer", "description": "Heading level (1-6)"},
@@ -478,7 +478,7 @@ GENERIC_DOCUMENT_SCHEMA: Dict[str, Any] = {
             "type": "array",
             "items": {
                 "type": "object",
-    "additionalProperties": False,
+                "additionalProperties": False,
                 "properties": {
                     "caption": {"type": "string"},
                     "rows": {"type": "integer"},
@@ -495,7 +495,7 @@ GENERIC_DOCUMENT_SCHEMA: Dict[str, Any] = {
             "type": "array",
             "items": {
                 "type": "object",
-    "additionalProperties": False,
+                "additionalProperties": False,
                 "properties": {
                     "caption": {"type": "string"},
                     "type": {
@@ -509,7 +509,7 @@ GENERIC_DOCUMENT_SCHEMA: Dict[str, Any] = {
         },
         "metadata": {
             "type": "object",
-    "additionalProperties": False,
+            "additionalProperties": False,
             "properties": {
                 "language": {"type": "string"},
                 "page_count": {"type": "integer"},
@@ -552,7 +552,7 @@ BBOX_STRUCTURED_SCHEMA: Dict[str, Any] = {
         "language": {"type": "string", "description": "Detected language"},
         "formatting": {
             "type": "object",
-    "additionalProperties": False,
+            "additionalProperties": False,
             "properties": {
                 "bold": {"type": "boolean"},
                 "italic": {"type": "boolean"},
@@ -563,7 +563,7 @@ BBOX_STRUCTURED_SCHEMA: Dict[str, Any] = {
         },
         "table_structure": {
             "type": "object",
-    "additionalProperties": False,
+            "additionalProperties": False,
             "properties": {
                 "rows": {"type": "integer"},
                 "columns": {"type": "integer"},
@@ -573,7 +573,7 @@ BBOX_STRUCTURED_SCHEMA: Dict[str, Any] = {
         },
         "metadata": {
             "type": "object",
-    "additionalProperties": False,
+            "additionalProperties": False,
             "properties": {
                 "page_number": {"type": "integer"},
                 "position": {

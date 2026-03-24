@@ -1,6 +1,6 @@
 # Contributing to Enhanced Document Converter
 
-Thank you for your interest in contributing to Enhanced Document Converter v2.2.0! This document provides guidelines and setup instructions for developers.
+Thank you for your interest in contributing to Enhanced Document Converter! This document provides guidelines and setup instructions for developers.
 
 ## Development Setup
 
@@ -37,7 +37,7 @@ make check
 **Note on Optional Dependencies:**
 - `requirements-optional.txt` contains MarkItDown plugin features (audio, YouTube, Azure)
 - Only install if you're working on features that require these capabilities
-- See [DEPENDENCIES.md](DEPENDENCIES.md) for details
+- See [README.md](README.md) and [CONFIGURATION.md](CONFIGURATION.md) for details
 
 ## Development Workflow
 
@@ -178,7 +178,7 @@ Common fixtures are available in `tests/conftest.py`:
 
 ```
 Mistral_Markitdown/
-├── main.py                  # Main application entry point (10 modes)
+├── main.py                  # Main application entry point: Convert (Smart), Convert (MarkItDown), Convert (Mistral OCR), PDF to Images, Document QnA, Batch OCR, System Status
 ├── config.py                # Configuration management (65+ options)
 ├── local_converter.py       # MarkItDown integration & table extraction
 ├── mistral_converter.py     # Mistral AI OCR integration
@@ -190,15 +190,13 @@ Mistral_Markitdown/
 ├── requirements-dev.txt     # Development dependencies (testing, linting)
 │
 ├── README.md                # Complete user guide
-├── QUICKSTART.md            # 5-minute getting started guide
 ├── CONFIGURATION.md         # Complete configuration reference
-├── DEPENDENCIES.md          # Dependency reference and troubleshooting
 ├── KNOWN_ISSUES.md          # Known issues and troubleshooting guide
 ├── CONTRIBUTING.md          # Development guidelines (this file)
 ├── LICENSE                  # MIT License
 │
-├── run_converter.bat        # Windows quick start script
-├── quick_start.sh           # Linux/macOS quick start script
+├── scripts/run_converter.bat  # Windows quick start script
+├── scripts/quick_start.sh     # Linux/macOS quick start script
 ├── Makefile                 # Development commands
 ├── pyproject.toml           # Tool configuration (black, isort, pytest)
 ├── mypy.ini                 # Type checking configuration
@@ -310,8 +308,8 @@ pre-commit run --all-files
    ```
 4. **Create git tag**
    ```bash
-   git tag -a v2.2.0 -m "Release v2.2.0"
-   git push origin v2.2.0
+   git tag -a vX.Y.Z -m "Release vX.Y.Z"
+   git push origin vX.Y.Z
    ```
 
 ## Getting Help
@@ -344,10 +342,9 @@ By contributing, you agree that your contributions will be licensed under the sa
 
 Thank you for contributing to Enhanced Document Converter! 🎉
 
-**Version:** 2.2.0
+**Version:** 3.0.0
 
 **Related Documentation:**
 - **[README.md](README.md)** - Complete feature documentation
 - **[CONFIGURATION.md](CONFIGURATION.md)** - Configuration reference
-- **[DEPENDENCIES.md](DEPENDENCIES.md)** - Dependency guide
 - **[KNOWN_ISSUES.md](KNOWN_ISSUES.md)** - Known issues

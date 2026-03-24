@@ -33,17 +33,36 @@
 .env* text eol=lf
 .gitignore text eol=lf
 .gitattributes text eol=lf
+.flake8 text eol=lf
+Makefile text eol=lf
 
-# Binary files
+# Document formats (binary)
 *.pdf binary
 *.docx binary
 *.pptx binary
 *.xlsx binary
+*.rtf binary
+*.epub binary
+*.msg binary
+
+# Image formats (binary)
 *.png binary
 *.jpg binary
 *.jpeg binary
 *.gif binary
+*.bmp binary
+*.tiff binary
+*.webp binary
+*.avif binary
 *.ico binary
+
+# Audio formats (binary)
+*.mp3 binary
+*.wav binary
+*.m4a binary
+*.flac binary
+
+# Archive formats (binary)
 *.zip binary
 *.tar binary
 *.gz binary

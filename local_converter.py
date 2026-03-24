@@ -72,10 +72,13 @@ def get_markitdown_instance() -> Optional[MarkItDown]:
         return None
 
     try:
-        # Configure MarkItDown based on settings
         md_kwargs = {
             "enable_plugins": config.MARKITDOWN_ENABLE_PLUGINS,
+            "enable_builtins": config.MARKITDOWN_ENABLE_BUILTINS,
         }
+
+        if config.MARKITDOWN_KEEP_DATA_URIS:
+            md_kwargs["keep_data_uris"] = True
 
         # Add LLM configuration if enabled (via Mistral's OpenAI-compatible endpoint)
         if config.MARKITDOWN_ENABLE_LLM_DESCRIPTIONS and config.MISTRAL_API_KEY:
@@ -139,7 +142,7 @@ def convert_with_markitdown(file_path: Path) -> Tuple[bool, Optional[str], Optio
         return False, None, "MarkItDown not available"
 
     try:
-        logger.info(f"Converting with MarkItDown: {file_path.name}")
+        logger.info("Converting with MarkItDown: %s", file_path.name)
 
         # Convert the file
         result = md.convert(str(file_path))
@@ -184,6 +187,46 @@ def convert_with_markitdown(file_path: Path) -> Tuple[bool, Optional[str], Optio
     except Exception as e:
         logger.error(f"Error converting with MarkItDown: {e}")
         return False, None, str(e)
+
+
+def convert_stream_with_markitdown(
+    stream: Any,
+    filename: str = "document",
+) -> Tuple[bool, Optional[str], Optional[str]]:
+    """
+    Convert a binary stream to Markdown using MarkItDown's ``convert_stream()``.
+
+    This avoids writing temporary files when data is already in memory
+    (e.g. from network streams, ZIP archives, or database BLOBs).
+
+    Args:
+        stream: A binary file-like object (``io.BytesIO``, open file in ``"rb"`` mode, etc.).
+        filename: Original filename used for extension-based format detection.
+
+    Returns:
+        Tuple of (success, markdown_content, error_message)
+    """
+    md = get_markitdown_instance()
+    if md is None:
+        return False, None, "MarkItDown not available"
+
+    if not hasattr(md, "convert_stream"):
+        return False, None, "convert_stream() not available; upgrade markitdown to >=0.1.5"
+
+    try:
+        logger.info("Converting stream with MarkItDown: %s", filename)
+        result = md.convert_stream(stream, file_extension=Path(filename).suffix)
+
+        if result and (hasattr(result, "markdown") or hasattr(result, "text_content")):
+            markdown_content = getattr(result, "markdown", None) or getattr(result, "text_content", "")
+            return True, markdown_content, None
+
+        return False, None, "No content returned from MarkItDown stream conversion"
+
+    except Exception as e:
+        logger.error("Error converting stream with MarkItDown: %s", e)
+        return False, None, str(e)
+
 
 # ============================================================================
 # PDF Table Extraction
@@ -450,7 +493,7 @@ def extract_all_tables(pdf_path: Path) -> Dict[str, Any]:
     Returns:
         Dictionary with extracted tables and metadata
     """
-    logger.info(f"Extracting tables from: {pdf_path.name}")
+    logger.info("Extracting tables from: %s", pdf_path.name)
 
     result = {
         "tables": [],
@@ -458,23 +501,31 @@ def extract_all_tables(pdf_path: Path) -> Dict[str, Any]:
         "methods_used": [],
     }
 
-    # Try pdfplumber first (faster)
+    # Try pdfplumber first (fastest, most reliable for well-structured PDFs)
     pdfplumber_tables = extract_tables_pdfplumber(pdf_path)
     if pdfplumber_tables:
         result["tables"].extend(pdfplumber_tables)
         result["methods_used"].append("pdfplumber")
 
-    # Try camelot lattice mode (requires Ghostscript)
+    # Try camelot lattice mode (requires Ghostscript, good for grid-line tables)
     camelot_lattice_tables = extract_tables_camelot(pdf_path, flavor="lattice")
     if camelot_lattice_tables:
         result["tables"].extend(camelot_lattice_tables)
         result["methods_used"].append("camelot-lattice")
 
-    # Try camelot stream mode
-    camelot_stream_tables = extract_tables_camelot(pdf_path, flavor="stream")
-    if camelot_stream_tables:
-        result["tables"].extend(camelot_stream_tables)
-        result["methods_used"].append("camelot-stream")
+    # Only run camelot stream if previous methods found few tables.
+    # Stream mode is the slowest and most prone to false positives;
+    # skip it when we already have good coverage from pdfplumber + lattice.
+    if len(result["tables"]) < 2:
+        camelot_stream_tables = extract_tables_camelot(pdf_path, flavor="stream")
+        if camelot_stream_tables:
+            result["tables"].extend(camelot_stream_tables)
+            result["methods_used"].append("camelot-stream")
+    else:
+        logger.debug(
+            "Skipping camelot-stream: already found %d tables via faster methods",
+            len(result["tables"]),
+        )
 
     # Remove duplicate tables (simple check by row count)
     result["tables"] = _deduplicate_tables(result["tables"])

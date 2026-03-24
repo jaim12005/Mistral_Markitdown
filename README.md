@@ -1,1217 +1,239 @@
-# Enhanced Document Converter v2.2.0
+# Enhanced Document Converter
 
-A powerful, production-ready document conversion system that combines Microsoft's **MarkItDown** with **Mistral AI's OCR** capabilities for optimal document processing. Features 10 specialized conversion modes, advanced table extraction, intelligent caching, and comprehensive batch processing.
+A document conversion system combining Microsoft **MarkItDown** (local) with **Mistral AI OCR** (cloud) for optimal document processing. Features smart auto-routing, advanced PDF table extraction, intelligent caching, and concurrent batch processing.
+
+## Getting Started
+
+### Prerequisites
+
+- Python 3.10+
+- Mistral API key (for OCR/QnA/Batch features): https://console.mistral.ai/api-keys/
+
+### Installation
+
+```bash
+python -m venv env
+source env/bin/activate   # Windows: env\Scripts\activate
+pip install -r requirements.txt
+```
+
+Or use the platform scripts:
+
+```bash
+# macOS/Linux
+chmod +x scripts/quick_start.sh && ./scripts/quick_start.sh
+
+# Windows
+scripts\run_converter.bat
+```
+
+Optional extras (audio transcription, YouTube, Azure):
+
+```bash
+pip install -r requirements-optional.txt
+```
+
+### Configuration
+
+Create a `.env` file in the project root (see `.env.example` for all options):
+
+```ini
+MISTRAL_API_KEY="your_api_key_here"
+```
+
+### Usage
+
+Place files in `input/`, then run:
+
+```bash
+python main.py              # Interactive menu
+python main.py --mode smart # CLI: auto-route by file type
+python main.py --test       # Verify setup
+```
+
+## Conversion Modes
+
+| # | Mode | API? | Description |
+|---|------|------|-------------|
+| 1 | **Convert (Smart)** | If key set | Auto-picks MarkItDown or Mistral OCR per file type. PDFs also get table extraction. |
+| 2 | **Convert (MarkItDown)** | No | Force local conversion. Fast, free, supports 30+ formats. |
+| 3 | **Convert (Mistral OCR)** | Yes | Force cloud OCR. Best for scanned docs, complex layouts, equations. |
+| 4 | **PDF to Images** | No | Render each PDF page to PNG/JPEG at configurable DPI. |
+| 5 | **Document QnA** | Yes | Ask questions about a document in natural language. |
+| 6 | **Batch OCR** | Yes | Submit to Mistral Batch API at 50% cost reduction. |
+| 7 | **System Status** | No | Cache stats, config info, diagnostics. |
+
+Smart mode prints its routing decisions before processing:
+
+```
+Routing plan:
+  sample.pdf                  -> Mistral OCR (+ table extraction)
+  report.docx                 -> Mistral OCR
+  notes.txt                   -> MarkItDown (local)
+```
+
+All conversion modes process multiple files concurrently when more than one is selected.
+
+### CLI Reference
+
+```bash
+python main.py --mode smart        # Smart auto-routing (recommended)
+python main.py --mode markitdown   # Force MarkItDown
+python main.py --mode mistral_ocr  # Force Mistral OCR
+python main.py --mode pdf_to_images
+python main.py --mode qna
+python main.py --mode batch_ocr
+python main.py --mode status
+python main.py --no-interactive    # Process all files in input/ without prompts
+```
+
+## Supported Formats
+
+| Category | Formats |
+|----------|---------|
+| Documents | PDF, DOCX, DOC, PPTX, PPT, XLSX, XLS, RTF, MSG |
+| Web | HTML, HTM, XML, RSS |
+| Data | CSV, JSON, TXT |
+| Images | PNG, JPG, JPEG, GIF, BMP, TIFF, WEBP, AVIF |
+| Books | EPUB |
+| Notebooks | IPYNB (Jupyter) |
+| Archives | ZIP (recursive extraction) |
+| Audio | MP3, WAV, M4A, FLAC (requires plugins + ffmpeg) |
+
+## Architecture
+
+### Dual-Engine Design
+
+- **MarkItDown** -- fast, local, free. Handles standard document formats natively.
+- **Mistral OCR** -- AI-powered cloud OCR via the Files API with signed URLs. Understands complex layouts, tables, equations, multi-column text with ~95% accuracy.
+
+### Processing Pipeline (Smart Mode)
+
+1. Route each file to MarkItDown or Mistral OCR based on extension
+2. For PDFs: run table extraction (pdfplumber + Camelot) with financial document tuning
+3. OCR quality assessment (0-100 scoring) with automatic weak page re-processing
+4. Results cached by SHA-256 content hash (24-hour TTL, second run = $0)
+
+### Cost Optimization
+
+- **Caching**: SHA-256 file hashing with 24-hour persistence. Reprocessing the same files costs nothing.
+- **Batch OCR**: 50% cost reduction for 10+ documents via Mistral Batch API.
+- **Auto-cleanup**: Old uploaded files removed from Mistral after 7 days (configurable).
+
+## Key Features
+
+### PDF Table Extraction
+
+Advanced multi-strategy extraction optimized for financial documents:
+
+- **pdfplumber** (fast baseline) + **Camelot lattice** (grid tables) + **Camelot stream** (borderless tables)
+- Merged currency cell detection: `"$ 1,234.56 $ 5,678.90"` split into two cells
+- Month header normalization, page artifact removal, cross-page table coalescing
+- Quality filtering: tables below 75% accuracy are rejected
+
+### OCR Quality Assessment
+
+Automated 0-100 scoring evaluates every OCR result:
+
+- Text density, digit count, token uniqueness, repeated phrase detection, line length
+- Pages scoring below threshold are automatically re-processed
+- Quality score included in output for transparency
+
+Configure via `.env`:
+```ini
+ENABLE_OCR_QUALITY_ASSESSMENT=true
+ENABLE_OCR_WEAK_PAGE_IMPROVEMENT=true
+```
+
+### Structured Data Extraction
+
+Extract structured JSON from documents using predefined schemas:
+
+```ini
+MISTRAL_ENABLE_STRUCTURED_OUTPUT=true
+MISTRAL_DOCUMENT_SCHEMA_TYPE=auto   # invoice, financial_statement, form, generic
+MISTRAL_ENABLE_BBOX_ANNOTATION=false
+MISTRAL_ENABLE_DOCUMENT_ANNOTATION=false
+```
+
+Built-in schemas for invoices, financial statements, forms, and generic documents. Custom schemas can be added in `schemas.py`.
+
+### Document QnA
+
+Interactive natural language queries against document content:
+
+```bash
+python main.py --mode qna
+# Select a file, then ask questions interactively
+```
+
+Uses Mistral chat completion with `document_url` content type. Configurable model, system prompt, and page/image limits.
+
+### MarkItDown LLM Descriptions
+
+MarkItDown can use Mistral's vision models for AI-powered image descriptions within documents:
+
+```ini
+MARKITDOWN_ENABLE_LLM_DESCRIPTIONS=false
+MARKITDOWN_LLM_MODEL=pixtral-large-latest
+```
+
+## System Requirements
+
+### Python Dependencies
+
+| File | Purpose |
+|------|---------|
+| `requirements.txt` | Core: MarkItDown, Mistral SDK, pdfplumber, Camelot, pdf2image, Pillow |
+| `requirements-dev.txt` | Dev: pytest, flake8, black, isort, mypy, sphinx |
+| `requirements-optional.txt` | Optional: audio transcription, YouTube, Azure, OpenAI client |
+
+### System Binaries
+
+| Binary | Required For | Install |
+|--------|-------------|---------|
+| Poppler | PDF to images, Camelot | `brew install poppler` / `apt install poppler-utils` / [Windows binary](https://github.com/oschwartz10612/poppler-windows) |
+| Ghostscript | Camelot lattice mode | `brew install ghostscript` / `apt install ghostscript` |
+| ffmpeg | Audio transcription | `brew install ffmpeg` / `apt install ffmpeg` |
+| ExifTool | EXIF metadata extraction | Optional, set `MARKITDOWN_EXIFTOOL_PATH` |
+
+On Windows, set paths in `.env`:
+```ini
+POPPLER_PATH="C:/path/to/poppler/bin"
+GHOSTSCRIPT_PATH="C:/path/to/gs/bin"
+```
+
+## Output Structure
+
+```
+output_md/       # Markdown files (.md)
+output_txt/      # Plain text exports (.txt)
+output_images/   # Extracted images and PDF page renders
+logs/            # Processing logs and batch metadata
+cache/           # OCR result cache (SHA-256 indexed)
+```
+
+## Configuration
+
+All settings are in `.env`. See `.env.example` for the complete reference with 70+ documented options.
+
+For the full configuration guide: **[CONFIGURATION.md](CONFIGURATION.md)**
 
 ## Documentation
 
 | Guide | Description |
 |-------|-------------|
-| **[QUICKSTART.md](QUICKSTART.md)** | 5-minute getting started guide |
-| **[CONFIGURATION.md](CONFIGURATION.md)** | Complete configuration reference (65+ options) |
-| **[DEPENDENCIES.md](DEPENDENCIES.md)** | Dependency guide and system requirements |
-| **[KNOWN_ISSUES.md](KNOWN_ISSUES.md)** | Known issues, limitations, and troubleshooting |
+| **[CONFIGURATION.md](CONFIGURATION.md)** | Complete configuration reference |
+| **[KNOWN_ISSUES.md](KNOWN_ISSUES.md)** | Known issues, limitations, troubleshooting |
 | **[CONTRIBUTING.md](CONTRIBUTING.md)** | Development setup and contribution guidelines |
-| **[INTEGRATION_CONTRACT.md](INTEGRATION_CONTRACT.md)** | Trigger rules and handoff contract for stack integration |
 
-## Upstream Alignment (verified)
+## Upstream Alignment
 
-This repo is aligned to current upstream references:
-- MarkItDown: `v0.1.4` (https://github.com/microsoft/markitdown/releases/tag/v0.1.4)
-- Mistral Python SDK: `v1.12.0` (https://github.com/mistralai/client-python/releases/tag/v1.12.0)
-- Mistral Document AI docs:
-  - Document AI: https://docs.mistral.ai/capabilities/document_ai/
-  - OCR Processor: https://docs.mistral.ai/capabilities/document_ai/basic_ocr
-  - Annotations: https://docs.mistral.ai/capabilities/document_ai/annotations
-  - Document QnA: https://docs.mistral.ai/capabilities/document_ai/document_qna
-  - Batch Inference: https://docs.mistral.ai/capabilities/batch
+- MarkItDown: `>=0.1.5` (https://github.com/microsoft/markitdown)
+- Mistral Python SDK: `>=1.12.0` (https://github.com/mistralai/client-python)
+- Mistral OCR docs: https://docs.mistral.ai/capabilities/document_ai/basic_ocr/
+- Mistral Batch API: https://docs.mistral.ai/capabilities/batch/
 
-## Features
+## License
 
-### Core Capabilities
-
-- **10 Conversion Modes**: From simple batch processing to advanced hybrid pipelines, Document QnA, and Batch OCR
-- **Dual-Engine Processing**: MarkItDown (local, fast) + Mistral AI (cloud, accurate)
-- **Advanced Table Extraction**: pdfplumber + camelot with financial document optimization
-- **Intelligent Caching**: Hash-based caching with 24-hour persistence - second run = $0 API costs
-- **OCR Quality Assessment**: Automated 0-100 scoring with weak page detection and re-processing
-- **Batch Processing**: Concurrent file processing with metadata tracking
-- **Multi-Format Support**: PDF, DOCX, PPTX, XLSX, images, audio/video
-- **Consecutive Duplicate Cleaning**: Removes OCR artifacts like repeated headers automatically
-
-### Advanced Features (v2.2)
-
-- **Structured Data Extraction**: JSON schema-based extraction for invoices, financial statements, forms
-- **Concurrent Processing**: Thread-pool based batch processing for better performance and throughput
-- **Retry Configuration**: Exponential backoff with configurable retry logic for API resilience
-- **Bounding Box Annotations**: Structured extraction of text regions, tables, and figures using raw JSON schemas
-- **Document-Level Annotations**: Automatic extraction of document structure, metadata, and summaries
-- **Document QnA**: Query documents in natural language using chat.complete with document_url content type (NEW)
-- **Batch OCR Processing**: Process multiple documents at 50% cost reduction using Mistral's Batch API (NEW)
-- **Pydantic Model Support**: Define type-safe schemas using Pydantic models with `model_json_schema()` for OCR annotations (NEW)
-
-### Supported Formats
-
-| Category | Formats |
-|----------|---------|
-| **Documents** | PDF, DOCX, DOC, PPTX, PPT, XLSX, XLS, MSG |
-| **Web** | HTML, HTM, XML, RSS |
-| **Data** | CSV, JSON, TXT |
-| **Images** | PNG, JPG, JPEG, GIF, BMP, TIFF, WEBP, AVIF |
-| **Books** | EPUB |
-| **Notebooks** | IPYNB (Jupyter) |
-| **Archives** | ZIP (recursive extraction) |
-| **Audio/Video** | MP3, WAV, M4A, FLAC (requires plugins) |
-
-## How It Works
-
-### Dual-Engine Architecture
-
-This system leverages two complementary processing engines:
-
-- **MarkItDown Engine**: Fast, local, free - extracts text/tables from standard documents
-- **Mistral OCR Engine**: AI-powered, cloud-based - understands complex layouts, equations, multi-column text
-
-### Intelligent Processing Pipeline (HYBRID Mode)
-
-1. **Content Analysis** - Examines file structure to optimize processing strategy
-2. **Table Extraction First** - pdfplumber + camelot with financial document tuning (detects merged currency cells, normalizes month headers)
-3. **MarkItDown Text Extraction** - Prose, headings, document structure
-4. **Mistral OCR Analysis** - Comprehensive AI understanding with ~95% accuracy across all PDF types
-5. **Quality Assessment** - Automated 0-100 scoring with weak page detection
-6. **Intelligent Aggregation** - Priority: Tables > Text > OCR, with quality transparency
-
-### Files API Architecture
-
-All Mistral OCR uses the **Files API with signed URLs** (not base64 encoding) for maximum quality:
-
-1. **Upload** - File uploaded with `purpose="ocr"` parameter
-2. **Signed URL** - System retrieves HTTPS signed URL for processing
-3. **OCR Processing** - Mistral processes via signed URL (better quality than base64)
-4. **Response Parsing** - Extracts text, images, and metadata
-5. **Quality Scoring** - Heuristics evaluate result quality (0-100 score)
-6. **Weak Page Re-processing** - Low-quality pages automatically re-OCR'd
-
-**Why Files API?** Significantly better OCR results than base64 data URLs, especially for complex documents.
-
-## Cost Optimization
-
-### Intelligent Caching System
-
-- **SHA-256 File Hashing** - Detects file changes automatically
-- **24-Hour Cache Duration** (configurable) - Second run on same files = $0 API costs
-- **Hit Rate Tracking** - Monitor cache effectiveness with Mode 8
-- **Auto-Expiration** - Old cache entries cleared automatically
-
-**Example Savings**: Processing 100 PDFs twice in one day - first run uses API, second run is FREE (cached).
-
-### Automatic File Cleanup
-
-- **Automated Cleanup** - Removes old uploaded files from Mistral Files API
-- **Configurable Retention** - Default: 7 days (prevents unnecessary storage costs)
-- **Runs on System Status** - Automatically cleans up when you check Mode 8
-- **Cost Savings** - Prevents accumulation of unused files in cloud storage
-
-Configure in `.env`:
-```ini
-CLEANUP_OLD_UPLOADS=true
-UPLOAD_RETENTION_DAYS=7
-```
-
-### When to Use Each Mode
-
-| Mode | Cost | Speed | Best For |
-|------|------|-------|----------|
-| **Mode 3 (MarkItDown Only)** | $0 | Fast | Text-based PDFs, Office docs, simple extraction |
-| **Mode 4 (Mistral OCR Only)** | Mistral API | Moderate | When you need AI-powered document understanding |
-| **Mode 1 (HYBRID)** | Mistral API | Comprehensive | Maximum accuracy, critical documents, complex layouts |
-| **Mode 9 (Document QnA)** | Mistral API | Interactive | Ask questions about document content |
-| **Mode 10 (Batch OCR)** | 50% reduced | Async | Large-scale processing (10+ documents) |
-
-### Typical Costs
-
-- **Mistral OCR**: Check current pricing at https://console.mistral.ai/
-- **MarkItDown**: Free (local processing)
-- **Cache Hits**: $0 (reuses previous results)
-- **Weak Page Re-processing**: Automatic quality improvement (minimal additional cost)
-
-## Dependencies
-
-### Required Dependencies
-
-The core installation (`requirements.txt`) provides all essential features:
-
-```bash
-pip install -r requirements.txt
-```
-
-**Includes:**
-- ✓ MarkItDown document converter (PDF, DOCX, PPTX, XLSX, HTML, images)
-- ✓ Mistral AI OCR
-- ✓ Advanced table extraction (pdfplumber + camelot)
-- ✓ PDF to image conversion
-- ✓ All 10 conversion modes (except audio/YouTube transcription)
-
-### Optional Dependencies
-
-For extended features like audio transcription and YouTube support:
-
-```bash
-pip install -r requirements-optional.txt
-```
-
-**Adds:**
-- ✓ Audio/video transcription (MP3, WAV, M4A, FLAC)
-- ✓ YouTube transcript fetching
-- ✓ Outlook MSG file support
-
-**Important:** Audio transcription requires:
-1. Installing optional packages: `pip install pydub SpeechRecognition`
-2. Installing ffmpeg binary (see [DEPENDENCIES.md](DEPENDENCIES.md))
-3. Setting `MARKITDOWN_ENABLE_PLUGINS=true` in `.env`
-
-### Complete Reference
-
-For detailed information about all dependencies, system requirements, and troubleshooting:
-
-📖 **See [DEPENDENCIES.md](DEPENDENCIES.md)** for the complete dependency guide.
-
-## Quick Start
-
-### Windows
-
-```bash
-# Double-click or run:
-run_converter.bat
-```
-
-The script will:
-1. Create virtual environment
-2. Install all dependencies
-3. Prompt for .env configuration
-4. Launch interactive menu
-
-### macOS/Linux
-
-```bash
-chmod +x quick_start.sh
-./quick_start.sh
-```
-
-### Manual Installation
-
-```bash
-# Create virtual environment
-python -m venv env
-
-# Activate environment
-# Windows:
-env\Scripts\activate
-# macOS/Linux:
-source env/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Optional: Install extended features (audio, YouTube, Azure)
-pip install -r requirements-optional.txt
-
-# Configure environment
-# Note: Create a .env file based on the configuration options in this README
-# or reference the comprehensive configuration sections below
-# Edit .env with your API keys
-
-# Run converter
-python main.py
-```
-
-## 10 Conversion Modes
-
-### Mode 1: HYBRID Mode (Intelligent Processing)
-
-**Best for**: Maximum accuracy, complex PDFs, critical documents
-
-Combines MarkItDown + advanced table extraction + Mistral OCR for comprehensive analysis:
-- MarkItDown text extraction
-- **Advanced table extraction** with financial document tuning:
-  - Detects and fixes merged currency cells (e.g., "$ 1,234.56 $ 5,678.90" → two cells)
-  - Normalizes month headers (January, February, etc.)
-  - Removes page artifacts (footers, page numbers)
-  - Coalesces split tables across pages
-  - Deduplicates identical tables
-- **Mistral OCR analysis** (works on ALL PDFs - both scanned and text-based)
-- **Quality assessment** provides transparency into OCR performance (0-100 score)
-- **Weak page re-processing** automatically improves low-quality results
-- Creates `<filename>_combined.md` with all results and quality metrics
-
-**Mistral OCR Capabilities**:
-- ~95% accuracy across diverse document types
-- Works on both scanned documents AND text-based PDFs
-- Understands complex elements: tables, equations, multi-column layouts
-- Extracts embedded images alongside text
-- Quality score displayed for transparency (0-100)
-
-**Output Files**:
-- `<name>_combined.md`: Comprehensive aggregated report with quality summary
-- `<name>.md`: MarkItDown conversion
-- `<name>_mistral_ocr.md`: Mistral OCR results with page-by-page breakdown
-- `<name>_tables_all.md`: All extracted tables with post-processing
-- `<name>_ocr_metadata.json`: Structured metadata (if enabled)
-
-**Usage**:
-```bash
-python main.py --mode hybrid
-```
-
----
-
-### Mode 2: ENHANCED BATCH (Maximum Performance)
-
-**Best for**: Processing large batches, production workflows
-
-Features:
-- Concurrent processing with configurable workers
-- Intelligent caching to skip already-processed files
-- Comprehensive metadata tracking
-- Performance optimization
-
-**Output Files**:
-- All files from HYBRID mode for each file
-- `logs/metadata/batch_metadata.json`: Processing statistics
-
-**Usage**:
-```bash
-python main.py --mode enhanced_batch
-```
-
----
-
-### Mode 3: MarkItDown Only (Fast, Local)
-
-**Best for**: Quick conversions, no API costs, offline processing
-
-Features:
-- Local processing without API calls
-- Fast conversion for standard documents
-- Supports all MarkItDown formats
-
-**Output Files**:
-- `<name>.md`: Markdown with YAML frontmatter
-- `<name>.txt`: Plain text export (if enabled)
-
-**Usage**:
-```bash
-python main.py --mode markitdown
-```
-
----
-
-### Mode 4: Mistral OCR Only (High Accuracy)
-
-**Best for**: When you want pure AI-powered document understanding
-
-**IMPORTANT: OCR Works on ALL PDFs** - Not just scanned documents!
-
-Mistral OCR is designed to process **both scanned documents AND text-based PDFs** with ~95% accuracy across diverse document types.
-
-#### Why Use OCR on Text-Based PDFs?
-
-- **AI Understands Complex Layouts** - Multi-column text, tables within paragraphs, equations
-- **Preserves Spatial Relationships** - Document structure maintained
-- **Extracts Embedded Images** - Images alongside text extraction
-- **Superior Table Detection** - Recognizes tables that text extraction might miss
-- **Cross-Page Analysis** - Understands content flow across pages
-
-#### Features
-
-- State-of-the-art OCR using Mistral AI's dedicated OCR model (`mistral-ocr-latest`)
-- **Works on ALL PDFs** (scanned and text-based), images, DOCX, PPTX
-- ~95% accuracy across diverse document types
-- Understands tables, equations, multi-column layouts, complex formatting
-- **Quality assessment** with 0-100 scoring
-- **Weak page detection** - Identifies pages with low OCR quality
-- **Automatic re-processing** - Improves weak pages without manual intervention
-- Image extraction with base64 encoding
-- **Files API with signed URLs** for all documents (superior to base64)
-
-#### Technical Architecture
-
-1. **Upload** - File uploaded to Mistral Files API with `purpose="ocr"`
-2. **Signed URL** - System retrieves HTTPS signed URL
-3. **OCR Processing** - Mistral processes document via signed URL
-4. **Quality Assessment** - Automated scoring using multiple heuristics:
-   - Text length and density
-   - Digit count (critical for financial documents)
-   - Token uniqueness (detects repetitive artifacts)
-   - Repeated phrase detection
-   - Average line length
-5. **Weak Page Re-processing** - Pages below quality threshold automatically re-OCR'd
-6. **Consecutive Duplicate Cleaning** - Removes OCR artifacts (e.g., repeated headers)
-
-**Output Files**:
-- `<name>_mistral_ocr.md`: Page-by-page OCR results with quality score
-- `<name>_mistral_ocr.txt`: Plain text export
-- `<name>_ocr_metadata.json`: Structured JSON with quality metrics (if enabled)
-- `output_images/<name>_ocr/`: Extracted images
-
-**Usage**:
-```bash
-python main.py --mode mistral_ocr
-```
-
----
-
-### Mode 5: Transcription (Audio/Video)
-
-**Best for**: Audio/video transcription, YouTube videos
-
-Features:
-- Audio/video file transcription
-- YouTube URL support
-- Requires MarkItDown plugins
-
-**Requirements**:
-- Set `MARKITDOWN_ENABLE_PLUGINS=true` in `.env`
-- Install audio transcription plugins
-
-**Output Files**:
-- `<name>_transcription.md`: Transcribed text
-- `<name>_transcription.txt`: Plain text export
-
-**Usage**:
-```bash
-python main.py --mode transcription
-```
-
----
-
-### Mode 6: Standard Batch Process
-
-**Best for**: Simple batch operations, mixed file types
-
-Features:
-- Simple batch processing by file type
-- Automatic method selection
-- No advanced features (faster)
-
-**Output Files**:
-- Varies by file type (MarkItDown or Mistral OCR outputs)
-
-**Usage**:
-```bash
-python main.py --mode batch
-```
-
----
-
-### Mode 7: Convert PDFs to Images
-
-**Best for**: Page rendering, image extraction, thumbnails
-
-Features:
-- Renders each PDF page to PNG/JPEG/TIFF
-- Configurable DPI and format
-- Multi-threaded conversion (4 threads default)
-- High-quality rendering with pdftocairo
-- Optimized output (progressive JPEG, optimized PNG)
-- Requires Poppler
-
-**Advanced Options** (NEW):
-```ini
-PDF_IMAGE_FORMAT=png           # png, jpeg, ppm, tiff
-PDF_IMAGE_DPI=200              # Resolution (150-300 recommended)
-PDF_IMAGE_THREAD_COUNT=4       # Concurrent threads
-PDF_IMAGE_USE_PDFTOCAIRO=true  # Better quality rendering
-```
-
-**Output Files**:
-- `output_images/<pdf_name>_pages/page_001.png` (or .jpg, .tiff)
-- `output_images/<pdf_name>_pages/page_002.png`
-- etc.
-
-**Format Comparison**:
-- **PNG**: Best quality, lossless, larger files (~2-5MB/page)
-- **JPEG**: Smaller files (~200-500KB/page), slight quality loss
-- **TIFF**: Professional use, very large files
-
-**Usage**:
-```bash
-python main.py --mode pdf_to_images
-```
-
----
-
-### Mode 8: Show System Status
-
-**Best for**: Monitoring, troubleshooting, cache management
-
-Displays:
-- Configuration status
-- Cache statistics (hits, misses, size)
-- Output file counts
-- Input file inventory
-- Configured models
-- System recommendations
-
-**Usage**:
-```bash
-python main.py --mode status
-```
-
-### Mode 9: Document QnA (NEW)
-
-**Best for**: Asking questions about document content in natural language
-
-Features:
-- Interactive question-answering about document content
-- Uses Mistral's chat completion with `document_url` content type
-- Supports custom system prompts for domain-specific queries
-- Configurable image and page limits
-
-**Configuration**:
-```ini
-MISTRAL_DOCUMENT_QNA_MODEL="mistral-small-latest"
-MISTRAL_QNA_SYSTEM_PROMPT=""
-MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT=0    # 0 = API default (8)
-MISTRAL_QNA_DOCUMENT_PAGE_LIMIT=0     # 0 = API default (64)
-```
-
-**Usage**:
-```bash
-python main.py --mode qna
-```
-
----
-
-### Mode 10: Batch OCR Processing (NEW)
-
-**Best for**: Processing large document sets at 50% cost reduction
-
-Features:
-- Submit batch OCR jobs via Mistral's Batch API
-- Monitor job progress and download results
-- List and manage all batch jobs
-- 50% cost reduction compared to standard OCR
-
-**Configuration**:
-```ini
-MISTRAL_BATCH_ENABLED=true
-MISTRAL_BATCH_MIN_FILES=10
-MISTRAL_BATCH_TIMEOUT_HOURS=24
-```
-
-**Usage**:
-```bash
-python main.py --mode batch_ocr
-```
-
----
-
-## OCR Quality Assessment System
-
-### Automated Quality Scoring (0-100)
-
-The system automatically evaluates OCR results using multiple heuristics to ensure transparency and reliability.
-
-#### Quality Metrics
-
-**Text Analysis:**
-- ✅ **Text Length and Density** - Sufficient content extracted
-- ✅ **Digit Count** - Critical for financial documents (low digit count = warning)
-- ✅ **Token Uniqueness** - Detects repetitive artifacts (< 30% uniqueness = issue)
-- ✅ **Repeated Phrase Detection** - Identifies headers repeated 5+ times
-- ✅ **Average Line Length** - Very short lines suggest parsing issues
-
-**Quality Thresholds:**
-- **80-100**: Excellent quality - Use with confidence
-- **60-79**: Good quality - Minor issues may exist
-- **40-59**: Acceptable quality - Flagged with warnings
-- **0-39**: Low quality - Prominently flagged, may prefer MarkItDown for text-based PDFs
-
-#### Weak Page Detection
-
-Pages are flagged as "weak" if they exhibit:
-- Very short text (< 50 characters)
-- Low digit count (< 20 digits for data/financial documents)
-- Token uniqueness < 30% (heavy repetition)
-- Repeated phrases (same header 5+ times)
-- Short average line length (< 10 characters)
-
-**Automatic Improvement**: Weak pages are automatically re-processed for better results.
-
-**Toggle behavior via `.env`:**
-- `ENABLE_OCR_QUALITY_ASSESSMENT=true|false` to turn scoring on/off.
-- `ENABLE_OCR_WEAK_PAGE_IMPROVEMENT=true|false` to allow/skip weak-page re-OCR (requires assessment enabled).
-
-#### Example Quality Output
-
-```
-OCR Quality Score: 87/100
-✓ OCR quality is good. Extracted content from 12 page(s).
-
-Weak pages: 1/12
-Issues detected:
-- Page 7 has low numerical content (15 digits)
-```
-
-## Advanced Features
-
-### Enterprise-Grade Table Extraction
-
-The table extraction pipeline includes sophisticated post-processing and quality filtering:
-
-#### Quality Filtering (NEW)
-
-**Automatic Quality Assessment:**
-- **Accuracy Threshold** - Only accepts tables above `CAMELOT_MIN_ACCURACY` (default: 75%)
-- **Whitespace Filtering** - Rejects tables with excessive empty cells (> `CAMELOT_MAX_WHITESPACE`)
-- **Quality Metrics Logging** - Reports accuracy and whitespace percentages for each table
-
-**Benefits:**
-- Eliminates false positives from table detection
-- Reduces noise in output (no more poorly extracted tables)
-- Configurable thresholds for different use cases
-
-Configure in `.env`:
-```ini
-CAMELOT_MIN_ACCURACY=75.0    # Minimum accuracy % to accept
-CAMELOT_MAX_WHITESPACE=30.0  # Maximum whitespace % to accept
-```
-
-#### Financial Document Optimization
-
-**Merged Currency Cell Detection:**
-```
-Before: "$ 1,234.56 $ 5,678.90"  (single cell)
-After:  "$ 1,234.56" | "$ 5,678.90"  (two cells)
-```
-
-**Month Header Normalization:**
-- Detects month column headers (January, February, etc.)
-- Normalizes split headers across pages
-- Identifies "Beginning" and "Current" balance columns
-
-**Multi-Strategy Extraction:**
-1. **pdfplumber** (fast baseline)
-2. **camelot lattice mode** (tuned: `line_scale=40`, `shift_text=['l','t']`)
-3. **camelot stream mode** (tuned: `edge_tol=50`, `row_tol=5`)
-
-**Post-Processing Pipeline:**
-- Fix merged currency cells (regex pattern matching)
-- Deduplicate identical tables
-- Coalesce split tables across pages
-- Normalize headers (detect month columns)
-- Clean page artifacts (footers, page numbers)
-- Remove consecutive duplicate lines
-- **Quality filtering** (new - removes low-quality tables)
-
-### Consecutive Duplicate Cleaning
-
-**Problem**: OCR sometimes recognizes headers/footers multiple times:
-```
-5151 E Broadway
-5151 E Broadway
-5151 E Broadway
-Account Summary
-```
-
-**Solution**: Automatic cleaning with `itertools.groupby`:
-```
-5151 E Broadway
-Account Summary
-```
-
-This feature runs automatically on all OCR results - no configuration needed.
-
-## Configuration
-
-All configuration is done via a `.env` file in the project root. 
-
-📖 **See [CONFIGURATION.md](CONFIGURATION.md)** for the complete configuration reference with all 65+ options organized by category.
-
-### Quick Configuration
-
-```ini
-# REQUIRED: Get your API key from https://console.mistral.ai/
-MISTRAL_API_KEY="your_mistral_api_key_here"
-```
-
-### Key Configuration Options
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `MISTRAL_OCR_MODEL` | `mistral-ocr-latest` | OCR model to use |
-| `MISTRAL_INCLUDE_IMAGES` | `true` | Extract images from documents |
-| `SAVE_MISTRAL_JSON` | `true` | Save OCR metadata JSON for quality assessment |
-| `CLEANUP_OLD_UPLOADS` | `true` | Auto-delete old uploaded files |
-| `UPLOAD_RETENTION_DAYS` | `7` | Days to keep uploaded files |
-| `CAMELOT_MIN_ACCURACY` | `75.0` | Minimum table extraction accuracy (%) |
-| `PDF_IMAGE_FORMAT` | `png` | Output format for PDF conversion (png, jpeg) |
-| `PDF_IMAGE_DPI` | `200` | Image resolution for PDF conversion |
-| `CACHE_DURATION_HOURS` | `24` | Cache validity period |
-| `MAX_CONCURRENT_FILES` | `5` | Batch processing concurrency |
-| `GENERATE_TXT_OUTPUT` | `true` | Create .txt files |
-
-**Configuration Options:** This README documents all 65+ configuration options. Create a `.env` file with your settings based on the examples throughout this documentation.
-
-## Advanced Features Guide
-
-### OCR Configuration Options
-
-The Mistral OCR API provides dedicated OCR capabilities optimized for document processing:
-
-```ini
-# In .env
-MISTRAL_OCR_MODEL="mistral-ocr-latest"  # Dedicated OCR model
-MISTRAL_INCLUDE_IMAGES=true              # Extract images from documents
-SAVE_MISTRAL_JSON=true                   # Save detailed OCR metadata
-```
-
-**Available Options:**
-- **Model Selection**: Use `mistral-ocr-latest` (dedicated OCR service)
-- **Image Extraction**: Extract embedded images alongside text
-- **Metadata Saving**: Save detailed OCR results and quality metrics
-- **Page Selection**: Process specific pages for targeted extraction
-
-**Note on Advanced Parameters:**
-The Mistral OCR endpoint is a specialized service that differs from the chat completion API. Parameters like `temperature`, `max_tokens`, and `language` are **not supported** by the OCR endpoint. The OCR service automatically:
-- Detects document language
-- Extracts all text deterministically (consistent results)
-- Handles documents of any reasonable size
-
-**Supported OCR Parameters:**
-- `model` - OCR model to use (`mistral-ocr-latest`)
-- `document` - Document to process (file, URL, or FileChunk)
-- `include_image_base64` - Whether to extract images
-- `pages` - Optional list of specific pages to process
-- `bbox_annotation_format` - Optional structured bounding box extraction
-- `document_annotation_format` - Optional structured document-level extraction
-- `document_annotation_prompt` - Custom guidance for annotation LLM
-- `table_format` - Table output format: `markdown` or `html` (OCR 3)
-- `extract_header` / `extract_footer` - Separate header/footer extraction (OCR 3)
-- `image_limit` / `image_min_size` - Image extraction control (OCR 3)
-
-**New in v2.2 - OCR 3 Configuration:**
-```ini
-# Table output format: "" (inline markdown), "markdown" (separate), "html" (with colspan/rowspan)
-MISTRAL_TABLE_FORMAT=""
-# Extract headers/footers separately from page content
-MISTRAL_EXTRACT_HEADER=true
-MISTRAL_EXTRACT_FOOTER=true
-# Custom guidance prompt for document annotation LLM
-MISTRAL_DOCUMENT_ANNOTATION_PROMPT=""
-# Image extraction control (0 = no limit / no minimum)
-MISTRAL_IMAGE_LIMIT=0
-MISTRAL_IMAGE_MIN_SIZE=0
-# Signed URL expiry in hours (increase for large batch jobs)
-MISTRAL_SIGNED_URL_EXPIRY=1
-```
-
-**OCR Response Structure:**
-The OCR API returns a comprehensive response including:
-- `pages` - List of page objects with:
-  - `markdown` - Extracted text in markdown format
-  - `images` - Extracted images with position data (id, top_left_x/y, bottom_right_x/y, image_base64)
-  - `dimensions` - Page dimensions (dpi, height, width)
-  - `tables` - Detected tables with structure
-  - `hyperlinks` - Extracted hyperlinks
-  - `header` / `footer` - Page header and footer content
-- `usage_info` - Processing metrics (pages_processed, doc_size_bytes)
-- `model` - The OCR model used
-- `document_annotation` - Structured document-level data (if enabled)
-
-### MarkItDown LLM & Advanced Configuration (NEW in v2.2)
-
-MarkItDown can use an LLM for image descriptions within documents. This project uses Mistral's OpenAI-compatible endpoint (no separate API key needed).
-
-```ini
-# Enable LLM-powered image descriptions in MarkItDown conversions
-MARKITDOWN_ENABLE_LLM_DESCRIPTIONS=false
-# Vision model for image descriptions (pixtral-large-latest recommended)
-MARKITDOWN_LLM_MODEL="pixtral-large-latest"
-# Custom prompt for LLM image descriptions (empty = MarkItDown default)
-MARKITDOWN_LLM_PROMPT=""
-# DOCX style mapping for mammoth (e.g., "p[style-name='Custom Heading'] => h2:fresh")
-MARKITDOWN_STYLE_MAP=""
-# Path to ExifTool binary for EXIF metadata extraction from images/audio
-MARKITDOWN_EXIFTOOL_PATH=""
-# Maximum file size in MB (files exceeding this are rejected)
-MARKITDOWN_MAX_FILE_SIZE_MB=100
-```
-
----
-
-### Enhanced Document Metadata Extraction (NEW)
-
-MarkItDown now automatically extracts and includes document properties in YAML frontmatter:
-
-**Automatically Extracted:**
-- **Title** - Document title from metadata
-- **Author** - Document author/creator
-- **Subject** - Document subject
-- **Creator** - Application that created the document
-- **Producer** - PDF producer/converter used
-- **Created Date** - Document creation timestamp
-- **Modified Date** - Last modification timestamp
-- **Page Count** - Total number of pages
-- **Word Count** - Approximate word count (when available)
-
-**Example Output:**
-```yaml
----
-title: "Financial Report Q4 2024"
-source_file: "report.pdf"
-conversion_method: "MarkItDown"
-converted_at: "2025-01-15T10:30:00"
-converter_version: "2.1"
-doc_title: "Financial Report Q4 2024"
-doc_author: "John Smith"
-doc_subject: "Quarterly Financial Analysis"
-doc_pages: 25
-doc_created: "2024-12-31T09:00:00"
-doc_modified: "2025-01-05T14:30:00"
----
-```
-
-**Benefits:**
-- **Search and Indexing** - Rich metadata for document management systems
-- **Audit Trails** - Track document provenance and modifications
-- **Automation** - Script document processing based on metadata
-- **Organization** - Sort and filter documents by properties
-
-### Structured Data Extraction
-
-Extract structured data from documents using predefined JSON schemas.
-
-#### Available Schemas
-
-1. **Invoice Extraction** - Vendor, line items, totals, payment terms
-2. **Financial Statements** - Accounts, balances, periods, company info
-3. **Form Extraction** - Field names, values, signatures, dates
-4. **Generic Documents** - Sections, tables, figures, metadata
-
-#### Configuration
-
-```ini
-# Enable structured outputs
-MISTRAL_ENABLE_STRUCTURED_OUTPUT=true
-
-# Select schema type: invoice, financial_statement, form, generic, auto
-MISTRAL_DOCUMENT_SCHEMA_TYPE="auto"
-
-# Enable bounding box annotations (text regions, tables, figures)
-MISTRAL_ENABLE_BBOX_ANNOTATION=false
-
-# Enable document-level annotations (structure, metadata, summary)
-MISTRAL_ENABLE_DOCUMENT_ANNOTATION=false
-```
-
-#### Output Files
-
-When structured extraction is enabled, you'll get:
-- `<filename>_document_annotation.json` - Structured document data
-- `<filename>_bbox_annotations.json` - Structured bounding box data
-
-#### Example: Invoice Extraction
-
-```json
-{
-  "document_type": "invoice",
-  "vendor": {
-    "name": "Acme Corp",
-    "address": "123 Main St"
-  },
-  "invoice_details": {
-    "invoice_number": "INV-2024-001",
-    "invoice_date": "2024-01-15"
-  },
-  "line_items": [
-    {
-      "description": "Product A",
-      "quantity": 10,
-      "unit_price": 50.00,
-      "amount": 500.00
-    }
-  ],
-  "totals": {
-    "subtotal": 500.00,
-    "tax": 50.00,
-    "total": 550.00,
-    "currency": "USD"
-  }
-}
-```
-
----
-
-### Concurrent Processing
-
-Concurrent processing for better performance and throughput during batch operations.
-
-#### Benefits
-
-- **Better Resource Utilization**: Efficient use of system resources via thread pools
-- **Non-Blocking**: UI remains responsive during processing
-- **Concurrent File Processing**: Multiple files processed simultaneously
-
-#### Configuration
-
-```ini
-# Maximum concurrent files to process in batch mode
-MAX_CONCURRENT_FILES=5
-```
-
-#### Current Implementation
-
-The system uses `concurrent.futures.ThreadPoolExecutor` for:
-- Concurrent batch file processing
-- Parallel file uploads
-- Non-blocking file I/O during batch operations
-
----
-
-### Retry Configuration
-
-Exponential backoff retry logic for API resilience.
-
-#### Configuration
-
-```ini
-# Number of retry attempts
-MAX_RETRIES=3
-
-# Initial retry interval (milliseconds)
-RETRY_INITIAL_INTERVAL_MS=1000
-
-# Maximum retry interval (milliseconds)
-RETRY_MAX_INTERVAL_MS=10000
-
-# Exponential backoff multiplier
-RETRY_EXPONENT=2.0
-
-# Maximum total time for retries (milliseconds)
-RETRY_MAX_ELAPSED_TIME_MS=60000
-
-# Retry on connection errors
-RETRY_CONNECTION_ERRORS=true
-```
-
-#### Retry Strategy
-
-**Exponential Backoff Example:**
-- Attempt 1: Fails → Wait 1 second
-- Attempt 2: Fails → Wait 2 seconds (1s × 2.0)
-- Attempt 3: Fails → Wait 4 seconds (2s × 2.0)
-- Attempt 4: Success or give up after 60 seconds total
-
-#### Benefits
-
-- **Resilience**: Automatic recovery from transient failures
-- **Rate Limiting**: Prevents API throttling
-- **Cost Optimization**: Reduces failed requests
-
----
-
-### Bounding Box Annotations
-
-Structured extraction of individual content regions with metadata.
-
-#### What It Extracts
-
-For each bounding box (text region, table, figure):
-- **Type**: text, table, figure, heading, list
-- **Content**: Extracted text
-- **Confidence**: OCR confidence score (0-1)
-- **Language**: Detected language
-- **Formatting**: Bold, italic, font size, font family
-- **Table Structure**: Rows, columns, headers
-- **Metadata**: Page number, position (header/body/footer)
-
-#### Configuration
-
-```ini
-MISTRAL_ENABLE_BBOX_ANNOTATION=true
-```
-
-#### Output Format
-
-```json
-[
-  {
-    "bbox_type": "table",
-    "text_content": "Q1 Revenue...",
-    "confidence": 0.95,
-    "table_structure": {
-      "rows": 5,
-      "columns": 3,
-      "has_header": true
-    },
-    "metadata": {
-      "page_number": 1,
-      "position": "body"
-    }
-  }
-]
-```
-
----
-
-### Document-Level Annotations
-
-Automatic extraction of document structure and metadata.
-
-#### What It Extracts
-
-- **Document Type**: Report, contract, invoice, etc.
-- **Title**: Document title
-- **Authors**: Document creators
-- **Sections**: Headings and structure
-- **Tables**: Table summaries
-- **Figures**: Chart/diagram descriptions
-- **Metadata**: Language, page count, keywords, summary
-
-#### Configuration
-
-```ini
-MISTRAL_ENABLE_DOCUMENT_ANNOTATION=true
-
-# Schema types: invoice, financial_statement, form, generic
-MISTRAL_DOCUMENT_SCHEMA_TYPE="generic"
-```
-
-#### Use Cases
-
-- **Document Classification**: Auto-categorize documents
-- **Metadata Extraction**: Build search indexes
-- **Compliance**: Extract required fields from forms
-- **Analytics**: Aggregate data from financial statements
-
----
-
-### Custom JSON Schemas
-
-Advanced users can create custom schemas in `schemas.py`.
-
-#### Example: Custom Schema
-
-```python
-CUSTOM_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "field_name": {
-            "type": "string",
-            "description": "Field description"
-        }
-    },
-    "required": ["field_name"]
-}
-```
-
-See `schemas.py` for complete schema definitions and examples.
-
----
-
-### Document QnA (NEW)
-
-Query documents in natural language using Mistral's Document QnA capability. This combines OCR with chat completion to enable interactive document understanding.
-
-#### How It Works
-
-1. **Document Processing**: OCR extracts text, structure, and formatting
-2. **Language Model Understanding**: The extracted content is analyzed by an LLM
-3. **Natural Language Query**: Ask questions and get answers based on document content
-
-#### Key Capabilities
-
-- Question answering about specific document content
-- Information extraction and summarization
-- Document analysis and insights
-- Multi-document queries and comparisons
-- Context-aware responses
-
-#### Usage (Programmatic)
-
-```python
-from mistral_converter import query_document, query_document_file
-from pathlib import Path
-
-# Query a public URL
-success, answer, error = query_document(
-    "https://arxiv.org/pdf/1805.04770",
-    "What is the main contribution of this paper?"
-)
-if success:
-    print(answer)
-
-# Query a local file
-success, answer, error = query_document_file(
-    Path("my_document.pdf"),
-    "Summarize the key findings"
-)
-```
-
-#### Configuration
-
-```ini
-# Model for Document QnA (supports document_url content type)
-MISTRAL_DOCUMENT_QNA_MODEL="mistral-small-latest"
-```
-
----
-
-### Batch OCR Processing (NEW)
-
-Process multiple documents at **50% cost reduction** using Mistral's Batch API. Ideal for large-scale document processing workflows.
-
-#### How It Works
-
-1. **Create Batch File**: Generate a JSONL file with all documents
-2. **Submit Job**: Upload batch file and start processing
-3. **Monitor Progress**: Check job status and completion
-4. **Download Results**: Retrieve OCR results when complete
-
-#### Benefits
-
-- **50% Cost Reduction**: Batch processing is significantly cheaper
-- **Scalability**: Process hundreds or thousands of documents
-- **Asynchronous**: Submit and retrieve results later
-- **Error Handling**: Individual document failures don't affect the batch
-
-#### Usage (Programmatic)
-
-```python
-from mistral_converter import (
-    create_batch_ocr_file,
-    submit_batch_ocr_job,
-    get_batch_job_status,
-    download_batch_results
-)
-from pathlib import Path
-
-# Step 1: Create batch file
-files = [Path("doc1.pdf"), Path("doc2.pdf"), Path("doc3.pdf")]
-success, batch_file, error = create_batch_ocr_file(
-    files,
-    Path("batch_input.jsonl")
-)
-
-# Step 2: Submit batch job
-success, job_id, error = submit_batch_ocr_job(
-    batch_file,
-    metadata={"job_type": "document_processing"}
-)
-print(f"Job submitted: {job_id}")
-
-# Step 3: Monitor progress
-success, status, error = get_batch_job_status(job_id)
-print(f"Status: {status['status']} - {status['progress_percent']}% complete")
-
-# Step 4: Download results when complete
-if status['status'] == 'SUCCESS':
-    success, results_path, error = download_batch_results(job_id)
-    print(f"Results saved to: {results_path}")
-```
-
-#### Configuration
-
-```ini
-# Enable batch OCR processing
-MISTRAL_BATCH_ENABLED=true
-
-# Minimum files to recommend batch processing
-MISTRAL_BATCH_MIN_FILES=10
-```
-
-#### When to Use Batch Processing
-
-| Scenario | Recommended Method |
-|----------|-------------------|
-| 1-10 documents | Standard OCR (Mode 4) |
-| 10-100 documents | Batch OCR (50% savings) |
-| 100+ documents | Batch OCR (significant savings) |
-| Real-time processing | Standard OCR |
-| Overnight processing | Batch OCR |
-
----
-
-## Troubleshooting
-
-For troubleshooting common issues, see **[KNOWN_ISSUES.md](KNOWN_ISSUES.md)**.
-
-**Quick fixes for common issues:**
-
-- **"MISTRAL_API_KEY not set"** → Create `.env` file with your key from https://console.mistral.ai/api-keys/
-- **"401 Unauthorized"** → Verify/regenerate your API key
-- **Low OCR quality scores** → Use Mode 3 (MarkItDown) for text-based PDFs
-- **Windows PDF issues** → Set `POPPLER_PATH` in `.env` (see [KNOWN_ISSUES.md](KNOWN_ISSUES.md))
-
-## Performance Expectations
-
-### Processing Speed
-
-| Document Type | Typical Speed | Notes |
-|---------------|---------------|-------|
-| **MarkItDown** | 1-5 seconds/file | Local processing, very fast |
-| **Mistral OCR** | 2-10 seconds/page | Depends on document complexity |
-| **Table Extraction** | 5-15 seconds/PDF | Multiple extraction strategies |
-| **HYBRID Mode** | 10-30 seconds/file | Comprehensive analysis |
-
-### File Size Limits
-
-- **Maximum file size**: 100MB (configurable via `MARKITDOWN_MAX_FILE_SIZE_MB`)
-- **Optimal file size**: < 10MB for best performance
-- **Large files**: Automatically use Files API with signed URLs
-
-### Concurrent Processing
-
-- **Default workers**: 5 files concurrently (Mode 2)
-- **Configurable**: Set `MAX_CONCURRENT_FILES` in `.env`
-- **Recommended**: 3-10 workers depending on system resources
-
-## Documentation
-
-### Quick Links
-
-- **[QUICKSTART.md](QUICKSTART.md)** - Get started in 5 minutes
-- **[CONFIGURATION.md](CONFIGURATION.md)** - All 65+ configuration options
-- **[DEPENDENCIES.md](DEPENDENCIES.md)** - Installation and system requirements
-- **[KNOWN_ISSUES.md](KNOWN_ISSUES.md)** - Troubleshooting and limitations
-- **[CONTRIBUTING.md](CONTRIBUTING.md)** - Development and contribution guide
-
-### External Resources
-
-- **MarkItDown**: https://github.com/microsoft/markitdown
-- **Mistral Document AI**: https://docs.mistral.ai/capabilities/document_ai/
-- **Mistral Python SDK**: https://github.com/mistralai/client-python
-- **Get API Key**: https://console.mistral.ai/api-keys/
-
-## Latest Updates
-
-### Version 2.2.0 (Current)
-
-**New in v2.2:**
-- ✅ **10 Conversion Modes** - Added Document QnA (Mode 9) and Batch OCR Processing (Mode 10)
-- ✅ **OCR 3 Support** - Table format control, header/footer extraction, image limits
-- ✅ **Document QnA** - Interactive natural language querying of documents
-- ✅ **Batch OCR Management** - Submit, monitor, and download batch jobs at 50% cost reduction
-- ✅ **Mistral-Only LLM** - Consolidated on Mistral's OpenAI-compatible endpoint (no separate OpenAI key)
-- ✅ **FileChunk Support** - Direct file ID passing to OCR (no signed URL step needed)
-- ✅ **Enhanced Configuration** - 65+ documented options including OCR 3, QnA, and batch settings
-- ✅ **SDK v1.12.0** - Latest Mistral Python SDK with full OCR 3 parameter support
-
-**Core Features:**
-- ✅ **Dual-Engine Processing** - Local (MarkItDown) + Cloud (Mistral OCR) for optimal results
-- ✅ **Intelligent Caching** - 24-hour persistence, second run = $0 API costs
-- ✅ **Advanced Table Extraction** - pdfplumber + camelot with quality filtering (75%+ accuracy)
-- ✅ **OCR Quality Assessment** - Automated 0-100 scoring with weak page detection
-- ✅ **Image Preprocessing** - Optimization and enhancement for standalone image files
-- ✅ **Automatic File Cleanup** - Removes old uploads from Mistral API (cost savings)
-- ✅ **Enhanced Metadata** - Automatic extraction of document properties (author, dates, etc.)
-- ✅ **Multi-Threaded PDF to Image** - 4x faster with multiple format support
-- ✅ **CI/CD Integration** - GitHub Actions for automated testing and linting
-- ✅ **Cross-Platform** - Windows, macOS, Linux support
-
----
-
-## Summary
-
-**Enhanced Document Converter v2.2.0** combines the best of local (MarkItDown) and cloud (Mistral AI OCR) processing for optimal document conversion. Features include 10 specialized modes (including Document QnA and Batch OCR), intelligent caching, quality assessment, OCR 3 support, and 65+ configuration options - all designed for production use with cost optimization in mind.
+See [LICENSE](LICENSE).

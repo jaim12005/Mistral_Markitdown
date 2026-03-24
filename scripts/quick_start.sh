@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Enhanced Document Converter v2.1.1 - macOS/Linux Quick Start Script
+# Enhanced Document Converter - macOS/Linux Quick Start Script
 # This script sets up the virtual environment, installs dependencies,
 # and launches the document converter.
 
@@ -14,7 +14,7 @@ fi
 set -e
 
 echo "============================================================"
-echo "  Enhanced Document Converter v2.1 - Setup and Launch"
+echo "  Enhanced Document Converter - Setup and Launch"
 echo "============================================================"
 echo ""
 

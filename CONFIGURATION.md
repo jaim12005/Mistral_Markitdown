@@ -1,6 +1,6 @@
 # Configuration Reference
 
-Complete reference for all configuration options in Enhanced Document Converter v2.2.0.
+Complete reference for all configuration options in Enhanced Document Converter.
 
 ## Table of Contents
 
@@ -54,7 +54,7 @@ LOG_LEVEL=INFO
 ### MISTRAL_API_KEY (Required for OCR)
 - **Type:** String
 - **Default:** None (must be set)
-- **Required for:** Modes 1, 2, 4, 9, 10 (all OCR and cloud features)
+- **Required for:** Convert (Smart) (`--mode smart`), Convert (Mistral OCR) (`--mode mistral_ocr`), Document QnA (`--mode qna`), Batch OCR (`--mode batch_ocr`); optional for MarkItDown LLM/plugin features when using Convert (MarkItDown) (`--mode markitdown`)
 - **Get it from:** https://console.mistral.ai/api-keys/
 
 ```ini
@@ -676,11 +676,29 @@ VERBOSE_PROGRESS=true
 - **Type:** Integer
 - **Default:** `5`
 - **Range:** 1-20
-- **Description:** Number of files to process concurrently in batch modes
+- **Description:** Number of files to process concurrently when running multi-file conversion (e.g. `--mode smart`, `--mode mistral_ocr`, `--mode batch_ocr`)
 - **Recommendation:** 3-5 for most systems, 10-15 for powerful systems
 
 ```ini
 MAX_CONCURRENT_FILES=5
+```
+
+### MAX_BATCH_FILES
+- **Type:** Integer
+- **Default:** `100`
+- **Description:** Maximum files per batch
+
+```ini
+MAX_BATCH_FILES=100
+```
+
+### MAX_PAGES_PER_SESSION
+- **Type:** Integer
+- **Default:** `1000`
+- **Description:** Maximum OCR pages per session
+
+```ini
+MAX_PAGES_PER_SESSION=1000
 ```
 
 ---
@@ -786,6 +804,24 @@ ENABLE_BATCH_METADATA=true
 
 ## MarkItDown Settings
 
+### MARKITDOWN_ENABLE_BUILTINS
+- **Type:** Boolean
+- **Default:** `true`
+- **Description:** Enable or disable MarkItDown built-in converters
+
+```ini
+MARKITDOWN_ENABLE_BUILTINS=true
+```
+
+### MARKITDOWN_KEEP_DATA_URIS
+- **Type:** Boolean
+- **Default:** `false`
+- **Description:** Preserve base64-encoded images in output as data URIs
+
+```ini
+MARKITDOWN_KEEP_DATA_URIS=false
+```
+
 ### MARKITDOWN_ENABLE_LLM_DESCRIPTIONS
 - **Type:** Boolean
 - **Default:** `false`
@@ -817,7 +853,7 @@ MARKITDOWN_LLM_PROMPT=""
 - **Type:** Boolean
 - **Default:** `false`
 - **Description:** Enable audio/video transcription plugins
-- **Required for:** Mode 5 (Transcription)
+- **Required for:** Optional media plugins when using Convert (MarkItDown) (`--mode markitdown`)
 - **Requires:** Install `requirements-optional.txt`
 
 ```ini
@@ -935,10 +971,10 @@ GHOSTSCRIPT_PATH=""  # Usually auto-detected
 
 ### For Text-Based PDFs (Fast & Free)
 ```ini
-MISTRAL_API_KEY=""  # Leave empty to use Mode 3 only
+MISTRAL_API_KEY=""  # Leave empty for Convert (MarkItDown) only
 LOG_LEVEL=INFO
 ```
-Use Mode 3 (MarkItDown Only) - no API required!
+Use **Convert (MarkItDown)** (`--mode markitdown`) — no API key required for local conversion.
 
 ### For Scanned Documents (OCR Required)
 ```ini
@@ -982,7 +1018,7 @@ VERBOSE_PROGRESS=true
 
 | Variable | Type | Default | Required | Section |
 |----------|------|---------|----------|---------|
-| MISTRAL_API_KEY | string | - | Yes (for OCR) | API Keys |
+| MISTRAL_API_KEY | string | - | Yes (for smart, mistral_ocr, qna, batch_ocr; optional for markitdown) | API Keys |
 | MISTRAL_OCR_MODEL | string | mistral-ocr-latest | No | OCR |
 | MISTRAL_DOCUMENT_QNA_MODEL | string | mistral-small-latest | No | Document QnA |
 | MISTRAL_INCLUDE_IMAGES | bool | true | No | OCR |
@@ -1023,10 +1059,14 @@ VERBOSE_PROGRESS=true
 | AUTO_CLEAR_CACHE | bool | true | No | Caching |
 | LOG_LEVEL | string | INFO | No | Logging |
 | MAX_CONCURRENT_FILES | int | 5 | No | Performance |
+| MAX_BATCH_FILES | int | 100 | No | Performance |
+| MAX_PAGES_PER_SESSION | int | 1000 | No | Performance |
 | GENERATE_TXT_OUTPUT | bool | true | No | Output |
 | INCLUDE_METADATA | bool | true | No | Output |
 | TABLE_OUTPUT_FORMATS | string | markdown,csv | No | Output |
 | ENABLE_BATCH_METADATA | bool | true | No | Output |
+| MARKITDOWN_ENABLE_BUILTINS | bool | true | No | MarkItDown |
+| MARKITDOWN_KEEP_DATA_URIS | bool | false | No | MarkItDown |
 | MARKITDOWN_ENABLE_LLM_DESCRIPTIONS | bool | false | No | MarkItDown |
 | MARKITDOWN_LLM_MODEL | string | pixtral-large-latest | No | MarkItDown |
 | MARKITDOWN_LLM_PROMPT | string | "" | No | MarkItDown |
@@ -1041,10 +1081,8 @@ See README.md for complete feature documentation.
 
 **Last Updated:** 2026-02-10
 
-**Version:** 2.2.0
+**Version:** 3.0.0
 
 **Related Documentation:**
 - **[README.md](README.md)** - Complete feature documentation
-- **[QUICKSTART.md](QUICKSTART.md)** - Getting started guide
-- **[DEPENDENCIES.md](DEPENDENCIES.md)** - System requirements
 - **[KNOWN_ISSUES.md](KNOWN_ISSUES.md)** - Troubleshooting guide
