@@ -69,14 +69,18 @@ def _process_files_concurrently(
     total = len(file_paths)
 
     if total == 1:
-        result = process_fn(file_paths[0])
-        ok = result[0] if isinstance(result, tuple) else result
-        if ok:
-            successful += 1
-        else:
+        try:
+            result = process_fn(file_paths[0])
+            ok = result[0] if isinstance(result, tuple) else result
+            if ok:
+                successful += 1
+            else:
+                failed += 1
+                err = result[2] if isinstance(result, tuple) and len(result) > 2 else "unknown error"
+                logger.error("Failed: %s - %s", file_paths[0].name, err)
+        except Exception as e:
             failed += 1
-            err = result[2] if isinstance(result, tuple) and len(result) > 2 else "unknown error"
-            logger.error("Failed: %s - %s", file_paths[0].name, err)
+            logger.error("Error processing %s: %s", file_paths[0].name, e)
     else:
         with ThreadPoolExecutor(max_workers=config.MAX_CONCURRENT_FILES) as executor:
             futures = {executor.submit(process_fn, fp): fp for fp in file_paths}
@@ -556,6 +560,8 @@ def select_files() -> List[Path]:
 
         except (ValueError, IndexError):
             print("Invalid input. Please enter numbers separated by commas.\n")
+        except (KeyboardInterrupt, EOFError):
+            return []
 
 
 # ============================================================================

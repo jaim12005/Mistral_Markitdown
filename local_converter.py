@@ -13,6 +13,7 @@ Documentation references:
 import csv
 import re
 import sys
+import threading
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 
@@ -45,79 +46,79 @@ logger = utils.logger
 # MarkItDown Integration
 # ============================================================================
 
-_markitdown_instance = None
-_markitdown_init_attempted = False
+_MARKITDOWN_UNSET = object()  # sentinel: init never attempted
+_markitdown_instance = _MARKITDOWN_UNSET
+_markitdown_lock = threading.Lock()
 
 
 def get_markitdown_instance() -> Optional[MarkItDown]:
     """
-    Create and configure a MarkItDown instance.
+    Create and configure a MarkItDown instance (thread-safe).
 
-    Uses a module-level cache that can be invalidated on failure
-    via reset_markitdown_instance().
-
-    Returns:
-        Configured MarkItDown instance or None if unavailable
+    Uses a module-level cache protected by a lock so concurrent threads
+    in batch processing don't race on initialization.  A failed init is
+    remembered (instance set to ``None``) so subsequent calls return
+    immediately without retrying or logging duplicate errors.
     """
-    global _markitdown_instance, _markitdown_init_attempted
+    global _markitdown_instance
 
-    if _markitdown_instance is not None:
-        return _markitdown_instance
-    if _markitdown_init_attempted:
-        return None
-    _markitdown_init_attempted = True
+    cached = _markitdown_instance
+    if cached is not _MARKITDOWN_UNSET:
+        return cached  # either a live instance or None (failed init)
 
-    if MarkItDown is None:
-        logger.error("MarkItDown not installed. Install with: pip install markitdown")
-        return None
+    with _markitdown_lock:
+        if _markitdown_instance is not _MARKITDOWN_UNSET:
+            return _markitdown_instance
 
-    try:
-        md_kwargs = {
-            "enable_plugins": config.MARKITDOWN_ENABLE_PLUGINS,
-            "enable_builtins": config.MARKITDOWN_ENABLE_BUILTINS,
-        }
+        if MarkItDown is None:
+            logger.error("MarkItDown not installed. Install with: pip install markitdown")
+            _markitdown_instance = None
+            return None
 
-        if config.MARKITDOWN_KEEP_DATA_URIS:
-            md_kwargs["keep_data_uris"] = True
+        try:
+            md_kwargs = {
+                "enable_plugins": config.MARKITDOWN_ENABLE_PLUGINS,
+                "enable_builtins": config.MARKITDOWN_ENABLE_BUILTINS,
+            }
 
-        # Add LLM configuration if enabled (via Mistral's OpenAI-compatible endpoint)
-        if config.MARKITDOWN_ENABLE_LLM_DESCRIPTIONS and config.MISTRAL_API_KEY:
-            try:
-                from openai import OpenAI
-                llm_client = OpenAI(
-                    api_key=config.MISTRAL_API_KEY,
-                    base_url="https://api.mistral.ai/v1"
-                )
-                md_kwargs["llm_client"] = llm_client
-                md_kwargs["llm_model"] = config.MARKITDOWN_LLM_MODEL
-            except ImportError:
-                logger.warning("OpenAI package not installed. LLM image descriptions disabled.")
+            if config.MARKITDOWN_KEEP_DATA_URIS:
+                md_kwargs["keep_data_uris"] = True
 
-        # Add optional LLM prompt override
-        if config.MARKITDOWN_LLM_PROMPT:
-            md_kwargs["llm_prompt"] = config.MARKITDOWN_LLM_PROMPT
+            if config.MARKITDOWN_ENABLE_LLM_DESCRIPTIONS and config.MISTRAL_API_KEY:
+                try:
+                    from openai import OpenAI
+                    llm_client = OpenAI(
+                        api_key=config.MISTRAL_API_KEY,
+                        base_url="https://api.mistral.ai/v1"
+                    )
+                    md_kwargs["llm_client"] = llm_client
+                    md_kwargs["llm_model"] = config.MARKITDOWN_LLM_MODEL
+                except ImportError:
+                    logger.warning("OpenAI package not installed. LLM image descriptions disabled.")
 
-        # Add optional style map for DOCX conversion
-        if config.MARKITDOWN_STYLE_MAP:
-            md_kwargs["style_map"] = config.MARKITDOWN_STYLE_MAP
+            if config.MARKITDOWN_LLM_PROMPT:
+                md_kwargs["llm_prompt"] = config.MARKITDOWN_LLM_PROMPT
 
-        # Add optional exiftool path
-        if config.MARKITDOWN_EXIFTOOL_PATH:
-            md_kwargs["exiftool_path"] = config.MARKITDOWN_EXIFTOOL_PATH
+            if config.MARKITDOWN_STYLE_MAP:
+                md_kwargs["style_map"] = config.MARKITDOWN_STYLE_MAP
 
-        _markitdown_instance = MarkItDown(**md_kwargs)
-        return _markitdown_instance
+            if config.MARKITDOWN_EXIFTOOL_PATH:
+                md_kwargs["exiftool_path"] = config.MARKITDOWN_EXIFTOOL_PATH
 
-    except Exception as e:
-        logger.error(f"Error initializing MarkItDown: {e}")
-        return None
+            _markitdown_instance = MarkItDown(**md_kwargs)
+            return _markitdown_instance
+
+        except Exception as e:
+            logger.error("Error initializing MarkItDown: %s", e)
+            _markitdown_instance = None  # remember the failure
+            return None
 
 
 def reset_markitdown_instance():
-    """Reset the cached MarkItDown instance so it will be re-created on next call."""
-    global _markitdown_instance, _markitdown_init_attempted
-    _markitdown_instance = None
-    _markitdown_init_attempted = False
+    """Reset the cached MarkItDown instance so the next call retries initialization."""
+    global _markitdown_instance
+    with _markitdown_lock:
+        _markitdown_instance = _MARKITDOWN_UNSET
 
 def convert_with_markitdown(file_path: Path) -> Tuple[bool, Optional[str], Optional[str]]:
     """
@@ -703,7 +704,7 @@ def convert_pdf_to_images(
         logger.info(f"Converting PDF to images: {pdf_path.name} (DPI: {dpi}, Format: {config.PDF_IMAGE_FORMAT})")
 
         # Configure poppler path for Windows
-        poppler_path = config.POPPLER_PATH if sys.platform == "win32" else None
+        poppler_path = (config.POPPLER_PATH or None) if sys.platform == "win32" else None
 
         # Build conversion parameters
         convert_params = {

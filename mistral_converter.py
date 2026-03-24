@@ -25,20 +25,20 @@ from typing import Dict, List, Optional, Tuple, Any, Callable
 from functools import lru_cache
 
 try:
-    from mistralai.client import Mistral
-    from mistralai.client import models
-    from mistralai.client.utils import retries
+    from mistralai import Mistral
+    from mistralai import models
+    from mistralai.utils import retries
 except ImportError as _e:
     import logging as _logging
     _logging.getLogger("document_converter").warning(
-        "mistralai package not available: %s. Install with: pip install 'mistralai>=2.0.0'", _e
+        "mistralai package not available: %s. Install with: pip install mistralai", _e
     )
     Mistral = None
     models = None
     retries = None
 
 try:
-    from mistralai.client import DocumentURLChunk, ImageURLChunk, FileChunk
+    from mistralai import DocumentURLChunk, ImageURLChunk, FileChunk
 except ImportError:
     DocumentURLChunk = None
     ImageURLChunk = None
@@ -800,8 +800,11 @@ def process_with_ocr(
 
             # Validate that we got actual text content
             if not result.get("full_text", "").strip():
-                error_msg = "Mistral OCR returned empty text. Your API key may not have OCR access. "
-                error_msg += "Try using Mode 3 (MarkItDown Only) instead, which works perfectly for text-based PDFs."
+                error_msg = (
+                    "Mistral OCR returned empty text. Possible causes: "
+                    "API key lacks OCR access, document is empty/corrupted, "
+                    "or response parsing failed (check logs for details)."
+                )
                 logger.warning(error_msg)
                 return False, None, error_msg
 
@@ -2024,20 +2027,22 @@ def get_batch_job_status(job_id: str) -> Tuple[bool, Optional[Dict[str, Any]], O
     try:
         job = client.batch.jobs.get(job_id=job_id)
         
+        total_req = getattr(job, "total_requests", None) or 0
+        succeeded_req = getattr(job, "succeeded_requests", None) or 0
+        failed_req = getattr(job, "failed_requests", None) or 0
+
         status = {
             "status": job.status,
-            "total_requests": job.total_requests,
-            "succeeded_requests": job.succeeded_requests,
-            "failed_requests": job.failed_requests,
+            "total_requests": total_req,
+            "succeeded_requests": succeeded_req,
+            "failed_requests": failed_req,
             "output_file": getattr(job, 'output_file', None),
             "error_file": getattr(job, 'error_file', None),
         }
-        
-        # Calculate progress percentage
-        if job.total_requests > 0:
-            completed = job.succeeded_requests + job.failed_requests
+
+        if total_req > 0:
             status["progress_percent"] = round(
-                (completed / job.total_requests) * 100, 2
+                ((succeeded_req + failed_req) / total_req) * 100, 2
             )
         else:
             status["progress_percent"] = 0

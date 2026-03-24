@@ -307,6 +307,8 @@ MISTRAL_QNA_DOCUMENT_PAGE_LIMIT = _safe_int("MISTRAL_QNA_DOCUMENT_PAGE_LIMIT", 0
 MISTRAL_BATCH_TIMEOUT_HOURS = _safe_int("MISTRAL_BATCH_TIMEOUT_HOURS", 24)
 
 # Retry Configuration (for Mistral API calls)
+# Set to 0 to disable retries entirely. Actual retry count is bounded by
+# RETRY_MAX_ELAPSED_TIME_MS (the SDK does not support a max-attempts parameter).
 MAX_RETRIES = _safe_int("MAX_RETRIES", 3)
 RETRY_INITIAL_INTERVAL_MS = _safe_int("RETRY_INITIAL_INTERVAL_MS", 1000)  # 1 second
 RETRY_MAX_INTERVAL_MS = _safe_int("RETRY_MAX_INTERVAL_MS", 10000)  # 10 seconds
