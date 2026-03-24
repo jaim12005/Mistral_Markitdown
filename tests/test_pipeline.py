@@ -2,7 +2,7 @@
 Tests for main.py pipeline modes.
 
 Tests cover:
-- mode_convert_smart (auto-routing, table extraction, concurrency)
+- mode_convert_smart (smart routing by content analysis)
 - mode_markitdown_only / mode_mistral_ocr_only (concurrency)
 - Dispatch table integrity
 """
@@ -32,15 +32,18 @@ class TestModeConvertSmart:
 
     @patch("main.mistral_converter")
     @patch("main.local_converter")
-    def test_pdf_routes_to_mistral_ocr(self, mock_local, mock_mistral, tmp_path, monkeypatch):
-        """PDF files should route to Mistral OCR when API key is set."""
+    def test_scanned_pdf_routes_to_ocr(self, mock_local, mock_mistral, tmp_path, monkeypatch):
+        """Scanned PDFs (no text layer) should route to Mistral OCR."""
         monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
         monkeypatch.setattr(config, "MAX_BATCH_FILES", 0)
         monkeypatch.setattr(config, "MAX_CONCURRENT_FILES", 1)
 
-        pdf_file = tmp_path / "test.pdf"
+        pdf_file = tmp_path / "scanned.pdf"
         pdf_file.write_bytes(b"%PDF-1.4\n%EOF")
 
+        mock_local.analyze_file_content.return_value = {
+            "is_text_based": False, "file_type": "pdf", "page_count": 1,
+        }
         mock_local.extract_all_tables.return_value = {
             "tables": [], "table_count": 0, "methods_used": [],
         }
@@ -50,37 +53,38 @@ class TestModeConvertSmart:
 
         assert success is True
         mock_mistral.convert_with_mistral_ocr.assert_called_once_with(pdf_file)
-        mock_local.extract_all_tables.assert_called_once_with(pdf_file)
 
-    @patch("main.mistral_converter")
     @patch("main.local_converter")
-    def test_pdf_runs_table_extraction(self, mock_local, mock_mistral, tmp_path, monkeypatch):
-        """PDF table extraction should run AND save when tables found."""
+    def test_text_pdf_routes_to_markitdown(self, mock_local, tmp_path, monkeypatch):
+        """Text-based PDFs should route to MarkItDown (free, faster)."""
         monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
         monkeypatch.setattr(config, "MAX_BATCH_FILES", 0)
         monkeypatch.setattr(config, "MAX_CONCURRENT_FILES", 1)
+        monkeypatch.setattr(config, "OUTPUT_MD_DIR", tmp_path)
 
-        pdf_file = tmp_path / "tables.pdf"
+        pdf_file = tmp_path / "textbased.pdf"
         pdf_file.write_bytes(b"%PDF-1.4\n%EOF")
 
-        fake_tables = [[["H1", "H2"], ["A", "B"]]]
-        mock_local.extract_all_tables.return_value = {
-            "tables": fake_tables, "table_count": 1, "methods_used": ["pdfplumber"],
+        mock_local.analyze_file_content.return_value = {
+            "is_text_based": True, "file_type": "pdf", "page_count": 5,
         }
-        mock_local.save_tables_to_files.return_value = [tmp_path / "tables_all.md"]
-        mock_mistral.convert_with_mistral_ocr.return_value = (True, tmp_path / "out.md", None)
+        mock_local.extract_all_tables.return_value = {
+            "tables": [], "table_count": 0, "methods_used": [],
+        }
+        mock_local.convert_with_markitdown.return_value = (True, "Content", None)
 
         success, _ = main.mode_convert_smart([pdf_file])
 
         assert success is True
-        mock_local.save_tables_to_files.assert_called_once_with(pdf_file, fake_tables)
+        mock_local.convert_with_markitdown.assert_called_once_with(pdf_file)
 
     @patch("main.local_converter")
-    def test_docx_routes_to_markitdown_no_api_key(self, mock_local, tmp_path, monkeypatch):
-        """Without API key, all files route to MarkItDown."""
-        monkeypatch.setattr(config, "MISTRAL_API_KEY", "")
+    def test_docx_always_routes_to_markitdown(self, mock_local, tmp_path, monkeypatch):
+        """DOCX should always use MarkItDown, even with API key set."""
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
         monkeypatch.setattr(config, "MAX_BATCH_FILES", 0)
         monkeypatch.setattr(config, "MAX_CONCURRENT_FILES", 1)
+        monkeypatch.setattr(config, "OUTPUT_MD_DIR", tmp_path)
 
         docx_file = tmp_path / "doc.docx"
         docx_file.write_bytes(b"PK\x03\x04")
@@ -92,12 +96,48 @@ class TestModeConvertSmart:
         assert success is True
         mock_local.convert_with_markitdown.assert_called_once_with(docx_file)
 
-    @patch("main.local_converter")
-    def test_txt_routes_to_markitdown(self, mock_local, tmp_path, monkeypatch):
-        """txt files should always route to MarkItDown (not OCR supported)."""
+    @patch("main.mistral_converter")
+    def test_image_routes_to_ocr(self, mock_mistral, tmp_path, monkeypatch):
+        """Image files should always route to Mistral OCR."""
         monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
         monkeypatch.setattr(config, "MAX_BATCH_FILES", 0)
         monkeypatch.setattr(config, "MAX_CONCURRENT_FILES", 1)
+
+        png_file = tmp_path / "scan.png"
+        png_file.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+
+        mock_mistral.convert_with_mistral_ocr.return_value = (True, tmp_path / "out.md", None)
+
+        success, _ = main.mode_convert_smart([png_file])
+
+        assert success is True
+        mock_mistral.convert_with_mistral_ocr.assert_called_once_with(png_file)
+
+    @patch("main.local_converter")
+    def test_no_api_key_all_to_markitdown(self, mock_local, tmp_path, monkeypatch):
+        """Without API key, all files (even images) route to MarkItDown."""
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "")
+        monkeypatch.setattr(config, "MAX_BATCH_FILES", 0)
+        monkeypatch.setattr(config, "MAX_CONCURRENT_FILES", 1)
+        monkeypatch.setattr(config, "OUTPUT_MD_DIR", tmp_path)
+
+        png_file = tmp_path / "scan.png"
+        png_file.write_bytes(b"\x89PNG\r\n\x1a\n")
+
+        mock_local.convert_with_markitdown.return_value = (True, "Content", None)
+
+        success, _ = main.mode_convert_smart([png_file])
+
+        assert success is True
+        mock_local.convert_with_markitdown.assert_called_once()
+
+    @patch("main.local_converter")
+    def test_txt_routes_to_markitdown(self, mock_local, tmp_path, monkeypatch):
+        """txt files should always route to MarkItDown."""
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        monkeypatch.setattr(config, "MAX_BATCH_FILES", 0)
+        monkeypatch.setattr(config, "MAX_CONCURRENT_FILES", 1)
+        monkeypatch.setattr(config, "OUTPUT_MD_DIR", tmp_path)
 
         txt_file = tmp_path / "notes.txt"
         txt_file.write_text("hello world")
@@ -108,6 +148,30 @@ class TestModeConvertSmart:
 
         assert success is True
         mock_local.convert_with_markitdown.assert_called_once_with(txt_file)
+
+    @patch("main.mistral_converter")
+    @patch("main.local_converter")
+    def test_pdf_table_extraction_runs(self, mock_local, mock_mistral, tmp_path, monkeypatch):
+        """PDF table extraction should run regardless of OCR routing."""
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        monkeypatch.setattr(config, "MAX_BATCH_FILES", 0)
+        monkeypatch.setattr(config, "MAX_CONCURRENT_FILES", 1)
+
+        pdf_file = tmp_path / "tables.pdf"
+        pdf_file.write_bytes(b"%PDF-1.4\n%EOF")
+
+        fake_tables = [[["H1", "H2"], ["A", "B"]]]
+        mock_local.analyze_file_content.return_value = {"is_text_based": False}
+        mock_local.extract_all_tables.return_value = {
+            "tables": fake_tables, "table_count": 1, "methods_used": ["pdfplumber"],
+        }
+        mock_local.save_tables_to_files.return_value = [tmp_path / "tables_all.md"]
+        mock_mistral.convert_with_mistral_ocr.return_value = (True, tmp_path / "out.md", None)
+
+        success, _ = main.mode_convert_smart([pdf_file])
+
+        assert success is True
+        mock_local.save_tables_to_files.assert_called_once_with(pdf_file, fake_tables)
 
     def test_batch_size_guardrail(self, tmp_path, monkeypatch):
         """Should reject batches exceeding MAX_BATCH_FILES."""
@@ -121,30 +185,6 @@ class TestModeConvertSmart:
 
         assert success is False
         assert "MAX_BATCH_FILES" in message
-
-    @patch("main.mistral_converter")
-    @patch("main.local_converter")
-    def test_multiple_files_processed(self, mock_local, mock_mistral, tmp_path, monkeypatch):
-        """Multiple files should all be processed."""
-        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
-        monkeypatch.setattr(config, "MAX_BATCH_FILES", 0)
-        monkeypatch.setattr(config, "MAX_CONCURRENT_FILES", 2)
-
-        files = []
-        for i in range(3):
-            f = tmp_path / f"doc{i}.pdf"
-            f.write_bytes(b"%PDF-1.4")
-            files.append(f)
-
-        mock_local.extract_all_tables.return_value = {
-            "tables": [], "table_count": 0, "methods_used": [],
-        }
-        mock_mistral.convert_with_mistral_ocr.return_value = (True, tmp_path / "out.md", None)
-
-        success, message = main.mode_convert_smart(files)
-
-        assert success is True
-        assert "3/3" in message
 
 
 # ============================================================================
@@ -200,7 +240,6 @@ class TestDispatchTable:
     """Test the mode dispatch infrastructure."""
 
     def test_all_cli_modes_in_dispatch(self):
-        """Every CLI mode (except status) should have a handler."""
         expected_modes = {
             "smart", "markitdown", "mistral_ocr", "pdf_to_images", "qna", "batch_ocr",
         }

@@ -25,9 +25,14 @@ import argparse
 import json
 import sys
 import time
+import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+# Suppress harmless version-check warning from requests when transitive
+# dependency versions (urllib3, chardet) are newer than requests expects.
+warnings.filterwarnings("ignore", message=".*urllib3.*chardet.*charset_normalizer.*")
 
 import config
 import utils
@@ -61,8 +66,9 @@ def _process_files_concurrently(
     successful = 0
     failed = 0
 
-    if len(file_paths) == 1:
-        utils.print_progress(1, 1, label)
+    total = len(file_paths)
+
+    if total == 1:
         result = process_fn(file_paths[0])
         ok = result[0] if isinstance(result, tuple) else result
         if ok:
@@ -71,31 +77,26 @@ def _process_files_concurrently(
             failed += 1
             err = result[2] if isinstance(result, tuple) and len(result) > 2 else "unknown error"
             logger.error("Failed: %s - %s", file_paths[0].name, err)
-        return successful, failed
+    else:
+        with ThreadPoolExecutor(max_workers=config.MAX_CONCURRENT_FILES) as executor:
+            futures = {executor.submit(process_fn, fp): fp for fp in file_paths}
 
-    with ThreadPoolExecutor(max_workers=config.MAX_CONCURRENT_FILES) as executor:
-        submit_times = {}
-        futures = {}
-        for fp in file_paths:
-            submit_times[fp] = time.time()
-            futures[executor.submit(process_fn, fp)] = fp
-
-        for i, future in enumerate(as_completed(futures), 1):
-            file_path = futures[future]
-            utils.print_progress(i, len(file_paths), label)
-
-            try:
-                result = future.result()
-                ok = result[0] if isinstance(result, tuple) else result
-                if ok:
-                    successful += 1
-                else:
+            for future in as_completed(futures):
+                file_path = futures[future]
+                try:
+                    result = future.result()
+                    ok = result[0] if isinstance(result, tuple) else result
+                    if ok:
+                        successful += 1
+                    else:
+                        failed += 1
+                        err = result[2] if isinstance(result, tuple) and len(result) > 2 else "failed"
+                        logger.error("Failed: %s - %s", file_path.name, err)
+                except Exception as e:
                     failed += 1
-                    err = result[2] if isinstance(result, tuple) and len(result) > 2 else "failed"
-                    logger.error("Failed: %s - %s", file_path.name, err)
-            except Exception as e:
-                failed += 1
-                logger.error("Error processing %s: %s", file_path.name, e)
+                    logger.error("Error processing %s: %s", file_path.name, e)
+
+    print(f"\n{label}: {successful + failed}/{total} complete")
 
     return successful, failed
 
@@ -105,24 +106,54 @@ def _process_files_concurrently(
 # ============================================================================
 
 
-def _route_label(ext: str) -> str:
-    """Return a human-readable label for the engine that will handle this extension."""
-    if ext in config.MISTRAL_OCR_SUPPORTED and config.MISTRAL_API_KEY:
+def _should_use_ocr(file_path: Path) -> bool:
+    """Decide whether a file should be routed to Mistral OCR or MarkItDown.
+
+    - Images (no text layer) -> OCR
+    - Scanned / image-only PDFs -> OCR
+    - Text-based PDFs -> MarkItDown (faster, free)
+    - Office docs (DOCX, PPTX, XLSX) -> MarkItDown (text is directly extractable)
+    - Everything else -> MarkItDown
+    """
+    if not config.MISTRAL_API_KEY:
+        return False
+
+    ext = file_path.suffix.lower().lstrip(".")
+
+    # Images always need OCR -- there's no text layer to extract
+    if ext in config.IMAGE_EXTENSIONS:
+        return True
+
+    # PDFs: check whether they have an extractable text layer
+    if ext == "pdf":
+        analysis = local_converter.analyze_file_content(file_path)
+        if analysis.get("is_text_based"):
+            return False  # Text-based PDF: MarkItDown is better
+        return True  # Scanned / image-only PDF: needs OCR
+
+    # Everything else (DOCX, PPTX, XLSX, CSV, HTML, TXT, etc.): MarkItDown
+    return False
+
+
+def _route_label(file_path: Path) -> str:
+    """Return a human-readable label for the engine that will handle this file."""
+    ext = file_path.suffix.lower().lstrip(".")
+    if _should_use_ocr(file_path):
         label = "Mistral OCR"
         if ext == "pdf":
-            label += " (+ table extraction)"
+            label += " (scanned + table extraction)"
         return label
-    return "MarkItDown (local)"
+    label = "MarkItDown (local)"
+    if ext == "pdf":
+        label += " (text-based + table extraction)"
+    return label
 
 
 def _process_single_smart(file_path: Path) -> Tuple[bool, Optional[Path], Optional[str]]:
-    """Process one file with smart routing: OCR-supported -> Mistral, else -> MarkItDown.
-
-    For PDFs, also runs table extraction via pdfplumber/camelot.
-    """
+    """Process one file with smart routing based on file content analysis."""
     ext = file_path.suffix.lower().lstrip(".")
 
-    # PDF table extraction (runs regardless of OCR engine choice)
+    # PDF table extraction runs regardless of engine choice
     if ext == "pdf":
         try:
             table_result = local_converter.extract_all_tables(file_path)
@@ -134,8 +165,7 @@ def _process_single_smart(file_path: Path) -> Tuple[bool, Optional[Path], Option
         except Exception as e:
             logger.warning("Table extraction failed for %s: %s", file_path.name, e)
 
-    # Route to the appropriate engine
-    if ext in config.MISTRAL_OCR_SUPPORTED and config.MISTRAL_API_KEY:
+    if _should_use_ocr(file_path):
         return mistral_converter.convert_with_mistral_ocr(file_path)
     else:
         success, content, error = local_converter.convert_with_markitdown(file_path)
@@ -147,12 +177,13 @@ def mode_convert_smart(file_paths: List[Path]) -> Tuple[bool, str]:
     """
     Smart conversion mode: auto-routes each file to the best engine.
 
-    - Files whose extension is in MISTRAL_OCR_SUPPORTED go to Mistral OCR
-    - Everything else goes to MarkItDown (local)
-    - PDFs also get table extraction via pdfplumber + camelot
-    - Multiple files are processed concurrently
+    Routing logic:
+    - Images (no text layer) -> Mistral OCR
+    - Scanned PDFs (no extractable text) -> Mistral OCR + table extraction
+    - Text-based PDFs -> MarkItDown + table extraction
+    - Office docs, data files, etc. -> MarkItDown
 
-    Prints the routing decision for each file before processing begins.
+    Multiple files are processed concurrently.
     """
     logger.info("SMART CONVERT MODE: Processing %d file(s)", len(file_paths))
 
@@ -168,8 +199,7 @@ def mode_convert_smart(file_paths: List[Path]) -> Tuple[bool, str]:
         print("  NOTE: No MISTRAL_API_KEY set. All files will use MarkItDown (local).\n")
 
     for fp in file_paths:
-        ext = fp.suffix.lower().lstrip(".")
-        label = _route_label(ext)
+        label = _route_label(fp)
         print(f"  {fp.name:<40} -> {label}")
     print()
 

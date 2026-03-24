@@ -1304,10 +1304,7 @@ def save_extracted_images(ocr_result: Dict[str, Any], file_path: Path) -> List[P
     if not config.MISTRAL_INCLUDE_IMAGES:
         return saved_images
 
-    # Create output directory
     image_dir = config.OUTPUT_IMAGES_DIR / f"{file_path.stem}_ocr"
-    image_dir.mkdir(parents=True, exist_ok=True)
-
     image_count = 0
 
     for page in ocr_result.get("pages", []):
@@ -1319,8 +1316,10 @@ def save_extracted_images(ocr_result: Dict[str, Any], file_path: Path) -> List[P
             if not image_base64:
                 continue
 
+            # Create output directory on first actual image (avoids empty folders)
+            image_dir.mkdir(parents=True, exist_ok=True)
+
             try:
-                # Strip data URI prefix if present (e.g. "data:image/png;base64,...")
                 if image_base64.startswith("data:"):
                     image_base64 = image_base64.split(",", 1)[1]
 
