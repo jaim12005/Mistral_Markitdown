@@ -24,16 +24,34 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any, Callable
 from functools import lru_cache
 
+# Support both mistralai SDK v1 (from mistralai import ...) and v2 (from mistralai.client import ...)
 try:
-    from mistralai import Mistral
-    from mistralai import models
-    from mistralai.utils import retries
-    # New SDK types for OCR document handling
-    from mistralai import DocumentURLChunk, ImageURLChunk, FileChunk
-except ImportError:
+    try:
+        # SDK v2.x path
+        from mistralai.client import Mistral
+        from mistralai.client import models
+        from mistralai.client.utils import retries
+    except ImportError:
+        # SDK v1.x path
+        from mistralai import Mistral
+        from mistralai import models
+        from mistralai.utils import retries
+except ImportError as _e:
+    import logging as _logging
+    _logging.getLogger("document_converter").warning(
+        "mistralai package not available: %s. Install with: pip install mistralai", _e
+    )
     Mistral = None
     models = None
     retries = None
+
+# SDK types for OCR document handling (may not exist in all SDK versions)
+try:
+    try:
+        from mistralai.client import DocumentURLChunk, ImageURLChunk, FileChunk
+    except ImportError:
+        from mistralai import DocumentURLChunk, ImageURLChunk, FileChunk
+except ImportError:
     DocumentURLChunk = None
     ImageURLChunk = None
     FileChunk = None
@@ -102,11 +120,16 @@ def get_mistral_client() -> Optional[Mistral]:
         Configured Mistral client or None if unavailable
     """
     if Mistral is None:
-        logger.error("Mistral SDK not installed. Install with: pip install mistralai")
+        logger.error(
+            "Mistral SDK not available. Run: pip install mistralai  "
+            "(check logs/pip_install.log if you already installed it)"
+        )
         return None
 
     if not config.MISTRAL_API_KEY:
-        logger.error("MISTRAL_API_KEY not set in environment variables")
+        logger.error(
+            "MISTRAL_API_KEY not set. Add it to your .env file in the project root."
+        )
         return None
 
     try:
@@ -1444,7 +1467,7 @@ def convert_with_mistral_ocr(
     client = get_mistral_client()
     if client is None:
         error_msg = (
-            "Mistral client not available. Please set MISTRAL_API_KEY in .env file"
+            "Mistral client not available (see errors above for details)"
         )
         logger.warning(error_msg)
         return False, None, error_msg
