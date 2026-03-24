@@ -24,10 +24,19 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any, Callable
 from functools import lru_cache
 
+# The mistralai SDK moved its import paths between v1.x and v2.x:
+#   v1.x: from mistralai import Mistral
+#   v2.x: from mistralai.client import Mistral
+# Try v2 first (pinned in requirements.txt), fall back to v1 for dev environments.
 try:
-    from mistralai import Mistral
-    from mistralai import models
-    from mistralai.utils import retries
+    try:
+        from mistralai.client import Mistral
+        from mistralai.client import models
+        from mistralai.client.utils import retries
+    except ImportError:
+        from mistralai import Mistral
+        from mistralai import models
+        from mistralai.utils import retries
 except ImportError as _e:
     import logging as _logging
     _logging.getLogger("document_converter").warning(
@@ -38,7 +47,10 @@ except ImportError as _e:
     retries = None
 
 try:
-    from mistralai import DocumentURLChunk, ImageURLChunk, FileChunk
+    try:
+        from mistralai.client import DocumentURLChunk, ImageURLChunk, FileChunk
+    except ImportError:
+        from mistralai import DocumentURLChunk, ImageURLChunk, FileChunk
 except ImportError:
     DocumentURLChunk = None
     ImageURLChunk = None
