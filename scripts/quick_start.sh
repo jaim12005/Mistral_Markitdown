@@ -4,21 +4,22 @@
 # This script sets up the virtual environment, installs dependencies,
 # and launches the document converter.
 
-# Enforce bash
 if [ -z "$BASH_VERSION" ]; then
     echo "ERROR: This script requires bash"
-    echo "Please run with: bash quick_start.sh"
+    echo "Please run with: bash scripts/quick_start.sh"
     exit 1
 fi
 
 set -e
+
+# Always run from the project root (parent of scripts/)
+cd "$(dirname "$0")/.."
 
 echo "============================================================"
 echo "  Enhanced Document Converter - Setup and Launch"
 echo "============================================================"
 echo ""
 
-# Check if Python is installed
 if ! command -v python3 &> /dev/null; then
     echo "ERROR: Python 3 is not installed"
     echo "Please install Python 3.10+ from https://www.python.org/"
@@ -28,10 +29,8 @@ fi
 echo "[1/5] Checking Python version..."
 python3 --version
 
-# Create logs directory if it doesn't exist
 mkdir -p logs
 
-# Check/create virtual environment
 if [ ! -d "env" ]; then
     echo ""
     echo "[2/5] Creating virtual environment..."
@@ -42,27 +41,22 @@ else
     echo "[2/5] Virtual environment already exists."
 fi
 
-# Activate virtual environment
 source env/bin/activate
 
-# Upgrade pip, setuptools, and wheel
 echo ""
 echo "[3/5] Upgrading pip, setuptools, and wheel..."
 pip install --upgrade pip setuptools wheel > logs/pip_install.log 2>&1
 
-# Install/upgrade dependencies
 echo ""
 echo "[4/5] Installing dependencies (this may take a few minutes)..."
 echo "This process is logged to logs/pip_install.log"
 
-# Install requirements
 pip install -r requirements.txt >> logs/pip_install.log 2>&1
 
 echo ""
 echo "[5/5] Verifying installation..."
 pip check > logs/pip_check.log 2>&1 || echo "WARNING: Some package conflicts detected. See logs/pip_check.log"
 
-# Save installed versions
 pip list > logs/installed_versions.txt 2>&1
 echo "Installed package versions saved to logs/installed_versions.txt"
 
@@ -72,32 +66,35 @@ echo "  Setup complete!"
 echo "============================================================"
 echo ""
 
-# Check for .env file
 if [ ! -f ".env" ]; then
     echo "WARNING: .env file not found"
     echo ""
     echo "Please create a .env file with your configuration:"
-    echo "  1. Create a new file named .env in this directory"
-    echo "  2. Add your MISTRAL_API_KEY and other settings"
+    echo "  1. Copy .env.example to .env"
+    echo "  2. Add your MISTRAL_API_KEY"
     echo "  3. See README.md for complete configuration options"
     echo ""
-    read -p "Would you like to create a basic .env file now? (y/n) " -n 1 -r
+    read -p "Would you like to copy .env.example to .env now? (y/n) " -n 1 -r
     echo ""
     if [[ $REPLY =~ ^[Yy]$ ]]; then
-        cat > .env << 'EOF'
+        if [ -f ".env.example" ]; then
+            cp .env.example .env
+            echo "Copied .env.example to .env"
+        else
+            cat > .env << 'EOF'
 # Enhanced Document Converter Configuration
 # Add your API key below:
 MISTRAL_API_KEY=""
-# See README.md for all configuration options
+# See .env.example for all configuration options
 EOF
-        echo ".env file created. Please edit it with your API keys."
+            echo "Created basic .env file"
+        fi
         echo ""
-        echo "Opening .env file in default editor..."
+        echo "Opening .env in your editor -- add your MISTRAL_API_KEY and save."
         ${EDITOR:-nano} .env
     fi
 fi
 
-# Run smoke test
 echo ""
 echo "Running smoke test..."
 python main.py --test
@@ -110,9 +107,8 @@ echo "  To run the converter:"
 echo "    source env/bin/activate"
 echo "    python main.py"
 echo ""
-echo "  Or simply run: ./quick_start.sh"
+echo "  Or simply run: ./scripts/quick_start.sh"
 echo "============================================================"
 echo ""
 
-# Keep environment activated for user
 exec bash --rcfile <(echo "source env/bin/activate; PS1='(converter-env) \u@\h:\w\$ '")

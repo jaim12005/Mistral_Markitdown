@@ -5,6 +5,9 @@ REM and launches the document converter.
 
 setlocal enabledelayedexpansion
 
+REM Always run from the project root (parent of scripts/)
+cd /d "%~dp0\.."
+
 echo ============================================================
 echo   Enhanced Document Converter - Setup and Launch
 echo ============================================================
@@ -55,7 +58,6 @@ echo.
 echo [4/5] Installing dependencies (this may take a few minutes)...
 echo This process is logged to logs\pip_install.log
 
-REM Install from requirements.txt (recommended approach)
 echo Installing core dependencies from requirements.txt...
 env\Scripts\python.exe -m pip install -r requirements.txt >> logs\pip_install.log 2>&1
 
@@ -93,29 +95,29 @@ if not exist ".env" (
     echo.
     echo WARNING: .env file not found
     echo.
-    echo The converter needs a .env file with your configuration.
-    echo.
     echo Please create a .env file with your configuration:
-    echo   1. Create a new file named .env in this directory
-    echo   2. Add your MISTRAL_API_KEY and other settings
+    echo   1. Copy .env.example to .env
+    echo   2. Add your MISTRAL_API_KEY
     echo   3. See README.md for complete configuration options
     echo.
     echo ============================================================
     echo.
     set /p "create_env=Would you like to create a basic .env file now? (Y/N): "
     echo.
-    
+
     if /i "!create_env!"=="Y" (
-        echo Creating basic .env file...
-        echo # Enhanced Document Converter Configuration > .env
-        echo # Add your API key below: >> .env
-        echo MISTRAL_API_KEY="" >> .env
-        echo # See README.md for all configuration options >> .env
+        if exist ".env.example" (
+            copy .env.example .env >nul
+            echo Copied .env.example to .env
+        ) else (
+            echo # Enhanced Document Converter Configuration > .env
+            echo # Add your API key below: >> .env
+            echo MISTRAL_API_KEY="" >> .env
+            echo # See .env.example for all configuration options >> .env
+            echo Created basic .env file
+        )
         echo.
-        echo Basic .env file created successfully!
-        echo.
-        echo Opening .env file in notepad for you to add your API key...
-        echo Please add your MISTRAL_API_KEY and save the file.
+        echo Opening .env in notepad -- add your MISTRAL_API_KEY and save.
         echo.
         notepad .env
         echo.
