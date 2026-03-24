@@ -1,33 +1,28 @@
-# ============================================================================
 # Enhanced Document Converter - Core Dependencies
-# ============================================================================
-# For OPTIONAL MarkItDown features (audio, YouTube), see requirements-optional.txt
-# For DEVELOPMENT dependencies (pytest, linters), see requirements-dev.txt
-# ============================================================================
+# For optional features (audio, YouTube): see requirements-optional.txt
+# For development (pytest, linters): see requirements-dev.txt
 
 # Core: MarkItDown with all format support
-# Transitively installs: beautifulsoup4, requests, lxml, mammoth,
-# pdfminer-six, python-pptx, openpyxl, xlrd, Pillow, and more
-markitdown[all]>=0.1.5
+markitdown[all]==0.1.5
 
-# Core: Mistral AI SDK for OCR, QnA, and Batch API
-mistralai>=1.12.0
+# Core: Mistral AI SDK v2 for OCR, QnA, and Batch API
+mistralai==2.1.3
 
 # Core: Load .env configuration
-python-dotenv>=1.0.0
+python-dotenv==1.2.2
 
 # PDF table extraction beyond MarkItDown's built-in support
-pdfplumber>=0.10.0
-camelot-py[cv]>=0.11.0
+pdfplumber==0.11.9
+camelot-py==1.0.9
 
 # PDF to image conversion (requires Poppler system binary)
-pdf2image>=1.16.0
+pdf2image==1.17.0
 
 # Async file I/O for concurrent batch processing
-aiofiles>=23.0.0
+aiofiles==25.1.0
 
 # System resource monitoring
-psutil>=5.9.0
+psutil==7.2.2
 
 # Table formatting for console output
-tabulate>=0.9.0
+tabulate==0.10.0

@@ -24,33 +24,21 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any, Callable
 from functools import lru_cache
 
-# Support both mistralai SDK v1 (from mistralai import ...) and v2 (from mistralai.client import ...)
 try:
-    try:
-        # SDK v2.x path
-        from mistralai.client import Mistral
-        from mistralai.client import models
-        from mistralai.client.utils import retries
-    except ImportError:
-        # SDK v1.x path
-        from mistralai import Mistral
-        from mistralai import models
-        from mistralai.utils import retries
+    from mistralai.client import Mistral
+    from mistralai.client import models
+    from mistralai.client.utils import retries
 except ImportError as _e:
     import logging as _logging
     _logging.getLogger("document_converter").warning(
-        "mistralai package not available: %s. Install with: pip install mistralai", _e
+        "mistralai package not available: %s. Install with: pip install 'mistralai>=2.0.0'", _e
     )
     Mistral = None
     models = None
     retries = None
 
-# SDK types for OCR document handling (may not exist in all SDK versions)
 try:
-    try:
-        from mistralai.client import DocumentURLChunk, ImageURLChunk, FileChunk
-    except ImportError:
-        from mistralai import DocumentURLChunk, ImageURLChunk, FileChunk
+    from mistralai.client import DocumentURLChunk, ImageURLChunk, FileChunk
 except ImportError:
     DocumentURLChunk = None
     ImageURLChunk = None
