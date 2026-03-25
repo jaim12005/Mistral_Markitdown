@@ -49,23 +49,33 @@ __all__ = [
 ]
 
 # Mistral SDK v2 imports (pinned to mistralai==2.1.3)
+# SDK v2.1.3 uses a namespace package layout: core code lives under
+# ``mistralai.client`` rather than ``mistralai`` directly.
 try:
-    from mistralai import Mistral, models
-    from mistralai.utils import retries
+    from mistralai.client import Mistral, models
+    from mistralai.client.utils import retries
 except ImportError:
-    print(
-        "WARNING: mistralai package not available. Install with: pip install mistralai"
-    )
-    Mistral = None
-    models = None
-    retries = None
+    try:
+        # Legacy import path (older SDK builds with top-level __init__.py)
+        from mistralai import Mistral, models  # type: ignore[no-redef]
+        from mistralai.utils import retries  # type: ignore[no-redef]
+    except ImportError:
+        print(
+            "WARNING: mistralai package not available. Install with: pip install mistralai"
+        )
+        Mistral = None
+        models = None
+        retries = None
 
 try:
-    from mistralai import DocumentURLChunk, FileChunk, ImageURLChunk
+    from mistralai.client.models import DocumentURLChunk, FileChunk, ImageURLChunk
 except ImportError:
-    DocumentURLChunk = None
-    ImageURLChunk = None
-    FileChunk = None
+    try:
+        from mistralai import DocumentURLChunk, FileChunk, ImageURLChunk  # type: ignore[no-redef]
+    except ImportError:
+        DocumentURLChunk = None
+        ImageURLChunk = None
+        FileChunk = None
 
 try:
     from mistralai.extra import response_format_from_pydantic_model
