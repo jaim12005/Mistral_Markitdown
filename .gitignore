@@ -26,13 +26,8 @@ output_txt/*
 !output_txt/.gitkeep
 output_images/*
 !output_images/.gitkeep
-!input/.gitkeep
 
 # Testing
-.coverage
-htmlcov/
-.pytest_cache/
-.mypy_cache/
 .tox/
 
 # Documentation builds

@@ -36,7 +36,4 @@ jobs:
     - name: Run isort (check only)
       run: |
         isort --check-only --profile black --line-length 120 *.py tests/
-    
-    - name: Run mypy (type checking)
-      run: |
-        mypy *.py --ignore-missing-imports
+

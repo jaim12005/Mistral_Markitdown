@@ -33,7 +33,6 @@ __all__ = [
     "preprocess_image",
     "cleanup_uploaded_files",
     "upload_file_for_ocr",
-    "upload_file_for_ocr_chunk",
     "process_with_ocr",
     "assess_ocr_quality",
     "improve_weak_pages",
@@ -47,36 +46,24 @@ __all__ = [
     "get_batch_job_status",
     "download_batch_results",
     "list_batch_jobs",
-    "cancel_batch_job",
-    "download_batch_errors",
 ]
 
-# The mistralai SDK moved its import paths between v1.x and v2.x:
-#   v1.x: from mistralai import Mistral
-#   v2.x: from mistralai.client import Mistral
-# Try v2 first (pinned in requirements.txt), fall back to v1 for dev environments.
+# Mistral SDK v2 imports (pinned to mistralai==2.1.3)
 try:
-    try:
-        from mistralai.client import Mistral, models
-        from mistralai.client.utils import retries
-    except ImportError:
-        from mistralai import Mistral, models
-        from mistralai.utils import retries
-except ImportError as _e:
+    from mistralai import Mistral, models
+    from mistralai.utils import retries
+except ImportError:
     import logging as _logging
 
     _logging.getLogger("document_converter").warning(
-        "mistralai package not available: %s. Install with: pip install mistralai", _e
+        "mistralai package not available. Install with: pip install mistralai"
     )
     Mistral = None
     models = None
     retries = None
 
 try:
-    try:
-        from mistralai.client.models import DocumentURLChunk, FileChunk, ImageURLChunk
-    except ImportError:
-        from mistralai import DocumentURLChunk, FileChunk, ImageURLChunk
+    from mistralai import DocumentURLChunk, FileChunk, ImageURLChunk
 except ImportError:
     DocumentURLChunk = None
     ImageURLChunk = None
@@ -673,41 +660,6 @@ def upload_file_for_ocr(
         return None
     finally:
         _cleanup_temp_files(temp_files_to_cleanup)
-
-
-def upload_file_for_ocr_chunk(client: Mistral, file_path: Path) -> Optional[Any]:
-    """
-    Upload file and return a FileChunk for direct use with OCR (no signed URL needed).
-
-    This is simpler than the signed URL flow: upload once, pass the file ID directly.
-
-    Args:
-        client: Mistral client instance
-        file_path: Path to file to upload
-
-    Returns:
-        FileChunk instance if successful, None otherwise
-    """
-    if FileChunk is None:
-        logger.debug("FileChunk not available in SDK, falling back to signed URL flow")
-        return None
-
-    try:
-        with open(file_path, "rb") as f:
-            response = client.files.upload(
-                file={"file_name": file_path.name, "content": f},
-                purpose="ocr",
-            )
-
-        if not hasattr(response, "id"):
-            return None
-
-        logger.info("File uploaded for FileChunk: %s", response.id)
-        return FileChunk(file_id=response.id)
-
-    except Exception as e:
-        logger.warning("FileChunk upload failed: %s, will fall back to signed URL", e)
-        return None
 
 
 def _cleanup_temp_files(temp_files: List[Path]) -> None:
@@ -2307,74 +2259,5 @@ def list_batch_jobs(
 
     except Exception as e:
         error_msg = f"Error listing batch jobs: {e}"
-        logger.error(error_msg)
-        return False, None, error_msg
-
-
-def cancel_batch_job(job_id: str) -> Tuple[bool, Optional[str], Optional[str]]:
-    """
-    Cancel a running batch OCR job.
-
-    Args:
-        job_id: The batch job ID to cancel
-
-    Returns:
-        Tuple of (success, status, error_message)
-    """
-    client = get_mistral_client()
-    if client is None:
-        return False, None, "Mistral client not available"
-
-    try:
-        job = client.batch.jobs.cancel(job_id=job_id)
-        logger.info("Batch job %s cancellation requested", job_id)
-        return True, job.status, None
-
-    except Exception as e:
-        error_msg = f"Error cancelling batch job: {e}"
-        logger.error(error_msg)
-        return False, None, error_msg
-
-
-def download_batch_errors(
-    job_id: str,
-    output_dir: Optional[Path] = None,
-) -> Tuple[bool, Optional[Path], Optional[str]]:
-    """
-    Download error file from a batch OCR job.
-
-    Args:
-        job_id: The batch job ID
-        output_dir: Directory to save errors (default: output_md/)
-
-    Returns:
-        Tuple of (success, error_file_path, error_message)
-    """
-    client = get_mistral_client()
-    if client is None:
-        return False, None, "Mistral client not available"
-
-    if output_dir is None:
-        output_dir = config.OUTPUT_MD_DIR
-
-    try:
-        job = client.batch.jobs.get(job_id=job_id)
-
-        if not getattr(job, "error_file", None):
-            return False, None, "No error file available for this job"
-
-        logger.info("Downloading batch errors for job %s...", job_id)
-
-        output_path = output_dir / f"batch_ocr_errors_{job_id}.jsonl"
-        file_content = client.files.download(file_id=job.error_file)
-
-        with open(output_path, "wb") as f:
-            f.write(file_content)
-
-        logger.info("Batch errors saved to: %s", output_path)
-        return True, output_path, None
-
-    except Exception as e:
-        error_msg = f"Error downloading batch errors: {e}"
         logger.error(error_msg)
         return False, None, error_msg

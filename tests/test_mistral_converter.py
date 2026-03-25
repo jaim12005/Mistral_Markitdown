@@ -226,14 +226,14 @@ class TestAnnotationFormats:
         monkeypatch.setattr(config, "MISTRAL_ENABLE_BBOX_ANNOTATION", True)
         monkeypatch.setattr(config, "MISTRAL_ENABLE_STRUCTURED_OUTPUT", True)
         result = mistral_converter.get_bbox_annotation_format()
-        # Should be a dict (raw JSON schema) or None if no schema available
-        assert result is None or isinstance(result, dict)
+        # Should be a dict or ResponseFormat object, or None if no schema available
+        assert result is None or isinstance(result, dict) or hasattr(result, 'type')
 
     def test_document_format_enabled_returns_dict(self, monkeypatch):
         monkeypatch.setattr(config, "MISTRAL_ENABLE_DOCUMENT_ANNOTATION", True)
         monkeypatch.setattr(config, "MISTRAL_ENABLE_STRUCTURED_OUTPUT", True)
         result = mistral_converter.get_document_annotation_format("generic")
-        assert result is None or isinstance(result, dict)
+        assert result is None or isinstance(result, dict) or hasattr(result, 'type')
 
     def test_document_format_auto_resolves_to_generic(self, monkeypatch):
         """auto schema type should resolve to generic when not configured."""
@@ -241,8 +241,8 @@ class TestAnnotationFormats:
         monkeypatch.setattr(config, "MISTRAL_ENABLE_STRUCTURED_OUTPUT", True)
         monkeypatch.setattr(config, "MISTRAL_DOCUMENT_SCHEMA_TYPE", "auto")
         result = mistral_converter.get_document_annotation_format("auto")
-        # Should not raise, and should return dict or None
-        assert result is None or isinstance(result, dict)
+        # Should not raise, and should return dict, ResponseFormat, or None
+        assert result is None or isinstance(result, dict) or hasattr(result, 'type')
 
 
 # ============================================================================
@@ -1631,65 +1631,6 @@ class TestSubmitBatchOcrJob:
         assert ok is False
 
 
-# ============================================================================
-# cancel_batch_job Tests
-# ============================================================================
-
-
-class TestCancelBatchJob:
-    """Test batch job cancellation."""
-
-    def test_successful_cancel(self):
-        mock_job = MagicMock(status="CANCELLATION_REQUESTED")
-        with patch.object(mistral_converter, "get_mistral_client") as mock_get:
-            mock_client = MagicMock()
-            mock_client.batch.jobs.cancel.return_value = mock_job
-            mock_get.return_value = mock_client
-
-            ok, status, err = mistral_converter.cancel_batch_job("job_to_cancel")
-        assert ok is True
-
-    def test_no_client(self):
-        with patch.object(mistral_converter, "get_mistral_client", return_value=None):
-            ok, status, err = mistral_converter.cancel_batch_job("job_x")
-        assert ok is False
-
-
-# ============================================================================
-# download_batch_errors Tests
-# ============================================================================
-
-
-class TestDownloadBatchErrors:
-    """Test batch error downloading."""
-
-    def test_successful_download(self, tmp_path):
-        mock_job = MagicMock()
-        mock_job.error_file = "error_file_id"
-
-        with patch.object(mistral_converter, "get_mistral_client") as mock_get:
-            mock_client = MagicMock()
-            mock_client.batch.jobs.get.return_value = mock_job
-            mock_client.files.download.return_value = b'{"error": "bad page"}\n'
-            mock_get.return_value = mock_client
-
-            ok, path, err = mistral_converter.download_batch_errors("job_err", output_dir=tmp_path)
-
-        assert ok is True
-        assert path.exists()
-
-    def test_no_error_file(self):
-        mock_job = MagicMock()
-        mock_job.error_file = None
-
-        with patch.object(mistral_converter, "get_mistral_client") as mock_get:
-            mock_client = MagicMock()
-            mock_client.batch.jobs.get.return_value = mock_job
-            mock_get.return_value = mock_client
-
-            ok, path, err = mistral_converter.download_batch_errors("job_no_err")
-        assert ok is False
-
 
 # ============================================================================
 # _process_ocr_result_pipeline Tests
@@ -2454,70 +2395,6 @@ class TestUploadFileForOcrFull:
         result = mistral_converter.upload_file_for_ocr(mock_client, pdf)
         assert result is None
 
-
-# ============================================================================
-# upload_file_for_ocr_chunk
-# ============================================================================
-
-
-class TestUploadFileForOcrChunkFull:
-    """Test FileChunk-based upload."""
-
-    def test_successful_chunk_upload(self, tmp_path):
-        pdf = tmp_path / "test.pdf"
-        pdf.write_bytes(b"%PDF")
-
-        mock_upload_resp = MagicMock()
-        mock_upload_resp.id = "file_chunk_id"
-        mock_client = MagicMock()
-        mock_client.files.upload.return_value = mock_upload_resp
-
-        mock_file_chunk = MagicMock()
-        with patch.object(mistral_converter, "FileChunk", mock_file_chunk):
-            result = mistral_converter.upload_file_for_ocr_chunk(
-                mock_client, pdf
-            )
-
-        assert result is not None
-        mock_file_chunk.assert_called_once_with(file_id="file_chunk_id")
-
-    def test_no_file_chunk_class(self, tmp_path):
-        pdf = tmp_path / "test.pdf"
-        pdf.write_bytes(b"%PDF")
-
-        mock_client = MagicMock()
-        with patch.object(mistral_converter, "FileChunk", None):
-            result = mistral_converter.upload_file_for_ocr_chunk(
-                mock_client, pdf
-            )
-        assert result is None
-
-    def test_upload_exception_returns_none(self, tmp_path):
-        pdf = tmp_path / "test.pdf"
-        pdf.write_bytes(b"%PDF")
-
-        mock_client = MagicMock()
-        mock_client.files.upload.side_effect = Exception("fail")
-
-        with patch.object(mistral_converter, "FileChunk", MagicMock()):
-            result = mistral_converter.upload_file_for_ocr_chunk(
-                mock_client, pdf
-            )
-        assert result is None
-
-    def test_missing_id_returns_none(self, tmp_path):
-        pdf = tmp_path / "test.pdf"
-        pdf.write_bytes(b"%PDF")
-
-        mock_resp = MagicMock(spec=[])  # No .id
-        mock_client = MagicMock()
-        mock_client.files.upload.return_value = mock_resp
-
-        with patch.object(mistral_converter, "FileChunk", MagicMock()):
-            result = mistral_converter.upload_file_for_ocr_chunk(
-                mock_client, pdf
-            )
-        assert result is None
 
 
 # ============================================================================
@@ -3487,40 +3364,6 @@ class TestBatchOperationsAdditional:
             )
         assert ok is False
 
-    def test_download_errors_api_error(self):
-        with patch.object(
-            mistral_converter, "get_mistral_client"
-        ) as mock_get:
-            mock_client = MagicMock()
-            mock_client.batch.jobs.get.side_effect = Exception("fail")
-            mock_get.return_value = mock_client
-
-            ok, path, err = mistral_converter.download_batch_errors(
-                "job_err2"
-            )
-        assert ok is False
-
-    def test_download_errors_no_client(self):
-        with patch.object(
-            mistral_converter, "get_mistral_client", return_value=None
-        ):
-            ok, path, err = mistral_converter.download_batch_errors("job_x")
-        assert ok is False
-
-    def test_cancel_batch_api_error(self):
-        with patch.object(
-            mistral_converter, "get_mistral_client"
-        ) as mock_get:
-            mock_client = MagicMock()
-            mock_client.batch.jobs.cancel.side_effect = Exception(
-                "cancel failed"
-            )
-            mock_get.return_value = mock_client
-
-            ok, status, err = mistral_converter.cancel_batch_job(
-                "job_cancel_err"
-            )
-        assert ok is False
 
     def test_list_batch_jobs_with_pagination(self):
         mock_job = MagicMock()
@@ -3675,24 +3518,6 @@ class TestSaveExtractedImagesDataUri:
 class TestModuleImportFallbacks:
     """Test module-level import try/except fallback paths."""
 
-    def test_mistralai_v1_fallback_import(self):
-        """Test that when mistralai.client fails, v1 import path is tried."""
-        import importlib
-        import sys
-
-        # Save originals
-        orig_mistral = mistral_converter.Mistral
-        orig_models = mistral_converter.models
-        orig_retries = mistral_converter.retries
-
-        try:
-            # We can verify the module loaded from one path or another
-            # by checking that the objects are not None (imports succeeded)
-            assert mistral_converter.Mistral is not None or mistral_converter.Mistral is None
-        finally:
-            mistral_converter.Mistral = orig_mistral
-            mistral_converter.models = orig_models
-            mistral_converter.retries = orig_retries
 
     def test_mistralai_not_available(self):
         """Test behavior when Mistral SDK is not available at all."""
@@ -4869,29 +4694,7 @@ class TestQueryDocumentDNS:
         assert answer == "Answer"
 
 
-# ============================================================================
-# cancel_batch_job - success path
-# ============================================================================
 
-
-class TestCancelBatchJobSuccess:
-    """Lines 2292-2295: already covered error, need success path."""
-
-    def test_cancel_success(self):
-        mock_job = MagicMock()
-        mock_job.status = "CANCELLED"
-
-        with patch.object(
-            mistral_converter, "get_mistral_client"
-        ) as mock_get:
-            mock_client = MagicMock()
-            mock_client.batch.jobs.cancel.return_value = mock_job
-            mock_get.return_value = mock_client
-
-            ok, status, err = mistral_converter.cancel_batch_job("job_123")
-
-        assert ok is True
-        assert status == "CANCELLED"
 
 
 # ============================================================================
@@ -5488,7 +5291,7 @@ class TestImportFallbackPaths:
         importlib.reload(mistral_converter)
 
     def test_mistralai_completely_unavailable(self):
-        """Lines 64-72, 79-82, 87-88: mistralai not installed at all."""
+        """mistralai not installed at all — all imports fall back to None."""
         import importlib
         import sys
 
@@ -5500,9 +5303,6 @@ class TestImportFallbackPaths:
                     sys.modules.pop(key)
             # Block imports by setting to None
             sys.modules["mistralai"] = None
-            sys.modules["mistralai.client"] = None
-            sys.modules["mistralai.client.utils"] = None
-            sys.modules["mistralai.client.models"] = None
             sys.modules["mistralai.utils"] = None
             sys.modules["mistralai.extra"] = None
 
@@ -5518,45 +5318,6 @@ class TestImportFallbackPaths:
         finally:
             self._restore_module_state(saved)
 
-    def test_v1_style_fallback(self):
-        """Lines 62-63, 78: client submodule unavailable, v1 fallback used."""
-        import importlib
-        import sys
-        import types
-
-        saved = self._save_module_state()
-        try:
-            # Remove all mistralai modules first
-            for key in list(sys.modules.keys()):
-                if key.startswith("mistralai"):
-                    sys.modules.pop(key)
-
-            # Create fake v1-style module layout
-            fake_mistralai = types.ModuleType("mistralai")
-            fake_mistralai.Mistral = type("Mistral", (), {})
-            fake_mistralai.models = MagicMock()
-            fake_mistralai.DocumentURLChunk = MagicMock()
-            fake_mistralai.FileChunk = MagicMock()
-            fake_mistralai.ImageURLChunk = MagicMock()
-
-            fake_utils = types.ModuleType("mistralai.utils")
-            fake_utils.retries = MagicMock()
-
-            # Block .client imports
-            sys.modules["mistralai"] = fake_mistralai
-            sys.modules["mistralai.utils"] = fake_utils
-            sys.modules["mistralai.client"] = None
-            sys.modules["mistralai.client.utils"] = None
-            sys.modules["mistralai.client.models"] = None
-            sys.modules["mistralai.extra"] = None
-
-            importlib.reload(mistral_converter)
-
-            # Should have loaded from v1 fallback
-            assert mistral_converter.Mistral is not None
-            assert mistral_converter.models is not None
-        finally:
-            self._restore_module_state(saved)
 
     def test_pil_unavailable(self):
         """Lines 92-93: PIL not installed."""

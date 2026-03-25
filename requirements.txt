@@ -1,15 +1,21 @@
 # Enhanced Document Converter - Core Dependencies
-# For optional features (audio, YouTube): see requirements-optional.txt
+# For optional features (audio, YouTube, Azure, LLM OCR plugin): see requirements-optional.txt
 # For development (pytest, linters): see requirements-dev.txt
 
-# Core: MarkItDown with all format support
-markitdown[all]==0.1.5
+# Core: MarkItDown with only the format extras this project uses
+markitdown[pdf,docx,pptx,xlsx,xls,outlook]==0.1.5
 
 # Core: Mistral AI SDK v2 for OCR, QnA, and Batch API
 mistralai==2.1.3
 
 # Core: Load .env configuration
 python-dotenv==1.2.2
+
+# Data validation (used by schemas.py)
+pydantic>=2,<3
+
+# Image processing
+Pillow>=10,<12
 
 # PDF table extraction beyond MarkItDown's built-in support
 pdfplumber==0.11.9
@@ -18,5 +24,4 @@ camelot-py==1.0.9
 # PDF to image conversion (requires Poppler system binary)
 pdf2image==1.17.0
 
-# Table formatting for console output
-tabulate==0.10.0
+

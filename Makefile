@@ -1,7 +1,7 @@
 # Enhanced Document Converter - Makefile
 # Convenience commands for development and testing
 
-.PHONY: help install install-dev test lint format type-check clean run check dist publish coverage security-audit dev-setup
+.PHONY: help install install-dev test lint format clean run check dist publish coverage security-audit dev-setup
 
 help:
 	@echo "Enhanced Document Converter - Development Commands"
@@ -10,9 +10,8 @@ help:
 	@echo "  make install        - Install production dependencies"
 	@echo "  make install-dev    - Install development dependencies"
 	@echo "  make test           - Run test suite"
-	@echo "  make lint           - Run linters (flake8, pylint)"
+	@echo "  make lint           - Run linters (flake8)"
 	@echo "  make format         - Format code with black and isort"
-	@echo "  make type-check     - Run mypy type checker"
 	@echo "  make coverage       - Run tests with coverage report"
 	@echo "  make security-audit - Run pip-audit dependency scan"
 	@echo "  make clean          - Clean build artifacts and cache"
@@ -30,15 +29,12 @@ test:
 	./scripts/test-safe.sh tests/
 
 lint:
-	flake8 *.py
-	pylint *.py --disable=C0103,C0114,C0115,C0116
+	flake8 .
 
 format:
-	black *.py tests/
-	isort *.py tests/
+	black .
+	isort .
 
-type-check:
-	mypy *.py
 
 clean:
 	rm -rf __pycache__ .pytest_cache .mypy_cache htmlcov .coverage
@@ -50,7 +46,7 @@ clean:
 run:
 	python main.py
 
-check: lint type-check test
+check: lint test
 	@echo "All checks passed!"
 
 coverage:

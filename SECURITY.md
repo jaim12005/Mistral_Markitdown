@@ -65,6 +65,6 @@ safety check
 ## Best Practices
 
 - Keep dependencies up to date (`pip install --upgrade -r requirements.txt`).
-- Run `make check` before deploying changes (includes linting and type checking).
+- Run `make check` before deploying changes (includes linting and tests).
 - Use the principle of least privilege for API keys — only grant OCR access if that's all you need.
 - Monitor the [GitHub Security Advisories](https://github.com/jaim12005/Mistral_Markitdown/security) page for updates.

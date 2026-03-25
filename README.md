@@ -220,7 +220,7 @@ MARKITDOWN_LLM_MODEL=pixtral-large-latest
 | File | Purpose |
 |------|---------|
 | `requirements.txt` | Core: MarkItDown, Mistral SDK, Pydantic, pdfplumber, Camelot, pdf2image, Pillow |
-| `requirements-dev.txt` | Dev: pytest, flake8, black, isort, mypy, sphinx |
+| `requirements-dev.txt` | Dev: pytest, flake8, black, isort, pip-audit |
 | `requirements-optional.txt` | Optional: audio transcription, YouTube, Azure, OpenAI client, markitdown-ocr |
 
 ### System Binaries

@@ -66,9 +66,6 @@ make lint
 # Format code
 make format
 
-# Type checking
-make type-check
-
 # Run all checks before committing
 make check
 ```
@@ -200,7 +197,6 @@ Mistral_Markitdown/
 ├── scripts/quick_start.sh     # Linux/macOS quick start script
 ├── Makefile                 # Development commands
 ├── pyproject.toml           # Tool configuration (black, isort, pytest)
-├── mypy.ini                 # Type checking configuration
 │
 ├── tests/                   # Test suite
 │   ├── __init__.py
@@ -326,8 +322,8 @@ pre-commit run --all-files
 - **Docstrings:** Google format (see `mistral_converter.py` for examples)
 - **Commit messages:** Follow [Conventional Commits](https://www.conventionalcommits.org/) — `feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`
 - **Test coverage:** Maintain 75%+ overall coverage; add tests for all new features
-- **PR requirements:** All PRs must pass `make check` (lint + type-check + tests) before merge
-- **Type hints:** Required for all function signatures; run `mypy` to validate
+- **PR requirements:** All PRs must pass `make check` (lint + tests) before merge
+- **Type hints:** Required for all function signatures
 - **Logging:** Use lazy `%`-formatting (`logger.info("Processing %s", name)`) instead of f-strings
 
 ## Code Review Guidelines

@@ -666,7 +666,7 @@ def save_tables_to_files(pdf_path: Path, tables: List[List[List[str]]]) -> List[
         return []
 
     created_files = []
-    base_name = pdf_path.stem
+    base_name = utils.safe_output_stem(pdf_path)
 
     # Save all tables as markdown
     md_path = config.OUTPUT_MD_DIR / f"{base_name}_tables_all.md"
@@ -881,7 +881,6 @@ def analyze_file_content(file_path: Path) -> Dict[str, Any]:
         "file_type": file_path.suffix.lower().lstrip("."),
         "file_size_mb": file_path.stat().st_size / (1024 * 1024),
         "has_images": False,
-        "has_code": False,
         "is_complex": False,
         "page_count": 0,
         "is_text_based": False,  # NEW: Can we extract text directly?

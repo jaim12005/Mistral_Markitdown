@@ -13,20 +13,11 @@ pytest-xdist~=3.8  # Parallel test execution
 flake8~=7.3
 black~=26.3
 isort~=8.0
-pylint~=4.0
-
-# Type Checking
-mypy~=1.19
-types-requests~=2.32
-types-Pillow~=10.2
-
-# Documentation
-sphinx~=8.1
-sphinx-rtd-theme~=3.1
 
 # Security Auditing
 pip-audit>=2.0.0
 bandit>=1.7.0
+
 
 # Development Tools
 ipython~=8.38

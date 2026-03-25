@@ -583,10 +583,10 @@ def initialize() -> List[str]:
     global _initialized
     if _initialized:
         return []
-    _initialized = True
-
     ensure_directories()
-    return validate_configuration()
+    issues = validate_configuration()
+    _initialized = True
+    return issues
 
 
 # Run as a standalone config diagnostic: ``python config.py``
