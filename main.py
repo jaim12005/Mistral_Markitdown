@@ -164,10 +164,10 @@ def _should_use_ocr(file_path: Path) -> bool:
     return False
 
 
-def _route_label(file_path: Path) -> str:
+def _route_label_cached(file_path: Path, use_ocr: bool) -> str:
     """Return a human-readable label for the engine that will handle this file."""
     ext = file_path.suffix.lower().lstrip(".")
-    if _should_use_ocr(file_path):
+    if use_ocr:
         label = "Mistral OCR"
         if ext == "pdf":
             label += " (scanned + table extraction)"
@@ -178,8 +178,16 @@ def _route_label(file_path: Path) -> str:
     return label
 
 
-def _process_single_smart(file_path: Path) -> Tuple[bool, Optional[Path], Optional[str]]:
-    """Process one file with smart routing based on file content analysis."""
+def _process_single_smart(
+    file_path: Path, *, use_ocr: Optional[bool] = None
+) -> Tuple[bool, Optional[Path], Optional[str]]:
+    """Process one file with smart routing based on file content analysis.
+
+    Args:
+        file_path: File to process.
+        use_ocr: Pre-computed routing decision.  When *None* (legacy callers),
+                 ``_should_use_ocr`` is called on the fly.
+    """
     ext = file_path.suffix.lower().lstrip(".")
 
     # PDF table extraction runs regardless of engine choice
@@ -192,7 +200,10 @@ def _process_single_smart(file_path: Path) -> Tuple[bool, Optional[Path], Option
         except Exception as e:
             logger.warning("Table extraction failed for %s: %s", file_path.name, e)
 
-    if _should_use_ocr(file_path):
+    if use_ocr is None:
+        use_ocr = _should_use_ocr(file_path)
+
+    if use_ocr:
         return mistral_converter.convert_with_mistral_ocr(file_path)
     else:
         success, content, error = local_converter.convert_with_markitdown(file_path)
@@ -220,17 +231,24 @@ def mode_convert_smart(file_paths: List[Path]) -> Tuple[bool, str]:
             "Increase the limit or split into smaller batches."
         )
 
+    # Pre-compute routing decisions once so we don't analyse each file twice
+    # (once for the routing plan display, once for actual processing).
+    routing_cache: Dict[Path, bool] = {fp: _should_use_ocr(fp) for fp in file_paths}
+
     # Show routing plan
     print("\nRouting plan:")
     if not config.MISTRAL_API_KEY:
         print("  NOTE: No MISTRAL_API_KEY set. All files will use MarkItDown (local).\n")
 
     for fp in file_paths:
-        label = _route_label(fp)
+        label = _route_label_cached(fp, routing_cache[fp])
         print(f"  {fp.name:<40} -> {label}")
     print()
 
-    successful, failed = _process_files_concurrently(file_paths, _process_single_smart, "Converting files")
+    def _process_fn(file_path: Path) -> Tuple[bool, Optional[Path], Optional[str]]:
+        return _process_single_smart(file_path, use_ocr=routing_cache[file_path])
+
+    successful, failed = _process_files_concurrently(file_paths, _process_fn, "Converting files")
 
     total = len(file_paths)
     return failed == 0, f"Processed {successful}/{total} files successfully"

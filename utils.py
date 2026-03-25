@@ -18,7 +18,7 @@ import sys
 import tempfile
 import threading
 from collections import OrderedDict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -182,7 +182,7 @@ class IntelligentCache:
         """
         try:
             if not file_path.exists():
-                logger.debug(f"Cache lookup skipped (file missing): {file_path}")
+                logger.debug("Cache lookup skipped (file missing): %s", file_path)
                 with self._lock:
                     self.misses += 1
                 return None
@@ -200,10 +200,12 @@ class IntelligentCache:
                 cache_data = json.load(f)
 
             cached_time = datetime.fromisoformat(cache_data.get("timestamp", ""))
+            if cached_time.tzinfo is None:
+                cached_time = cached_time.replace(tzinfo=timezone.utc)
             max_age = timedelta(hours=config.CACHE_DURATION_HOURS)
 
-            if datetime.now() - cached_time > max_age:
-                logger.debug(f"Cache expired for {file_path.name}")
+            if datetime.now(timezone.utc) - cached_time > max_age:
+                logger.debug("Cache expired for %s", file_path.name)
                 cache_path.unlink()
                 with self._lock:
                     self.misses += 1
@@ -212,23 +214,23 @@ class IntelligentCache:
             # Type check is now redundant since paths are segregated,
             # but keep for backwards compatibility with old cache files
             if cache_data.get("type") != cache_type:
-                logger.debug(f"Cache type mismatch (expected {cache_type}, got {cache_data.get('type')})")
+                logger.debug("Cache type mismatch (expected %s, got %s)", cache_type, cache_data.get("type"))
                 with self._lock:
                     self.misses += 1
                 return None
 
             with self._lock:
                 self.hits += 1
-            logger.info(f"Cache hit for {file_path.name}")
+            logger.info("Cache hit for %s", file_path.name)
             return cache_data.get("data")  # type: ignore[no-any-return]
 
         except FileNotFoundError:
-            logger.debug(f"Cache lookup failed (file not found): {file_path}")
+            logger.debug("Cache lookup failed (file not found): %s", file_path)
             with self._lock:
                 self.misses += 1
             return None
         except json.JSONDecodeError:
-            logger.warning(f"Corrupt cache file, removing: {cache_path}")
+            logger.warning("Corrupt cache file, removing: %s", cache_path)
             try:
                 cache_path.unlink(missing_ok=True)
             except OSError:
@@ -237,7 +239,7 @@ class IntelligentCache:
                 self.misses += 1
             return None
         except Exception as e:
-            logger.warning(f"Error reading cache for {file_path.name}: {e}")
+            logger.warning("Error reading cache for %s: %s", file_path.name, e)
             with self._lock:
                 self.misses += 1
             return None
@@ -256,7 +258,7 @@ class IntelligentCache:
         """
         try:
             if not file_path.exists():
-                logger.warning(f"Cannot cache missing file: {file_path}")
+                logger.warning("Cannot cache missing file: %s", file_path)
                 return
 
             file_hash = self._get_file_hash(file_path)
@@ -264,7 +266,7 @@ class IntelligentCache:
             cache_path = self._get_cache_path(file_hash, cache_type)
 
             cache_entry = {
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "file_name": file_path.name,
                 "file_size": file_path.stat().st_size,
                 "type": cache_type,
@@ -286,10 +288,10 @@ class IntelligentCache:
 
             temp_path.replace(cache_path)
 
-            logger.debug(f"Cached result for {file_path.name}")
+            logger.debug("Cached result for %s", file_path.name)
 
         except Exception as e:
-            logger.warning(f"Error writing cache for {file_path}: {e}")
+            logger.warning("Error writing cache for %s: %s", file_path, e)
 
     def clear_old_entries(self) -> int:
         """
@@ -307,13 +309,15 @@ class IntelligentCache:
                     cache_data = json.load(f)
 
                 cached_time = datetime.fromisoformat(cache_data.get("timestamp", ""))
+                if cached_time.tzinfo is None:
+                    cached_time = cached_time.replace(tzinfo=timezone.utc)
 
-                if datetime.now() - cached_time > max_age:
+                if datetime.now(timezone.utc) - cached_time > max_age:
                     cache_file.unlink()
                     removed += 1
 
             except Exception as e:
-                logger.debug(f"Error processing cache file {cache_file.name}: {e}")
+                logger.debug("Error processing cache file %s: %s", cache_file.name, e)
 
         return removed
 
@@ -664,11 +668,11 @@ def save_text_output(markdown_path: Path, markdown_content: str) -> Optional[Pat
         with open(text_path, "w", encoding="utf-8") as f:
             f.write(text_content)
 
-        logger.debug(f"Saved text output: {text_path.name}")
+        logger.debug("Saved text output: %s", text_path.name)
         return text_path
 
     except Exception as e:
-        logger.error(f"Error saving text output: {e}")
+        logger.error("Error saving text output: %s", e)
         return None
 
 
@@ -794,7 +798,7 @@ def generate_yaml_frontmatter(
         "title": title,
         "source_file": file_name,
         "conversion_method": conversion_method,
-        "converted_at": datetime.now().isoformat(),
+        "converted_at": datetime.now(timezone.utc).isoformat(),
         "converter_version": config.VERSION,
     }
 

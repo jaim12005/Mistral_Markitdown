@@ -538,7 +538,7 @@ def validate_configuration() -> List[str]:
         issues.append(f"WARNING: LOG_LEVEL={LOG_LEVEL!r} is invalid. Use one of {sorted(valid_log_levels)}.")
 
     # Validate MISTRAL_DOCUMENT_SCHEMA_TYPE
-    valid_schema_types = {"auto", "invoice", "financial_statement", "form", "generic"}
+    valid_schema_types = {"auto", "invoice", "financial_statement", "contract", "form", "generic"}
     if MISTRAL_DOCUMENT_SCHEMA_TYPE not in valid_schema_types:
         issues.append(
             f"WARNING: MISTRAL_DOCUMENT_SCHEMA_TYPE={MISTRAL_DOCUMENT_SCHEMA_TYPE!r} is invalid. "

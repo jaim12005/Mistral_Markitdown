@@ -203,7 +203,7 @@ def convert_with_markitdown(file_path: Path) -> Tuple[bool, Optional[str], Optio
             # Save text version
             utils.save_text_output(output_path, full_content)
 
-            logger.info(f"Saved: {output_path.name}")
+            logger.info("Saved: %s", output_path.name)
             return True, full_content, None
 
         else:
@@ -219,7 +219,7 @@ def convert_with_markitdown(file_path: Path) -> Tuple[bool, Optional[str], Optio
         logger.error("Conversion failed for %s: %s", file_path.name, e)
         return False, None, f"Conversion failed: {e}"
     except Exception as e:
-        logger.error(f"Error converting with MarkItDown: {e}")
+        logger.error("Error converting with MarkItDown: %s", e)
         return False, None, str(e)
 
 
@@ -306,10 +306,10 @@ def extract_tables_pdfplumber(pdf_path: Path) -> List[List[List[str]]]:
                     for table in page_tables:
                         if table and len(table) > 0:
                             tables.append(table)
-                            logger.debug(f"Found table on page {page_num + 1} ({len(table)} rows)")
+                            logger.debug("Found table on page %d (%d rows)", page_num + 1, len(table))
 
     except Exception as e:
-        logger.error(f"Error extracting tables with pdfplumber: {e}")
+        logger.error("Error extracting tables with pdfplumber: %s", e)
 
     return tables
 
@@ -368,8 +368,8 @@ def extract_tables_camelot(pdf_path: Path, flavor: str = "lattice") -> List[List
             table_accuracy = getattr(table, "accuracy", None)
             if table_accuracy is not None and table_accuracy < config.CAMELOT_MIN_ACCURACY:
                 logger.debug(
-                    f"Skipping low-accuracy table: {table_accuracy:.1f}% "
-                    f"(threshold: {config.CAMELOT_MIN_ACCURACY}%)"
+                    "Skipping low-accuracy table: %.1f%% (threshold: %.1f%%)",
+                    table_accuracy, config.CAMELOT_MIN_ACCURACY,
                 )
                 continue
 
@@ -378,8 +378,8 @@ def extract_tables_camelot(pdf_path: Path, flavor: str = "lattice") -> List[List
             table_whitespace = getattr(table, "whitespace", None)
             if table_whitespace is not None and table_whitespace > config.CAMELOT_MAX_WHITESPACE:
                 logger.debug(
-                    f"Skipping high-whitespace table: {table_whitespace:.1f}% "
-                    f"(threshold: {config.CAMELOT_MAX_WHITESPACE}%)"
+                    "Skipping high-whitespace table: %.1f%% (threshold: %.1f%%)",
+                    table_whitespace, config.CAMELOT_MAX_WHITESPACE,
                 )
                 continue
 
@@ -401,10 +401,10 @@ def extract_tables_camelot(pdf_path: Path, flavor: str = "lattice") -> List[List
                 elif quality_info:
                     quality_info += ")"
 
-                logger.debug(f"Camelot extracted table with {len(table_data)} rows{quality_info}")
+                logger.debug("Camelot extracted table with %d rows%s", len(table_data), quality_info)
 
     except Exception as e:
-        logger.error(f"Error extracting tables with camelot ({flavor}): {e}")
+        logger.error("Error extracting tables with camelot (%s): %s", flavor, e)
 
     return tables
 
@@ -515,7 +515,7 @@ def _fix_merged_currency_cells(table: List[List[str]]) -> List[List[str]]:
                     second_value = "$" + parts[2].strip()
                     fixed_row.append(first_value)
                     fixed_row.append(second_value)
-                    logger.debug(f"Split merged currency cell: '{cell}' → '{first_value}' + '{second_value}'")
+                    logger.debug("Split merged currency cell: '%s' → '%s' + '%s'", cell, first_value, second_value)
                     continue
 
             # Strategy 2: Check for bare number pairs (only in numeric-only cells)
@@ -534,7 +534,8 @@ def _fix_merged_currency_cells(table: List[List[str]]) -> List[List[str]]:
                         fixed_row.append(first_value)
                         fixed_row.append(second_value)
                         logger.debug(
-                            f"Split merged bare number cell: '{cell_stripped}' → '{first_value}' + '{second_value}'"
+                            "Split merged bare number cell: '%s' → '%s' + '%s'",
+                            cell_stripped, first_value, second_value,
                         )
                         continue
 
@@ -599,11 +600,11 @@ def extract_all_tables(pdf_path: Path) -> Dict[str, Any]:
     coalesced_count = original_count - len(result["tables"])
 
     if coalesced_count > 0:
-        logger.info(f"Coalesced {coalesced_count} split table(s) across pages")
+        logger.info("Coalesced %d split table(s) across pages", coalesced_count)
 
     result["table_count"] = len(result["tables"])
 
-    logger.info(f"Extracted {result['table_count']} unique tables using {result['methods_used']}")
+    logger.info("Extracted %d unique tables using %s", result["table_count"], result["methods_used"])
 
     return result
 
@@ -694,7 +695,7 @@ def save_tables_to_files(pdf_path: Path, tables: List[List[List[str]]]) -> List[
         f.write(md_content)
 
     created_files.append(md_path)
-    logger.info(f"Saved: {md_path.name}")
+    logger.info("Saved: %s", md_path.name)
 
     # Save text version
     utils.save_text_output(md_path, md_content)
@@ -720,10 +721,10 @@ def save_tables_to_files(pdf_path: Path, tables: List[List[List[str]]]) -> List[
                         writer.writerows(data_rows)
 
                 created_files.append(csv_path)
-                logger.debug(f"Saved: {csv_path.name}")
+                logger.debug("Saved: %s", csv_path.name)
 
             except Exception as e:
-                logger.error(f"Error saving CSV: {e}")
+                logger.error("Error saving CSV: %s", e)
 
     return created_files
 
@@ -761,7 +762,7 @@ def convert_pdf_to_images(
         if dpi is None:
             dpi = config.PDF_IMAGE_DPI
 
-        logger.info(f"Converting PDF to images: {pdf_path.name} (DPI: {dpi}, Format: {config.PDF_IMAGE_FORMAT})")
+        logger.info("Converting PDF to images: %s (DPI: %d, Format: %s)", pdf_path.name, dpi, config.PDF_IMAGE_FORMAT)
 
         # Configure poppler path for Windows
         poppler_path = (config.POPPLER_PATH or None) if sys.platform == "win32" else None
@@ -796,9 +797,9 @@ def convert_pdf_to_images(
                 image.save(str(image_path), config.PDF_IMAGE_FORMAT.upper())
 
             image_paths.append(image_path)
-            logger.debug(f"Saved page {i} to {image_path.name}")
+            logger.debug("Saved page %d to %s", i, image_path.name)
 
-        logger.info(f"Converted {len(image_paths)} pages to {config.PDF_IMAGE_FORMAT.upper()} images")
+        logger.info("Converted %d pages to %s images", len(image_paths), config.PDF_IMAGE_FORMAT.upper())
         return True, image_paths, None
 
     except Exception as e:
@@ -852,7 +853,7 @@ def coalesce_tables(tables: List[List[List[str]]]) -> List[List[List[str]]]:
     if current_table is not None:
         coalesced.append(current_table)
 
-    logger.info(f"Coalesced {len(tables)} tables into {len(coalesced)} tables")
+    logger.info("Coalesced %d tables into %d tables", len(tables), len(coalesced))
 
     return coalesced
 

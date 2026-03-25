@@ -463,14 +463,14 @@ class TestRouteLabel:
         monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
         img = tmp_path / "test.png"
         img.write_bytes(b"\x89PNG")
-        label = main._route_label(img)
+        label = main._route_label_cached(img, use_ocr=True)
         assert "Mistral OCR" in label
 
     def test_office_doc_label(self, tmp_path, monkeypatch):
         monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
         doc = tmp_path / "test.docx"
         doc.write_bytes(b"PK\x03\x04")
-        label = main._route_label(doc)
+        label = main._route_label_cached(doc, use_ocr=False)
         assert "MarkItDown" in label
 
 
@@ -1379,7 +1379,7 @@ class TestModeDocumentQnaExpanded:
 
         def bad_stream():
             raise ConnectionError("stream broken")
-            yield  # make it a generator  # noqa: E111
+            yield  # pragma: no cover -- unreachable; makes this a generator function
 
         inputs = iter(["What?", "exit"])
 

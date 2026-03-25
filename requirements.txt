@@ -18,11 +18,5 @@ camelot-py==1.0.9
 # PDF to image conversion (requires Poppler system binary)
 pdf2image==1.17.0
 
-# Async file I/O for concurrent batch processing
-aiofiles==25.1.0
-
-# System resource monitoring
-psutil==7.2.2
-
 # Table formatting for console output
 tabulate==0.10.0

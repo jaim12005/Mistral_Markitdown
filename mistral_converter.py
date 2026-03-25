@@ -234,7 +234,8 @@ def get_retry_config() -> Optional[Any]:
         )
 
         logger.debug(
-            f"Retry config: {config.MAX_RETRIES} attempts, {config.RETRY_INITIAL_INTERVAL_MS}ms initial interval"
+            "Retry config: %d attempts, %dms initial interval",
+            config.MAX_RETRIES, config.RETRY_INITIAL_INTERVAL_MS,
         )
         return retry_config
 
@@ -429,19 +430,21 @@ def optimize_image(image_path: Path) -> Optional[Path]:
         # Save optimized image with format-appropriate parameters
         optimized_path = image_path.parent / f"{image_path.stem}_optimized{image_path.suffix}"
 
-        # Use different save parameters based on format
-        suffix = image_path.suffix.lower()
-        if suffix == ".png":
-            img.save(optimized_path, format="PNG", optimize=True, compress_level=6)
-        elif suffix in {".jpg", ".jpeg"}:
-            img.save(
-                optimized_path,
-                format="JPEG",
-                quality=config.MISTRAL_IMAGE_QUALITY_THRESHOLD,
-                optimize=True,
-            )
-        else:
-            img.save(optimized_path, optimize=True)
+        try:
+            suffix = image_path.suffix.lower()
+            if suffix == ".png":
+                img.save(optimized_path, format="PNG", optimize=True, compress_level=6)
+            elif suffix in {".jpg", ".jpeg"}:
+                img.save(
+                    optimized_path,
+                    format="JPEG",
+                    quality=config.MISTRAL_IMAGE_QUALITY_THRESHOLD,
+                    optimize=True,
+                )
+            else:
+                img.save(optimized_path, optimize=True)
+        finally:
+            img.close()
 
         logger.debug("Optimized image: %s -> %s", image_path.name, optimized_path.name)
         return optimized_path
@@ -470,20 +473,23 @@ def preprocess_image(image_path: Path) -> Optional[Path]:
         with Image.open(image_path) as src:
             img = src.convert("RGB")
 
-        # Enhance contrast
-        img = ImageEnhance.Contrast(img).enhance(1.5)
+        try:
+            # Enhance contrast
+            img = ImageEnhance.Contrast(img).enhance(1.5)
 
-        # Enhance sharpness
-        img = ImageEnhance.Sharpness(img).enhance(1.3)
+            # Enhance sharpness
+            img = ImageEnhance.Sharpness(img).enhance(1.3)
 
-        # Save preprocessed image with format-appropriate parameters
-        preprocessed_path = image_path.parent / f"{image_path.stem}_preprocessed{image_path.suffix}"
-        if image_path.suffix.lower() in {".jpg", ".jpeg"}:
-            img.save(preprocessed_path, format="JPEG", quality=95, optimize=True)
-        elif image_path.suffix.lower() == ".png":
-            img.save(preprocessed_path, format="PNG", optimize=True)
-        else:
-            img.save(preprocessed_path)
+            # Save preprocessed image with format-appropriate parameters
+            preprocessed_path = image_path.parent / f"{image_path.stem}_preprocessed{image_path.suffix}"
+            if image_path.suffix.lower() in {".jpg", ".jpeg"}:
+                img.save(preprocessed_path, format="JPEG", quality=95, optimize=True)
+            elif image_path.suffix.lower() == ".png":
+                img.save(preprocessed_path, format="PNG", optimize=True)
+            else:
+                img.save(preprocessed_path)
+        finally:
+            img.close()
 
         logger.debug("Preprocessed image: %s", image_path.name)
         return preprocessed_path
@@ -1144,7 +1150,10 @@ def _is_weak_page(text: str) -> bool:
 
     # Check 2: Count digits (financial docs should have many numbers)
     # Supports both absolute count (OCR_MIN_DIGIT_COUNT) and ratio-based
-    # threshold (OCR_WEAK_PAGE_DIGIT_RATIO). Ratio is checked first when > 0.
+    # threshold (OCR_WEAK_PAGE_DIGIT_RATIO).  These are MUTUALLY EXCLUSIVE:
+    # when OCR_WEAK_PAGE_DIGIT_RATIO > 0 the ratio check takes precedence and
+    # OCR_MIN_DIGIT_COUNT is ignored.  Set the ratio to 0 (the default) to
+    # use the absolute count instead.
     digit_count = sum(1 for char in text if char.isdigit())
     text_len = len(text.strip())
     if config.OCR_WEAK_PAGE_DIGIT_RATIO > 0 and text_len > 0:
@@ -1264,8 +1273,8 @@ def assess_ocr_quality(ocr_result: Dict[str, Any]) -> Dict[str, Any]:
         assessment["issues"].append("Overall quality too low for inclusion")
 
     logger.info(
-        f"OCR Quality Assessment: Score={assessment['quality_score']:.1f}/100, "
-        f"Usable={assessment['is_usable']}, Issues={len(assessment['issues'])}"
+        "OCR Quality Assessment: Score=%.1f/100, Usable=%s, Issues=%d",
+        assessment["quality_score"], assessment["is_usable"], len(assessment["issues"]),
     )
 
     return assessment
@@ -1281,14 +1290,18 @@ def improve_weak_pages(client: Mistral, file_path: Path, ocr_result: Dict[str, A
     - Low information density
     - Missing numerical data
 
+    .. note::
+        This function **mutates** *ocr_result* in place (replacing pages and
+        rebuilding ``full_text``).  The same dict is returned for convenience.
+
     Args:
         client: Mistral client instance
         file_path: Path to original file
-        ocr_result: Initial OCR result
+        ocr_result: Initial OCR result (modified in place)
         model: Model to use
 
     Returns:
-        Improved OCR result
+        The same *ocr_result* dict, with weak pages replaced where improvement was found.
     """
     if not ocr_result.get("pages"):
         return ocr_result
@@ -1479,7 +1492,7 @@ def _process_ocr_result_pipeline(
         and quality_assessment
         and quality_assessment.get("weak_page_count", 0) > 0
     ):
-        logger.info(f"Attempting to improve {quality_assessment['weak_page_count']} weak pages...")
+        logger.info("Attempting to improve %d weak pages...", quality_assessment["weak_page_count"])
         model = config.get_ocr_model()
         # Note: improve_weak_pages is synchronous
         ocr_result = improve_weak_pages(client, file_path, ocr_result, model)
@@ -1487,7 +1500,7 @@ def _process_ocr_result_pipeline(
         # Re-assess quality after improvement
         quality_assessment = assess_ocr_quality(ocr_result)
         ocr_result["quality_assessment"] = quality_assessment
-        logger.info(f"Quality after improvement: {quality_assessment['quality_score']:.1f}/100")
+        logger.info("Quality after improvement: %.1f/100", quality_assessment["quality_score"])
 
     # Cache result (only for fresh results)
     if use_cache and not from_cache:
@@ -2180,7 +2193,7 @@ def get_batch_job_status(job_id: str) -> Tuple[bool, Optional[Dict[str, Any]], O
         else:
             status["progress_percent"] = 0
 
-        logger.info(f"Batch job {job_id}: {status['status']} - " f"{status['progress_percent']}% complete")
+        logger.info("Batch job %s: %s - %s%% complete", job_id, status["status"], status["progress_percent"])
 
         return True, status, None
 
