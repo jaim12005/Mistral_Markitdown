@@ -13,8 +13,8 @@ Tests cover:
 - select_files, main (CLI)
 """
 
-from unittest.mock import patch, MagicMock
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -22,11 +22,10 @@ import config
 
 config.ensure_directories()
 
+import local_converter
 import main
 import mistral_converter
-import local_converter
 import utils
-
 
 # ============================================================================
 # mode_convert_smart Tests
@@ -48,10 +47,14 @@ class TestModeConvertSmart:
         pdf_file.write_bytes(b"%PDF-1.4\n%EOF")
 
         mock_local.analyze_file_content.return_value = {
-            "is_text_based": False, "file_type": "pdf", "page_count": 1,
+            "is_text_based": False,
+            "file_type": "pdf",
+            "page_count": 1,
         }
         mock_local.extract_all_tables.return_value = {
-            "tables": [], "table_count": 0, "methods_used": [],
+            "tables": [],
+            "table_count": 0,
+            "methods_used": [],
         }
         mock_mistral.convert_with_mistral_ocr.return_value = (True, tmp_path / "out.md", None)
 
@@ -72,10 +75,14 @@ class TestModeConvertSmart:
         pdf_file.write_bytes(b"%PDF-1.4\n%EOF")
 
         mock_local.analyze_file_content.return_value = {
-            "is_text_based": True, "file_type": "pdf", "page_count": 5,
+            "is_text_based": True,
+            "file_type": "pdf",
+            "page_count": 5,
         }
         mock_local.extract_all_tables.return_value = {
-            "tables": [], "table_count": 0, "methods_used": [],
+            "tables": [],
+            "table_count": 0,
+            "methods_used": [],
         }
         mock_local.convert_with_markitdown.return_value = (True, "Content", None)
 
@@ -169,7 +176,9 @@ class TestModeConvertSmart:
         fake_tables = [[["H1", "H2"], ["A", "B"]]]
         mock_local.analyze_file_content.return_value = {"is_text_based": False}
         mock_local.extract_all_tables.return_value = {
-            "tables": fake_tables, "table_count": 1, "methods_used": ["pdfplumber"],
+            "tables": fake_tables,
+            "table_count": 1,
+            "methods_used": ["pdfplumber"],
         }
         mock_local.save_tables_to_files.return_value = [tmp_path / "tables_all.md"]
         mock_mistral.convert_with_mistral_ocr.return_value = (True, tmp_path / "out.md", None)
@@ -247,7 +256,12 @@ class TestDispatchTable:
 
     def test_all_cli_modes_in_dispatch(self):
         expected_modes = {
-            "smart", "markitdown", "mistral_ocr", "pdf_to_images", "qna", "batch_ocr",
+            "smart",
+            "markitdown",
+            "mistral_ocr",
+            "pdf_to_images",
+            "qna",
+            "batch_ocr",
         }
         actual_modes = set(main._CLI_MODE_DISPATCH.keys())
         assert expected_modes == actual_modes
@@ -270,23 +284,29 @@ class TestDispatchTable:
 class TestValidateJobId:
     """Test batch job ID input validation."""
 
-    @pytest.mark.parametrize("job_id", [
-        "abc-def-123",
-        "550e8400-e29b-41d4-a716-446655440000",
-        "a" * 128,
-        "job_123_test",
-    ])
+    @pytest.mark.parametrize(
+        "job_id",
+        [
+            "abc-def-123",
+            "550e8400-e29b-41d4-a716-446655440000",
+            "a" * 128,
+            "job_123_test",
+        ],
+    )
     def test_valid_job_ids(self, job_id):
         assert main._validate_job_id(job_id) is True
 
-    @pytest.mark.parametrize("job_id", [
-        "",
-        "id with spaces",
-        "id;DROP TABLE",
-        "../../../etc/passwd",
-        "a" * 129,
-        "id\nnewline",
-    ])
+    @pytest.mark.parametrize(
+        "job_id",
+        [
+            "",
+            "id with spaces",
+            "id;DROP TABLE",
+            "../../../etc/passwd",
+            "a" * 129,
+            "id\nnewline",
+        ],
+    )
     def test_invalid_job_ids(self, job_id):
         assert main._validate_job_id(job_id) is False
 
@@ -357,18 +377,14 @@ class TestProcessFilesConcurrently:
     def test_single_file_success(self, tmp_path):
         f = tmp_path / "test.txt"
         f.write_text("data")
-        success, failed = main._process_files_concurrently(
-            [f], lambda p: (True, "content", None)
-        )
+        success, failed = main._process_files_concurrently([f], lambda p: (True, "content", None))
         assert success == 1
         assert failed == 0
 
     def test_single_file_failure(self, tmp_path):
         f = tmp_path / "test.txt"
         f.write_text("data")
-        success, failed = main._process_files_concurrently(
-            [f], lambda p: (False, None, "error")
-        )
+        success, failed = main._process_files_concurrently([f], lambda p: (False, None, "error"))
         assert success == 0
         assert failed == 1
 
@@ -391,9 +407,7 @@ class TestProcessFilesConcurrently:
             f.write_text(f"content {i}")
             files.append(f)
 
-        success, failed = main._process_files_concurrently(
-            files, lambda p: (True, "ok", None)
-        )
+        success, failed = main._process_files_concurrently(files, lambda p: (True, "ok", None))
         assert success == 3
         assert failed == 0
 
@@ -406,9 +420,7 @@ class TestProcessFilesConcurrently:
             f.write_text(f"content {i}")
             files.append(f)
 
-        success, failed = main._process_files_concurrently(
-            files, lambda p: (False, None, "failed")
-        )
+        success, failed = main._process_files_concurrently(files, lambda p: (False, None, "failed"))
         assert success == 0
         assert failed == 2
 
@@ -488,9 +500,7 @@ class TestModePdfToImages:
         pdf = tmp_path / "test.pdf"
         pdf.write_bytes(b"%PDF-1.4")
 
-        mock_local.convert_pdf_to_images.return_value = (
-            True, [tmp_path / "page1.png", tmp_path / "page2.png"], None
-        )
+        mock_local.convert_pdf_to_images.return_value = (True, [tmp_path / "page1.png", tmp_path / "page2.png"], None)
 
         success, msg = main.mode_pdf_to_images([pdf])
         assert success is True
@@ -1318,10 +1328,7 @@ class TestModeDocumentQnaExpanded:
 
         with patch.object(mistral_converter, "get_mistral_client", return_value=mock_client):
             with patch.object(mistral_converter, "upload_file_for_ocr", return_value="https://example.com/doc"):
-                with patch.object(
-                    mistral_converter, "query_document_stream",
-                    return_value=(True, [mock_chunk], None)
-                ):
+                with patch.object(mistral_converter, "query_document_stream", return_value=(True, [mock_chunk], None)):
                     with patch("builtins.input", side_effect=inputs):
                         ok, msg = main.mode_document_qna([pdf])
 
@@ -1341,10 +1348,7 @@ class TestModeDocumentQnaExpanded:
 
         with patch.object(mistral_converter, "get_mistral_client", return_value=mock_client):
             with patch.object(mistral_converter, "upload_file_for_ocr", return_value="https://example.com/doc"):
-                with patch.object(
-                    mistral_converter, "query_document_stream",
-                    return_value=(False, None, "API error")
-                ):
+                with patch.object(mistral_converter, "query_document_stream", return_value=(False, None, "API error")):
                     with patch("builtins.input", side_effect=inputs):
                         ok, msg = main.mode_document_qna([pdf])
 
@@ -1385,10 +1389,7 @@ class TestModeDocumentQnaExpanded:
 
         with patch.object(mistral_converter, "get_mistral_client", return_value=mock_client):
             with patch.object(mistral_converter, "upload_file_for_ocr", return_value="https://example.com/doc"):
-                with patch.object(
-                    mistral_converter, "query_document_stream",
-                    return_value=(True, bad_stream(), None)
-                ):
+                with patch.object(mistral_converter, "query_document_stream", return_value=(True, bad_stream(), None)):
                     with patch("builtins.input", side_effect=inputs):
                         ok, msg = main.mode_document_qna([pdf])
 

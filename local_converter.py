@@ -369,7 +369,8 @@ def extract_tables_camelot(pdf_path: Path, flavor: str = "lattice") -> List[List
             if table_accuracy is not None and table_accuracy < config.CAMELOT_MIN_ACCURACY:
                 logger.debug(
                     "Skipping low-accuracy table: %.1f%% (threshold: %.1f%%)",
-                    table_accuracy, config.CAMELOT_MIN_ACCURACY,
+                    table_accuracy,
+                    config.CAMELOT_MIN_ACCURACY,
                 )
                 continue
 
@@ -379,7 +380,8 @@ def extract_tables_camelot(pdf_path: Path, flavor: str = "lattice") -> List[List
             if table_whitespace is not None and table_whitespace > config.CAMELOT_MAX_WHITESPACE:
                 logger.debug(
                     "Skipping high-whitespace table: %.1f%% (threshold: %.1f%%)",
-                    table_whitespace, config.CAMELOT_MAX_WHITESPACE,
+                    table_whitespace,
+                    config.CAMELOT_MAX_WHITESPACE,
                 )
                 continue
 
@@ -535,7 +537,9 @@ def _fix_merged_currency_cells(table: List[List[str]]) -> List[List[str]]:
                         fixed_row.append(second_value)
                         logger.debug(
                             "Split merged bare number cell: '%s' → '%s' + '%s'",
-                            cell_stripped, first_value, second_value,
+                            cell_stripped,
+                            first_value,
+                            second_value,
                         )
                         continue
 

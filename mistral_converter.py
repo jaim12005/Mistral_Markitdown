@@ -235,7 +235,8 @@ def get_retry_config() -> Optional[Any]:
 
         logger.debug(
             "Retry config: %d attempts, %dms initial interval",
-            config.MAX_RETRIES, config.RETRY_INITIAL_INTERVAL_MS,
+            config.MAX_RETRIES,
+            config.RETRY_INITIAL_INTERVAL_MS,
         )
         return retry_config
 
@@ -1274,7 +1275,9 @@ def assess_ocr_quality(ocr_result: Dict[str, Any]) -> Dict[str, Any]:
 
     logger.info(
         "OCR Quality Assessment: Score=%.1f/100, Usable=%s, Issues=%d",
-        assessment["quality_score"], assessment["is_usable"], len(assessment["issues"]),
+        assessment["quality_score"],
+        assessment["is_usable"],
+        len(assessment["issues"]),
     )
 
     return assessment
