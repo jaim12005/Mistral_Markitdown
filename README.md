@@ -135,9 +135,10 @@ Advanced multi-strategy extraction optimized for financial documents:
 
 Automated 0-100 scoring evaluates every OCR result:
 
-- Text density, digit count, token uniqueness, repeated phrase detection, line length
+- Text density, digit count (absolute or ratio-based), token uniqueness, repeated phrase detection, line length
 - Pages scoring below threshold are automatically re-processed
 - Quality score included in output for transparency
+- Thread-safe Mistral client singleton ensures safe concurrent usage
 
 Configure via `.env`:
 ```ini
@@ -184,7 +185,7 @@ MARKITDOWN_LLM_MODEL=pixtral-large-latest
 
 | File | Purpose |
 |------|---------|
-| `requirements.txt` | Core: MarkItDown, Mistral SDK, pdfplumber, Camelot, pdf2image, Pillow |
+| `requirements.txt` | Core: MarkItDown, Mistral SDK, Pydantic, pdfplumber, Camelot, pdf2image, Pillow |
 | `requirements-dev.txt` | Dev: pytest, flake8, black, isort, mypy, sphinx |
 | `requirements-optional.txt` | Optional: audio transcription, YouTube, Azure, OpenAI client |
 

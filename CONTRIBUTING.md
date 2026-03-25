@@ -110,6 +110,7 @@ make check
 - **Docstrings**: Google-style docstrings for all public functions
 - **Type Hints**: Use type hints for function signatures
 - **Imports**: Group imports (stdlib, third-party, local)
+- **Logging**: Use lazy `%`-formatting (`logger.info("Processing %s", name)`) instead of f-strings
 
 ### Example
 
@@ -132,7 +133,7 @@ def process_document(file_path: Path, use_cache: bool = True) -> Tuple[bool, Opt
     Returns:
         Tuple of (success, error_message)
     """
-    logger.info(f"Processing {file_path.name}")
+    logger.info("Processing %s", file_path.name)
     # Implementation...
 ```
 
@@ -205,7 +206,9 @@ Mistral_Markitdown/
 │   ├── __init__.py
 │   ├── conftest.py          # Pytest fixtures
 │   ├── test_config.py       # Configuration tests
+│   ├── test_local_converter.py    # Local converter tests
 │   ├── test_mistral_converter.py  # OCR/QnA/Batch helper tests
+│   ├── test_pipeline.py     # End-to-end pipeline tests
 │   ├── test_schemas.py      # Schema validation tests
 │   └── test_utils.py        # Utility function tests
 │

@@ -49,6 +49,18 @@ MarkItDown plugins for audio/video are not installed by default:
 
 ---
 
+### Batch job IDs are validated for safe characters
+
+When supplying a `--job-id` for batch processing, the ID must contain only alphanumeric characters, hyphens, and underscores, and be at most 128 characters. Invalid IDs are rejected with a descriptive error before processing begins.
+
+---
+
+### Table header merging may skip ambiguous cases
+
+The split-header repair heuristic (`_fix_split_headers`) intentionally skips merging when a standalone row already forms a plausible header (e.g., a single word that matches a known pattern). This conservative approach avoids false-positive merges but may leave some legitimately split headers unmerged in rare cases.
+
+---
+
 ## Troubleshooting
 
 ### "MISTRAL_API_KEY not set"

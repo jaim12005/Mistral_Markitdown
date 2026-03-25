@@ -160,10 +160,20 @@ OCR_MIN_TEXT_LENGTH=50
 #### OCR_MIN_DIGIT_COUNT
 - **Type:** Integer
 - **Default:** `20`
-- **Description:** Minimum digits for financial documents
+- **Description:** Minimum digits for financial documents. Used as an absolute threshold when `OCR_WEAK_PAGE_DIGIT_RATIO` is `0`.
 
 ```ini
 OCR_MIN_DIGIT_COUNT=20
+```
+
+#### OCR_WEAK_PAGE_DIGIT_RATIO
+- **Type:** Float
+- **Default:** `0.0` (disabled -- uses absolute `OCR_MIN_DIGIT_COUNT` instead)
+- **Description:** Digit-to-text-length ratio threshold for weak page detection. When set to a value greater than `0`, digit count is evaluated as a ratio of total text length instead of using the absolute `OCR_MIN_DIGIT_COUNT`. Useful for documents of varying length.
+- **Recommended Range:** `0.05` -- `0.10`
+
+```ini
+OCR_WEAK_PAGE_DIGIT_RATIO=0.0
 ```
 
 #### OCR_MIN_UNIQUENESS_RATIO
