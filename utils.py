@@ -24,6 +24,25 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import config
 
+__all__ = [
+    "setup_logging",
+    "IntelligentCache",
+    "format_table_to_markdown",
+    "detect_month_header_row",
+    "clean_table_cell",
+    "is_page_artifact_row",
+    "clean_table",
+    "normalize_table_headers",
+    "clean_consecutive_duplicates",
+    "markdown_to_text",
+    "save_text_output",
+    "print_progress",
+    "validate_file",
+    "safe_output_stem",
+    "generate_yaml_frontmatter",
+    "strip_yaml_frontmatter",
+]
+
 # ============================================================================
 # Logging Setup
 # ============================================================================

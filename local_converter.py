@@ -17,6 +17,20 @@ import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+__all__ = [
+    "get_markitdown_instance",
+    "reset_markitdown_instance",
+    "convert_with_markitdown",
+    "convert_stream_with_markitdown",
+    "extract_tables_pdfplumber",
+    "extract_tables_camelot",
+    "extract_all_tables",
+    "save_tables_to_files",
+    "convert_pdf_to_images",
+    "coalesce_tables",
+    "analyze_file_content",
+]
+
 try:
     from markitdown import (
         FileConversionException,

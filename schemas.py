@@ -15,6 +15,38 @@ from typing import Any, Dict, List, Optional, Type
 
 from pydantic import BaseModel, Field
 
+__all__ = [
+    "ImageAnnotation",
+    "TableAnnotation",
+    "ChartAnnotation",
+    "BBoxStructuredAnnotation",
+    "VendorInfo",
+    "CustomerInfo",
+    "InvoiceDetails",
+    "LineItem",
+    "InvoiceTotals",
+    "InvoiceDocument",
+    "DocumentSection",
+    "GenericDocument",
+    "CompanyInfo",
+    "StatementPeriod",
+    "AccountEntry",
+    "StatementTotals",
+    "FinancialStatementDocument",
+    "ContractParty",
+    "ContractDates",
+    "ContractClause",
+    "ContractDocument",
+    "FormField",
+    "FormSignature",
+    "FormDates",
+    "FormDocument",
+    "get_document_schema",
+    "get_bbox_schema",
+    "get_bbox_pydantic_model",
+    "get_document_pydantic_model",
+]
+
 # ============================================================================
 # Pydantic Models for BBox Annotations
 # These are the recommended way to define schemas for Mistral OCR annotations

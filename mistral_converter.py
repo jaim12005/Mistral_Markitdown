@@ -23,6 +23,34 @@ import traceback
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+__all__ = [
+    "get_mistral_client",
+    "reset_mistral_client",
+    "get_retry_config",
+    "get_bbox_annotation_format",
+    "get_document_annotation_format",
+    "optimize_image",
+    "preprocess_image",
+    "cleanup_uploaded_files",
+    "upload_file_for_ocr",
+    "upload_file_for_ocr_chunk",
+    "process_with_ocr",
+    "assess_ocr_quality",
+    "improve_weak_pages",
+    "save_extracted_images",
+    "convert_with_mistral_ocr",
+    "query_document",
+    "query_document_stream",
+    "query_document_file",
+    "create_batch_ocr_file",
+    "submit_batch_ocr_job",
+    "get_batch_job_status",
+    "download_batch_results",
+    "list_batch_jobs",
+    "cancel_batch_job",
+    "download_batch_errors",
+]
+
 # The mistralai SDK moved its import paths between v1.x and v2.x:
 #   v1.x: from mistralai import Mistral
 #   v2.x: from mistralai.client import Mistral

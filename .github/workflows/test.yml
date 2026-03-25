@@ -40,6 +40,13 @@ jobs:
         pip install -r requirements.txt
         pip install -r requirements-dev.txt
     
+    - name: Test package installation
+      run: |
+        pip install -e .
+        mistral-markitdown --help
+        pip install .
+        mistral-markitdown --help
+
     - name: Run tests with coverage
       run: |
         pytest tests/ -v --cov=. --cov-report=xml --cov-report=term-missing

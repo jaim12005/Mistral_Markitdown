@@ -23,6 +23,13 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
+__all__ = [
+    "ensure_directories",
+    "get_ocr_model",
+    "validate_configuration",
+    "initialize",
+]
+
 
 # ============================================================================
 # Safe Environment Variable Parsing Helpers

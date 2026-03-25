@@ -1,7 +1,7 @@
 # Enhanced Document Converter - Makefile
 # Convenience commands for development and testing
 
-.PHONY: help install install-dev test lint format type-check clean run
+.PHONY: help install install-dev test lint format type-check clean run dist publish
 
 help:
 	@echo "Enhanced Document Converter - Development Commands"
@@ -51,7 +51,14 @@ run:
 check: lint type-check test
 	@echo "All checks passed!"
 
+dist: clean
+	python -m build
+
+publish: dist
+	python -m twine upload dist/*
+
 # Development workflow
 dev-setup: install-dev
+	pre-commit install
 	@echo "Development environment ready!"
 	@echo "Run 'make check' to verify everything works"
