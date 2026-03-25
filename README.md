@@ -27,7 +27,7 @@ chmod +x scripts/quick_start.sh && ./scripts/quick_start.sh
 scripts\run_converter.bat
 ```
 
-Optional extras (audio transcription, YouTube, Azure):
+Optional extras (audio transcription, YouTube, Azure, markitdown-ocr):
 
 ```bash
 pip install -r requirements-optional.txt
@@ -110,7 +110,7 @@ python main.py --no-interactive    # Process all files in input/ without prompts
 ### Processing Pipeline (Smart Mode)
 
 1. Route each file to MarkItDown or Mistral OCR based on extension
-2. For PDFs: run table extraction (pdfplumber + Camelot) with financial document tuning
+2. For PDFs: run multi-strategy table extraction (pdfplumber + Camelot) with automatic post-processing
 3. OCR quality assessment (0-100 scoring) with automatic weak page re-processing
 4. Results cached by SHA-256 content hash (24-hour TTL, second run = $0)
 
@@ -124,11 +124,11 @@ python main.py --no-interactive    # Process all files in input/ without prompts
 
 ### PDF Table Extraction
 
-Advanced multi-strategy extraction optimized for financial documents:
+Advanced multi-strategy extraction for any tabular data:
 
 - **pdfplumber** (fast baseline) + **Camelot lattice** (grid tables) + **Camelot stream** (borderless tables)
-- Merged currency cell detection: `"$ 1,234.56 $ 5,678.90"` split into two cells
-- Month header normalization, page artifact removal, cross-page table coalescing
+- Automatic post-processing: split-header repair, merged cell detection, page artifact removal, cross-page table coalescing
+- Financial extras: merged currency cell splitting (`"$ 1,234.56 $ 5,678.90"` → two cells), month header normalization
 - Quality filtering: tables below 75% accuracy are rejected
 
 ### OCR Quality Assessment
@@ -152,12 +152,12 @@ Extract structured JSON from documents using predefined schemas:
 
 ```ini
 MISTRAL_ENABLE_STRUCTURED_OUTPUT=true
-MISTRAL_DOCUMENT_SCHEMA_TYPE=auto   # invoice, financial_statement, form, generic
+MISTRAL_DOCUMENT_SCHEMA_TYPE=auto   # invoice, financial_statement, contract, form, generic
 MISTRAL_ENABLE_BBOX_ANNOTATION=false
 MISTRAL_ENABLE_DOCUMENT_ANNOTATION=false
 ```
 
-Built-in schemas for invoices, financial statements, forms, and generic documents. Custom schemas can be added in `schemas.py`.
+Built-in schemas for invoices, financial statements, contracts, forms, and generic documents. Custom schemas can be added in `schemas.py`.
 
 ### Document QnA
 
@@ -168,7 +168,7 @@ python main.py --mode qna
 # Select a file, then ask questions interactively
 ```
 
-Uses Mistral chat completion with `document_url` content type. Configurable model, system prompt, and page/image limits.
+Uses Mistral chat completion with `document_url` content type. Configurable model, system prompt, and page/image limits. A streaming variant (`query_document_stream()`) is also available for real-time token-by-token output.
 
 ### MarkItDown LLM Descriptions
 
@@ -187,7 +187,7 @@ MARKITDOWN_LLM_MODEL=pixtral-large-latest
 |------|---------|
 | `requirements.txt` | Core: MarkItDown, Mistral SDK, Pydantic, pdfplumber, Camelot, pdf2image, Pillow |
 | `requirements-dev.txt` | Dev: pytest, flake8, black, isort, mypy, sphinx |
-| `requirements-optional.txt` | Optional: audio transcription, YouTube, Azure, OpenAI client |
+| `requirements-optional.txt` | Optional: audio transcription, YouTube, Azure, OpenAI client, markitdown-ocr |
 
 ### System Binaries
 

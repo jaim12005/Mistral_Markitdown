@@ -328,6 +328,19 @@ success, answer, error = query_document(
 )
 ```
 
+**Streaming:** For real-time token-by-token output, use `query_document_stream()`:
+```python
+from mistral_converter import query_document_stream
+success, stream, error = query_document_stream(
+    "https://example.com/document.pdf",
+    "Summarize this document."
+)
+if success:
+    for chunk in stream:
+        if chunk.data.choices and chunk.data.choices[0].delta.content:
+            print(chunk.data.choices[0].delta.content, end="", flush=True)
+```
+
 ---
 
 ## Batch OCR Processing
@@ -404,7 +417,7 @@ UPLOAD_RETENTION_DAYS=7
 - **Type:** Boolean
 - **Default:** `true`
 - **Description:** Enable JSON schema-based extraction
-- **Use for:** Invoices, financial statements, forms
+- **Use for:** Contracts, invoices, financial statements, forms, and any structured document
 
 ```ini
 MISTRAL_ENABLE_STRUCTURED_OUTPUT=true
@@ -413,7 +426,7 @@ MISTRAL_ENABLE_STRUCTURED_OUTPUT=true
 ### MISTRAL_DOCUMENT_SCHEMA_TYPE
 - **Type:** String
 - **Default:** `"auto"`
-- **Options:** `invoice`, `financial_statement`, `form`, `generic`, `auto`
+- **Options:** `invoice`, `financial_statement`, `contract`, `form`, `generic`, `auto`
 
 ```ini
 MISTRAL_DOCUMENT_SCHEMA_TYPE="auto"
@@ -862,9 +875,10 @@ MARKITDOWN_LLM_PROMPT=""
 ### MARKITDOWN_ENABLE_PLUGINS
 - **Type:** Boolean
 - **Default:** `false`
-- **Description:** Enable audio/video transcription plugins
-- **Required for:** Optional media plugins when using Convert (MarkItDown) (`--mode markitdown`)
+- **Description:** Enable audio/video transcription and OCR plugins
+- **Required for:** Optional media plugins and `markitdown-ocr` when using Convert (MarkItDown) (`--mode markitdown`)
 - **Requires:** Install `requirements-optional.txt`
+- **Note:** The `markitdown-ocr` package (in `requirements-optional.txt`) provides LLM-powered OCR within the MarkItDown pipeline itself, separate from Mistral OCR.
 
 ```ini
 MARKITDOWN_ENABLE_PLUGINS=false

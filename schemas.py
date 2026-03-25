@@ -157,6 +157,42 @@ class FinancialStatementDocument(BaseModel):
     audited: Optional[bool] = Field(None, description="Whether the statement is audited")
     notes: Optional[List[str]] = Field(None, description="Footnotes and additional information")
 
+# Contract document models
+class ContractParty(BaseModel):
+    """Party to a contract."""
+    name: str = Field(..., description="Party name (individual or organization)")
+    role: Optional[str] = Field(None, description="Role in the contract (buyer, seller, licensor, tenant, etc.)")
+    address: Optional[str] = Field(None, description="Party address")
+    representative: Optional[str] = Field(None, description="Authorized representative name")
+    title: Optional[str] = Field(None, description="Representative title or position")
+
+class ContractDates(BaseModel):
+    """Key dates in a contract."""
+    effective_date: Optional[str] = Field(None, description="Date the contract takes effect (ISO format)")
+    expiration_date: Optional[str] = Field(None, description="Date the contract expires (ISO format)")
+    execution_date: Optional[str] = Field(None, description="Date the contract was signed (ISO format)")
+    renewal_date: Optional[str] = Field(None, description="Next renewal date if applicable (ISO format)")
+
+class ContractClause(BaseModel):
+    """A clause or section within a contract."""
+    clause_number: Optional[str] = Field(None, description="Clause or section number")
+    title: str = Field(..., description="Clause title or heading")
+    summary: Optional[str] = Field(None, description="Brief summary of the clause content")
+
+class ContractDocument(BaseModel):
+    """Complete contract document extraction model."""
+    contract_type: str = Field(..., description="Type of contract: employment, lease, NDA, service, license, purchase, partnership, other")
+    title: Optional[str] = Field(None, description="Contract title")
+    parties: List[ContractParty] = Field(..., description="Parties to the contract")
+    dates: Optional[ContractDates] = Field(None, description="Key contract dates")
+    clauses: Optional[List[ContractClause]] = Field(None, description="Key clauses and sections")
+    governing_law: Optional[str] = Field(None, description="Governing law or jurisdiction")
+    consideration: Optional[str] = Field(None, description="Consideration or payment terms")
+    term_duration: Optional[str] = Field(None, description="Duration of the contract")
+    termination_conditions: Optional[str] = Field(None, description="Conditions for early termination")
+    signatures: Optional[List[str]] = Field(None, description="Names of signatories")
+    notes: Optional[str] = Field(None, description="Additional notes or observations")
+
 # Form document models
 class FormField(BaseModel):
     """Individual field in a form document."""
@@ -422,6 +458,70 @@ FORM_DOCUMENT_SCHEMA: Dict[str, Any] = {
 }
 
 
+CONTRACT_DOCUMENT_SCHEMA: Dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "contract_type": {
+            "type": "string",
+            "description": "Type of contract: employment, lease, NDA, service, license, purchase, partnership, other",
+        },
+        "title": {"type": "string", "description": "Contract title"},
+        "parties": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "name": {"type": "string", "description": "Party name"},
+                    "role": {"type": "string", "description": "Role in the contract"},
+                    "address": {"type": "string", "description": "Party address"},
+                    "representative": {"type": "string", "description": "Authorized representative name"},
+                    "title": {"type": "string", "description": "Representative title or position"},
+                },
+                "required": ["name"],
+            },
+            "description": "Parties to the contract",
+        },
+        "dates": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "effective_date": {"type": "string", "description": "Date the contract takes effect (ISO format)"},
+                "expiration_date": {"type": "string", "description": "Date the contract expires (ISO format)"},
+                "execution_date": {"type": "string", "description": "Date the contract was signed (ISO format)"},
+                "renewal_date": {"type": "string", "description": "Next renewal date if applicable (ISO format)"},
+            },
+        },
+        "clauses": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "clause_number": {"type": "string", "description": "Clause or section number"},
+                    "title": {"type": "string", "description": "Clause title"},
+                    "summary": {"type": "string", "description": "Brief summary of the clause"},
+                },
+                "required": ["title"],
+            },
+            "description": "Key clauses and sections",
+        },
+        "governing_law": {"type": "string", "description": "Governing law or jurisdiction"},
+        "consideration": {"type": "string", "description": "Consideration or payment terms"},
+        "term_duration": {"type": "string", "description": "Duration of the contract"},
+        "termination_conditions": {"type": "string", "description": "Conditions for early termination"},
+        "signatures": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Names of signatories",
+        },
+        "notes": {"type": "string", "description": "Additional notes or observations"},
+    },
+    "required": ["contract_type", "parties"],
+}
+
+
 GENERIC_DOCUMENT_SCHEMA: Dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
@@ -582,6 +682,11 @@ DOCUMENT_SCHEMAS = {
         "schema": FINANCIAL_STATEMENT_SCHEMA,
         "description": "Structured extraction of financial statements including accounts and balances",
     },
+    "contract": {
+        "name": "contract_extraction",
+        "schema": CONTRACT_DOCUMENT_SCHEMA,
+        "description": "Structured extraction of contract parties, terms, clauses, and dates",
+    },
     "form": {
         "name": "form_extraction",
         "schema": FORM_DOCUMENT_SCHEMA,
@@ -722,6 +827,7 @@ def get_document_pydantic_model(doc_type: str = "generic") -> Type:
         "generic": GenericDocument,
         "invoice": InvoiceDocument,
         "financial_statement": FinancialStatementDocument,
+        "contract": ContractDocument,
         "form": FormDocument,
     }
 

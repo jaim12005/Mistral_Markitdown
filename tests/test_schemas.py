@@ -24,7 +24,7 @@ class TestGetDocumentSchema:
 
     @pytest.mark.parametrize(
         "schema_type",
-        ["invoice", "financial_statement", "form", "generic"],
+        ["invoice", "financial_statement", "contract", "form", "generic"],
     )
     def test_valid_types_return_dict(self, schema_type: str):
         result = schemas.get_document_schema(schema_type)
@@ -37,7 +37,7 @@ class TestGetDocumentSchema:
 
     @pytest.mark.parametrize(
         "schema_type",
-        ["invoice", "financial_statement", "form", "generic"],
+        ["invoice", "financial_statement", "contract", "form", "generic"],
     )
     def test_schema_has_required_keys(self, schema_type: str):
         result = schemas.get_document_schema(schema_type)
@@ -81,7 +81,7 @@ class TestPydanticModels:
 
     @pytest.mark.parametrize(
         "doc_type",
-        ["invoice", "generic", "financial_statement", "form"],
+        ["invoice", "generic", "financial_statement", "contract", "form"],
     )
     def test_document_pydantic_model_returns_class(self, doc_type: str):
         model = schemas.get_document_pydantic_model(doc_type)

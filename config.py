@@ -211,7 +211,7 @@ ENABLE_OCR_WEAK_PAGE_IMPROVEMENT = _safe_bool("ENABLE_OCR_WEAK_PAGE_IMPROVEMENT"
 MISTRAL_ENABLE_STRUCTURED_OUTPUT = _safe_bool("MISTRAL_ENABLE_STRUCTURED_OUTPUT", True)
 
 # Schema selection for structured extraction
-# Options: invoice, financial_statement, form, generic, auto
+# Options: invoice, financial_statement, contract, form, generic, auto
 MISTRAL_DOCUMENT_SCHEMA_TYPE = os.getenv("MISTRAL_DOCUMENT_SCHEMA_TYPE", "auto").strip().lower()
 
 # Enable bounding box structured extraction
