@@ -94,7 +94,7 @@ def _process_files_concurrently(
                         successful += 1
                     else:
                         failed += 1
-                        err = result[2] if isinstance(result, tuple) and len(result) > 2 else "failed"
+                        err = result[2] if isinstance(result, tuple) and len(result) > 2 else "unknown error"
                         logger.error("Failed: %s - %s", file_path.name, err)
                 except Exception as e:
                     failed += 1
@@ -173,7 +173,7 @@ def _process_single_smart(file_path: Path) -> Tuple[bool, Optional[Path], Option
         return mistral_converter.convert_with_mistral_ocr(file_path)
     else:
         success, content, error = local_converter.convert_with_markitdown(file_path)
-        output_path = config.OUTPUT_MD_DIR / f"{file_path.stem}.md" if success else None
+        output_path = config.OUTPUT_MD_DIR / f"{utils.safe_output_stem(file_path)}.md" if success else None
         return success, output_path, error
 
 

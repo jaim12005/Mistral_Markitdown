@@ -172,7 +172,7 @@ def convert_with_markitdown(file_path: Path) -> Tuple[bool, Optional[str], Optio
             full_content = frontmatter + markdown_content
 
             # Save output
-            output_path = config.OUTPUT_MD_DIR / f"{file_path.stem}.md"
+            output_path = config.OUTPUT_MD_DIR / f"{utils.safe_output_stem(file_path)}.md"
             with open(output_path, 'w', encoding='utf-8') as f:
                 f.write(full_content)
 

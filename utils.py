@@ -779,6 +779,25 @@ def validate_file(file_path: Path) -> Tuple[bool, Optional[str]]:
 
     return True, None
 
+def safe_output_stem(file_path: Path) -> str:
+    """Return a unique output stem for a file, adding a short hash if needed to
+    avoid collisions when multiple files share the same name (e.g. from different
+    directories passed programmatically).
+
+    For files in the standard input directory, this just returns ``file_path.stem``.
+    For files elsewhere, it appends ``_<4-char hash>`` derived from the full path.
+    """
+    stem = file_path.stem
+    try:
+        resolved = file_path.resolve()
+        if resolved.parent != config.INPUT_DIR.resolve():
+            path_hash = hashlib.sha256(str(resolved).encode()).hexdigest()[:6]
+            return f"{stem}_{path_hash}"
+    except (OSError, ValueError):
+        pass
+    return stem
+
+
 # ============================================================================
 # YAML Frontmatter Generation
 # ============================================================================

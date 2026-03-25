@@ -26,16 +26,24 @@ load_dotenv()
 # ============================================================================
 
 
-def _safe_int(env_var: str, default: int) -> int:
+def _safe_int(env_var: str, default: int, min_val: int = 0) -> int:
     """Parse an integer environment variable with a fallback default.
 
-    Logs a warning and returns *default* when the value cannot be converted.
+    Logs a warning and returns *default* when the value cannot be converted
+    or is below *min_val*.
     """
     raw = os.getenv(env_var, "")
     if not raw:
         return default
     try:
-        return int(raw)
+        value = int(raw)
+        if value < min_val:
+            import logging
+            logging.getLogger("document_converter").warning(
+                f"{env_var}={value} is below minimum {min_val}, using default {default}"
+            )
+            return default
+        return value
     except (ValueError, TypeError):
         import logging
         logging.getLogger("document_converter").warning(
@@ -44,16 +52,24 @@ def _safe_int(env_var: str, default: int) -> int:
         return default
 
 
-def _safe_float(env_var: str, default: float) -> float:
+def _safe_float(env_var: str, default: float, min_val: float = 0.0) -> float:
     """Parse a float environment variable with a fallback default.
 
-    Logs a warning and returns *default* when the value cannot be converted.
+    Logs a warning and returns *default* when the value cannot be converted
+    or is below *min_val*.
     """
     raw = os.getenv(env_var, "")
     if not raw:
         return default
     try:
-        return float(raw)
+        value = float(raw)
+        if value < min_val:
+            import logging
+            logging.getLogger("document_converter").warning(
+                f"{env_var}={value} is below minimum {min_val}, using default {default}"
+            )
+            return default
+        return value
     except (ValueError, TypeError):
         import logging
         logging.getLogger("document_converter").warning(
@@ -494,6 +510,14 @@ def validate_configuration() -> List[str]:
                 "WARNING: MISTRAL_ENABLE_DOCUMENT_ANNOTATION is true but "
                 "MISTRAL_ENABLE_STRUCTURED_OUTPUT is false. Document annotations will be silently disabled."
             )
+
+    # Validate quality threshold ordering
+    if not (OCR_QUALITY_THRESHOLD_EXCELLENT >= OCR_QUALITY_THRESHOLD_GOOD >= OCR_QUALITY_THRESHOLD_ACCEPTABLE):
+        issues.append(
+            f"WARNING: OCR quality thresholds are not in descending order "
+            f"(excellent={OCR_QUALITY_THRESHOLD_EXCELLENT}, good={OCR_QUALITY_THRESHOLD_GOOD}, "
+            f"acceptable={OCR_QUALITY_THRESHOLD_ACCEPTABLE}). Quality ratings may be nonsensical."
+        )
 
     return issues
 

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-VENV_DIR="$ROOT_DIR/.venv"
+VENV_DIR="$ROOT_DIR/env"
 REQ_MAIN="$ROOT_DIR/requirements.txt"
 REQ_DEV="$ROOT_DIR/requirements-dev.txt"
 

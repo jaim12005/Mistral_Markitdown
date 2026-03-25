@@ -78,18 +78,21 @@ logger = utils.logger
 import threading
 
 _session_pages_processed = 0
+_session_pages_warned = False
 _session_pages_lock = threading.Lock()
 
 
 def _track_pages(count: int) -> None:
-    """Increment the session page counter and warn if approaching the limit."""
-    global _session_pages_processed
+    """Increment the session page counter and warn once if the limit is exceeded."""
+    global _session_pages_processed, _session_pages_warned
     with _session_pages_lock:
         _session_pages_processed += count
         if (
             config.MAX_PAGES_PER_SESSION > 0
             and _session_pages_processed >= config.MAX_PAGES_PER_SESSION
+            and not _session_pages_warned
         ):
+            _session_pages_warned = True
             logger.warning(
                 "Session page limit reached (%d/%d). Consider splitting into smaller batches.",
                 _session_pages_processed,
@@ -1252,24 +1255,40 @@ def improve_weak_pages(
 
     logger.info(f"Re-processing {len(weak_pages)} weak pages...")
 
-    # Upload file ONCE for all weak pages to avoid redundant uploads
-    # We'll reuse this signed URL for all page requests
+    # Upload file ONCE and reuse the signed URL for all weak pages.
+    # Re-upload if the URL is nearing expiry (within 10% of the TTL).
     signed_url = None
+    upload_time = 0.0
+    url_ttl_seconds = config.MISTRAL_SIGNED_URL_EXPIRY * 3600
     try:
         logger.debug("Uploading file once for weak page improvements...")
         signed_url = upload_file_for_ocr(client, file_path)
+        upload_time = time.time()
     except Exception as e:
-        logger.warning(f"Failed to pre-upload for weak pages: {e}")
-        # Continue anyway, process_with_ocr will handle upload individually if needed
+        logger.warning("Failed to pre-upload for weak pages: %s", e)
 
-    # Re-OCR weak pages concurrently for faster improvement
+    _url_lock = threading.Lock()
+
+    def _refresh_url_if_needed() -> Optional[str]:
+        nonlocal signed_url, upload_time
+        with _url_lock:
+            if signed_url and (time.time() - upload_time) > url_ttl_seconds * 0.9:
+                try:
+                    logger.debug("Signed URL nearing expiry, re-uploading...")
+                    signed_url = upload_file_for_ocr(client, file_path)
+                    upload_time = time.time()
+                except Exception as e:
+                    logger.warning("Re-upload failed: %s", e)
+            return signed_url
+
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     def _improve_page(page_idx: int) -> Tuple[int, Optional[Dict[str, Any]]]:
         """Re-OCR a single page; returns (page_idx, improved_page_data) or (page_idx, None)."""
         try:
+            url = _refresh_url_if_needed()
             ok, improved_result, _ = process_with_ocr(
-                client, file_path, model=model, pages=[page_idx], signed_url=signed_url
+                client, file_path, model=model, pages=[page_idx], signed_url=url
             )
             if ok and improved_result and improved_result.get("pages"):
                 return page_idx, improved_result["pages"][0]
@@ -1319,7 +1338,8 @@ def save_extracted_images(ocr_result: Dict[str, Any], file_path: Path) -> List[P
     if not config.MISTRAL_INCLUDE_IMAGES:
         return saved_images
 
-    image_dir = config.OUTPUT_IMAGES_DIR / f"{file_path.stem}_ocr"
+    stem = utils.safe_output_stem(file_path)
+    image_dir = config.OUTPUT_IMAGES_DIR / f"{stem}_ocr"
     image_count = 0
 
     for page in ocr_result.get("pages", []):
@@ -1434,12 +1454,15 @@ def _process_ocr_result_pipeline(
     # Generate markdown output
     output_path = _create_markdown_output(file_path, ocr_result)
 
-    # Save JSON metadata if requested
+    # Save JSON metadata if requested (non-fatal -- OCR already succeeded)
     if config.SAVE_MISTRAL_JSON:
-        json_path = config.OUTPUT_MD_DIR / f"{file_path.stem}_ocr_metadata.json"
-        with open(json_path, "w", encoding="utf-8") as f:
-            json.dump(ocr_result, f, indent=2, ensure_ascii=False)
-        logger.info(f"Saved OCR metadata: {json_path.name}")
+        try:
+            json_path = config.OUTPUT_MD_DIR / f"{utils.safe_output_stem(file_path)}_ocr_metadata.json"
+            with open(json_path, "w", encoding="utf-8") as f:
+                json.dump(ocr_result, f, indent=2, ensure_ascii=False)
+            logger.info("Saved OCR metadata: %s", json_path.name)
+        except Exception as e:
+            logger.warning("Failed to save OCR metadata JSON: %s", e)
 
     # Save structured outputs if they exist
     _save_structured_outputs(file_path, ocr_result)
@@ -1509,14 +1532,14 @@ def _save_structured_outputs(file_path: Path, ocr_result: Dict[str, Any]) -> Non
     """
     # Save bounding box annotations if present
     if "bbox_annotations" in ocr_result and ocr_result["bbox_annotations"]:
-        bbox_path = config.OUTPUT_MD_DIR / f"{file_path.stem}_bbox_annotations.json"
+        bbox_path = config.OUTPUT_MD_DIR / f"{utils.safe_output_stem(file_path)}_bbox_annotations.json"
         with open(bbox_path, "w", encoding="utf-8") as f:
             json.dump(ocr_result["bbox_annotations"], f, indent=2, ensure_ascii=False)
         logger.info(f"Saved bbox annotations: {bbox_path.name}")
 
     # Save document annotations if present
     if "document_annotation" in ocr_result and ocr_result["document_annotation"]:
-        doc_path = config.OUTPUT_MD_DIR / f"{file_path.stem}_document_annotation.json"
+        doc_path = config.OUTPUT_MD_DIR / f"{utils.safe_output_stem(file_path)}_document_annotation.json"
         with open(doc_path, "w", encoding="utf-8") as f:
             json.dump(
                 ocr_result["document_annotation"], f, indent=2, ensure_ascii=False
@@ -1577,7 +1600,7 @@ def _create_markdown_output(file_path: Path, ocr_result: Dict[str, Any]) -> Path
         md_content += "\n\n---\n\n"
 
     # Save markdown
-    output_path = config.OUTPUT_MD_DIR / f"{file_path.stem}_mistral_ocr.md"
+    output_path = config.OUTPUT_MD_DIR / f"{utils.safe_output_stem(file_path)}_mistral_ocr.md"
 
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(md_content)
@@ -1902,7 +1925,7 @@ def create_batch_ocr_file(
                 }
             
             entry = {
-                "custom_id": f"{idx}_{file_path.stem}",
+                "custom_id": f"{idx}_{utils.safe_output_stem(file_path)}",
                 "body": {
                     "model": model,
                     "document": document,
