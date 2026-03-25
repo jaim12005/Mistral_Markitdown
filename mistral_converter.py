@@ -1156,7 +1156,7 @@ def _is_weak_page(text: str) -> bool:
     # Check 3: Token uniqueness ratio (detect heavy repetition)
     # Configurable via OCR_MIN_UNIQUENESS_RATIO
     tokens = text.split()
-    if not tokens:
+    if not tokens:  # pragma: no cover – unreachable after len(text.strip()) >= 10
         return True
 
     unique_tokens = set(tokens)
