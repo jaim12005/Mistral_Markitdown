@@ -49,13 +49,13 @@ def _safe_int(env_var: str, default: int, min_val: int = 0) -> int:
         value = int(raw)
         if value < min_val:
             logging.getLogger("document_converter").warning(
-                f"{env_var}={value} is below minimum {min_val}, using default {default}"
+                "%s=%d is below minimum %d, using default %d", env_var, value, min_val, default
             )
             return default
         return value
     except (ValueError, TypeError):
         logging.getLogger("document_converter").warning(
-            f"Invalid integer for {env_var}={raw!r}, using default {default}"
+            "Invalid integer for %s=%r, using default %d", env_var, raw, default
         )
         return default
 
@@ -73,12 +73,14 @@ def _safe_float(env_var: str, default: float, min_val: float = 0.0) -> float:
         value = float(raw)
         if value < min_val:
             logging.getLogger("document_converter").warning(
-                f"{env_var}={value} is below minimum {min_val}, using default {default}"
+                "%s=%s is below minimum %s, using default %s", env_var, value, min_val, default
             )
             return default
         return value
     except (ValueError, TypeError):
-        logging.getLogger("document_converter").warning(f"Invalid float for {env_var}={raw!r}, using default {default}")
+        logging.getLogger("document_converter").warning(
+            "Invalid float for %s=%r, using default %s", env_var, raw, default
+        )
         return default
 
 
