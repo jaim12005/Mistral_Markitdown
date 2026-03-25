@@ -175,5 +175,110 @@ class TestSafeParsingHelpers:
         assert result == ["a", "b", "c"]
 
 
+class TestSafeIntBelowMinWarning:
+    """Line 55: _safe_int value below min_val triggers warning."""
+
+    def test_safe_int_value_below_min_val(self, monkeypatch):
+        monkeypatch.setenv("TEST_INT_MIN", "3")
+        result = config._safe_int("TEST_INT_MIN", 10, min_val=5)
+        assert result == 10
+
+    def test_safe_int_value_meets_min_val(self, monkeypatch):
+        """Line 55: return value when value >= min_val."""
+        monkeypatch.setenv("TEST_INT_OK", "10")
+        result = config._safe_int("TEST_INT_OK", 5, min_val=3)
+        assert result == 10
+
+
+class TestSafeFloatBelowMinWarning:
+    """Line 79: _safe_float value below min_val triggers warning."""
+
+    def test_safe_float_value_below_min_val(self, monkeypatch):
+        monkeypatch.setenv("TEST_FLOAT_MIN", "0.1")
+        result = config._safe_float("TEST_FLOAT_MIN", 1.0, min_val=0.5)
+        assert result == 1.0
+
+    def test_safe_float_value_meets_min_val(self, monkeypatch):
+        """Line 79: return value when value >= min_val."""
+        monkeypatch.setenv("TEST_FLOAT_OK", "2.5")
+        result = config._safe_float("TEST_FLOAT_OK", 1.0, min_val=0.5)
+        assert result == 2.5
+
+
+class TestValidateConfigurationBranches:
+    """Lines 508-558: all remaining validate_configuration branches."""
+
+    def test_poppler_warning_on_win32(self, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "key")
+        monkeypatch.setattr(config, "POPPLER_PATH", "")
+        import sys as sys_mod
+        monkeypatch.setattr(sys_mod, "platform", "win32")
+        issues = config.validate_configuration()
+        assert any("POPPLER_PATH" in i for i in issues)
+
+    def test_structured_output_conflict_bbox(self, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "key")
+        monkeypatch.setattr(config, "MISTRAL_ENABLE_STRUCTURED_OUTPUT", False)
+        monkeypatch.setattr(config, "MISTRAL_ENABLE_BBOX_ANNOTATION", True)
+        issues = config.validate_configuration()
+        assert any("BBOX_ANNOTATION" in i and "STRUCTURED_OUTPUT" in i for i in issues)
+
+    def test_structured_output_conflict_document(self, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "key")
+        monkeypatch.setattr(config, "MISTRAL_ENABLE_STRUCTURED_OUTPUT", False)
+        monkeypatch.setattr(config, "MISTRAL_ENABLE_DOCUMENT_ANNOTATION", True)
+        issues = config.validate_configuration()
+        assert any("DOCUMENT_ANNOTATION" in i and "STRUCTURED_OUTPUT" in i for i in issues)
+
+    def test_threshold_ordering_warning(self, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "key")
+        monkeypatch.setattr(config, "OCR_QUALITY_THRESHOLD_EXCELLENT", 50)
+        monkeypatch.setattr(config, "OCR_QUALITY_THRESHOLD_GOOD", 90)
+        monkeypatch.setattr(config, "OCR_QUALITY_THRESHOLD_ACCEPTABLE", 70)
+        issues = config.validate_configuration()
+        assert any("descending order" in i for i in issues)
+
+    def test_invalid_log_level(self, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "key")
+        monkeypatch.setattr(config, "LOG_LEVEL", "TRACE")
+        issues = config.validate_configuration()
+        assert any("LOG_LEVEL" in i and "invalid" in i for i in issues)
+
+    def test_invalid_schema_type(self, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "key")
+        monkeypatch.setattr(config, "MISTRAL_DOCUMENT_SCHEMA_TYPE", "custom_invalid")
+        issues = config.validate_configuration()
+        assert any("MISTRAL_DOCUMENT_SCHEMA_TYPE" in i and "invalid" in i for i in issues)
+
+    def test_invalid_table_format(self, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "key")
+        monkeypatch.setattr(config, "MISTRAL_TABLE_FORMAT", "xml")
+        issues = config.validate_configuration()
+        assert any("MISTRAL_TABLE_FORMAT" in i and "invalid" in i for i in issues)
+
+    def test_invalid_table_output_formats(self, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "key")
+        monkeypatch.setattr(config, "TABLE_OUTPUT_FORMATS", ["markdown", "pdf"])
+        issues = config.validate_configuration()
+        assert any("TABLE_OUTPUT_FORMATS" in i for i in issues)
+
+    def test_llm_descriptions_without_api_key(self, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "")
+        monkeypatch.setattr(config, "MARKITDOWN_ENABLE_LLM_DESCRIPTIONS", True)
+        issues = config.validate_configuration()
+        assert any("LLM_DESCRIPTIONS" in i for i in issues)
+
+
+class TestInitializeIdempotent:
+    """Test that initialize() only runs once."""
+
+    def test_initialize_returns_empty_on_second_call(self):
+        config._initialized = False
+        result1 = config.initialize()
+        result2 = config.initialize()
+        assert result2 == []
+        config._initialized = False
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

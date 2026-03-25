@@ -24,6 +24,8 @@ config.ensure_directories()
 
 import main
 import mistral_converter
+import local_converter
+import utils
 
 
 # ============================================================================
@@ -394,6 +396,37 @@ class TestProcessFilesConcurrently:
         )
         assert success == 3
         assert failed == 0
+
+    def test_concurrent_failure(self, tmp_path, monkeypatch):
+        """Lines 121-123: concurrent path with failed result."""
+        monkeypatch.setattr(config, "MAX_CONCURRENT_FILES", 2)
+        files = []
+        for i in range(2):
+            f = tmp_path / f"doc{i}.txt"
+            f.write_text(f"content {i}")
+            files.append(f)
+
+        success, failed = main._process_files_concurrently(
+            files, lambda p: (False, None, "failed")
+        )
+        assert success == 0
+        assert failed == 2
+
+    def test_concurrent_exception(self, tmp_path, monkeypatch):
+        """Lines 124-126: concurrent path with exception."""
+        monkeypatch.setattr(config, "MAX_CONCURRENT_FILES", 2)
+        files = []
+        for i in range(2):
+            f = tmp_path / f"doc{i}.txt"
+            f.write_text(f"content {i}")
+            files.append(f)
+
+        def raise_fn(p):
+            raise RuntimeError("boom")
+
+        success, failed = main._process_files_concurrently(files, raise_fn)
+        assert success == 0
+        assert failed == 2
 
 
 # ============================================================================
@@ -842,16 +875,395 @@ class TestShowMenu:
 # ============================================================================
 
 
+class TestModeConvertSmartExpanded:
+    """Test mode_convert_smart uncovered branches."""
+
+    def test_table_extraction_exception(self, tmp_path, monkeypatch):
+        """Lines 192-193: table extraction throws exception."""
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "")
+        monkeypatch.setattr(config, "MAX_CONCURRENT_FILES", 1)
+        monkeypatch.setattr(config, "MAX_BATCH_FILES", 0)
+        monkeypatch.setattr(config, "OUTPUT_MD_DIR", tmp_path / "out")
+        (tmp_path / "out").mkdir()
+
+        pdf = tmp_path / "test.pdf"
+        pdf.write_bytes(b"%PDF-1.4")
+
+        with patch.object(local_converter, "extract_all_tables", side_effect=Exception("extraction failed")):
+            with patch.object(local_converter, "convert_with_markitdown", return_value=(True, "content", None)):
+                ok, msg = main.mode_convert_smart([pdf])
+        assert ok is True
+
+    def test_batch_size_exceeded(self, tmp_path, monkeypatch):
+        """Lines 324, 333-388: batch guardrail check."""
+        monkeypatch.setattr(config, "MAX_BATCH_FILES", 1)
+        files = [tmp_path / "a.pdf", tmp_path / "b.pdf"]
+        ok, msg = main.mode_convert_smart(files)
+        assert ok is False
+        assert "MAX_BATCH_FILES" in msg
+
+    def test_full_smart_mode(self, tmp_path, monkeypatch):
+        """Lines 333-388: full mode_convert_smart execution."""
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        monkeypatch.setattr(config, "MAX_CONCURRENT_FILES", 1)
+        monkeypatch.setattr(config, "MAX_BATCH_FILES", 0)
+        monkeypatch.setattr(config, "OUTPUT_MD_DIR", tmp_path / "out")
+        (tmp_path / "out").mkdir()
+
+        doc = tmp_path / "test.docx"
+        doc.write_bytes(b"PK\x03\x04")
+
+        with patch.object(local_converter, "convert_with_markitdown", return_value=(True, "content", None)):
+            ok, msg = main.mode_convert_smart([doc])
+        assert ok is True
+
+
+class TestModeBatchOcrExpanded:
+    """Test batch OCR edge cases (uncovered lines)."""
+
+    def test_min_files_warning(self, tmp_path, monkeypatch):
+        """Lines 416-417: batch min files note."""
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        monkeypatch.setattr(config, "MISTRAL_BATCH_ENABLED", True)
+        monkeypatch.setattr(config, "MISTRAL_BATCH_MIN_FILES", 5)
+
+        with patch("builtins.input", return_value="0"):
+            ok, msg = main.mode_batch_ocr([tmp_path / "doc.pdf"])
+        assert ok is False
+
+    def test_keyboard_interrupt_on_input(self, tmp_path, monkeypatch):
+        """Lines 428-429: KeyboardInterrupt."""
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        monkeypatch.setattr(config, "MISTRAL_BATCH_ENABLED", True)
+        monkeypatch.setattr(config, "MISTRAL_BATCH_MIN_FILES", 1)
+
+        with patch("builtins.input", side_effect=KeyboardInterrupt):
+            ok, msg = main.mode_batch_ocr([tmp_path / "doc.pdf"])
+        assert ok is False
+        assert "Cancelled" in msg
+
+    def test_create_batch_file_failure(self, tmp_path, monkeypatch):
+        """Line 437: create_batch_ocr_file fails."""
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        monkeypatch.setattr(config, "MISTRAL_BATCH_ENABLED", True)
+        monkeypatch.setattr(config, "MISTRAL_BATCH_MIN_FILES", 1)
+        monkeypatch.setattr(config, "OUTPUT_MD_DIR", tmp_path)
+
+        with patch("builtins.input", return_value="1"):
+            with patch.object(main, "mistral_converter") as mock_mc:
+                mock_mc.create_batch_ocr_file.return_value = (False, None, "creation error")
+                ok, msg = main.mode_batch_ocr([tmp_path / "doc.pdf"])
+        assert ok is False
+        assert "Failed to create" in msg
+
+    def test_submit_batch_job_failure(self, tmp_path, monkeypatch):
+        """Line 446: submit_batch_ocr_job fails."""
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        monkeypatch.setattr(config, "MISTRAL_BATCH_ENABLED", True)
+        monkeypatch.setattr(config, "MISTRAL_BATCH_MIN_FILES", 1)
+        monkeypatch.setattr(config, "OUTPUT_MD_DIR", tmp_path)
+
+        with patch("builtins.input", return_value="1"):
+            with patch.object(main, "mistral_converter") as mock_mc:
+                mock_mc.create_batch_ocr_file.return_value = (True, tmp_path / "batch.jsonl", None)
+                mock_mc.submit_batch_ocr_job.return_value = (False, None, "submit error")
+                ok, msg = main.mode_batch_ocr([tmp_path / "doc.pdf"])
+        assert ok is False
+        assert "Failed to submit" in msg
+
+    def test_check_status_empty_job_id(self, tmp_path, monkeypatch):
+        """Line 451: empty job ID."""
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        monkeypatch.setattr(config, "MISTRAL_BATCH_ENABLED", True)
+        monkeypatch.setattr(config, "MISTRAL_BATCH_MIN_FILES", 1)
+
+        inputs = iter(["2", ""])
+        with patch("builtins.input", side_effect=inputs):
+            ok, msg = main.mode_batch_ocr([tmp_path / "doc.pdf"])
+        assert ok is False
+        assert "No job ID" in msg
+
+    def test_check_status_invalid_job_id(self, tmp_path, monkeypatch):
+        """Line 453: invalid job ID format."""
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        monkeypatch.setattr(config, "MISTRAL_BATCH_ENABLED", True)
+        monkeypatch.setattr(config, "MISTRAL_BATCH_MIN_FILES", 1)
+
+        inputs = iter(["2", "invalid job!@#"])
+        with patch("builtins.input", side_effect=inputs):
+            ok, msg = main.mode_batch_ocr([tmp_path / "doc.pdf"])
+        assert ok is False
+        assert "Invalid job ID" in msg
+
+    def test_check_status_error(self, tmp_path, monkeypatch):
+        """Line 463: status check returns error."""
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        monkeypatch.setattr(config, "MISTRAL_BATCH_ENABLED", True)
+        monkeypatch.setattr(config, "MISTRAL_BATCH_MIN_FILES", 1)
+
+        inputs = iter(["2", "job-abc"])
+        with patch("builtins.input", side_effect=inputs):
+            with patch.object(main, "mistral_converter") as mock_mc:
+                mock_mc.get_batch_job_status.return_value = (False, None, "not found")
+                ok, msg = main.mode_batch_ocr([tmp_path / "doc.pdf"])
+        assert ok is False
+        assert "Error" in msg
+
+    def test_list_jobs_empty(self, tmp_path, monkeypatch):
+        """Lines 472-474: list returns empty."""
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        monkeypatch.setattr(config, "MISTRAL_BATCH_ENABLED", True)
+        monkeypatch.setattr(config, "MISTRAL_BATCH_MIN_FILES", 1)
+
+        with patch("builtins.input", return_value="3"):
+            with patch.object(main, "mistral_converter") as mock_mc:
+                mock_mc.list_batch_jobs.return_value = (True, [], None)
+                ok, msg = main.mode_batch_ocr([tmp_path / "doc.pdf"])
+        assert ok is True
+        assert "No batch jobs" in msg
+
+    def test_list_jobs_error(self, tmp_path, monkeypatch):
+        """Lines 475-476: list returns error."""
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        monkeypatch.setattr(config, "MISTRAL_BATCH_ENABLED", True)
+        monkeypatch.setattr(config, "MISTRAL_BATCH_MIN_FILES", 1)
+
+        with patch("builtins.input", return_value="3"):
+            with patch.object(main, "mistral_converter") as mock_mc:
+                mock_mc.list_batch_jobs.return_value = (False, None, "API error")
+                ok, msg = main.mode_batch_ocr([tmp_path / "doc.pdf"])
+        assert ok is False
+
+    def test_download_empty_job_id(self, tmp_path, monkeypatch):
+        """Line 481: download with empty job ID."""
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        monkeypatch.setattr(config, "MISTRAL_BATCH_ENABLED", True)
+        monkeypatch.setattr(config, "MISTRAL_BATCH_MIN_FILES", 1)
+
+        inputs = iter(["4", ""])
+        with patch("builtins.input", side_effect=inputs):
+            ok, msg = main.mode_batch_ocr([tmp_path / "doc.pdf"])
+        assert ok is False
+        assert "No job ID" in msg
+
+    def test_download_invalid_job_id(self, tmp_path, monkeypatch):
+        """Line 483: download with invalid job ID."""
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        monkeypatch.setattr(config, "MISTRAL_BATCH_ENABLED", True)
+        monkeypatch.setattr(config, "MISTRAL_BATCH_MIN_FILES", 1)
+
+        inputs = iter(["4", "bad id!!!"])
+        with patch("builtins.input", side_effect=inputs):
+            ok, msg = main.mode_batch_ocr([tmp_path / "doc.pdf"])
+        assert ok is False
+        assert "Invalid job ID" in msg
+
+    def test_download_error(self, tmp_path, monkeypatch):
+        """Line 489: download fails."""
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        monkeypatch.setattr(config, "MISTRAL_BATCH_ENABLED", True)
+        monkeypatch.setattr(config, "MISTRAL_BATCH_MIN_FILES", 1)
+
+        inputs = iter(["4", "job-xyz"])
+        with patch("builtins.input", side_effect=inputs):
+            with patch.object(main, "mistral_converter") as mock_mc:
+                mock_mc.download_batch_results.return_value = (False, None, "not ready")
+                ok, msg = main.mode_batch_ocr([tmp_path / "doc.pdf"])
+        assert ok is False
+        assert "Error" in msg
+
+
+class TestModeSystemStatusExpanded:
+    """Test system status uncovered branches."""
+
+    def test_cache_over_100_entries(self, monkeypatch):
+        """Line 558: > 100 cache entries recommendation."""
+        monkeypatch.setattr(config, "CLEANUP_OLD_UPLOADS", False)
+        monkeypatch.setattr(config, "AUTO_CLEAR_CACHE", False)
+
+        mock_stats = {
+            "total_entries": 150,
+            "total_size_mb": 5.0,
+            "cache_hits": 100,
+            "cache_misses": 50,
+            "hit_rate": 66.7,
+        }
+        with patch.object(utils.cache, "get_statistics", return_value=mock_stats):
+            ok, msg = main.mode_system_status()
+        assert ok is True
+
+    def test_auto_clear_cache(self, monkeypatch):
+        """Line 563: auto clear cache returns > 0."""
+        monkeypatch.setattr(config, "CLEANUP_OLD_UPLOADS", False)
+        monkeypatch.setattr(config, "AUTO_CLEAR_CACHE", True)
+
+        with patch.object(utils.cache, "clear_old_entries", return_value=5):
+            ok, msg = main.mode_system_status()
+        assert ok is True
+
+    def test_cleanup_uploads(self, monkeypatch):
+        """Lines 566-571: cleanup uploaded files."""
+        monkeypatch.setattr(config, "CLEANUP_OLD_UPLOADS", True)
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        monkeypatch.setattr(config, "AUTO_CLEAR_CACHE", False)
+
+        mock_client = MagicMock()
+        with patch.object(mistral_converter, "get_mistral_client", return_value=mock_client):
+            with patch.object(mistral_converter, "cleanup_uploaded_files", return_value=3):
+                ok, msg = main.mode_system_status()
+        assert ok is True
+
+    def test_cleanup_uploads_exception(self, monkeypatch):
+        """Lines 572-573: cleanup raises exception."""
+        monkeypatch.setattr(config, "CLEANUP_OLD_UPLOADS", True)
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        monkeypatch.setattr(config, "AUTO_CLEAR_CACHE", False)
+
+        with patch.object(mistral_converter, "get_mistral_client", side_effect=Exception("API fail")):
+            ok, msg = main.mode_system_status()
+        assert ok is True
+
+    def test_all_systems_operational(self, monkeypatch):
+        """Line 576: no recommendations → 'All systems operational'."""
+        monkeypatch.setattr(config, "CLEANUP_OLD_UPLOADS", False)
+        monkeypatch.setattr(config, "AUTO_CLEAR_CACHE", False)
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+
+        mock_stats = {
+            "total_entries": 5,
+            "total_size_mb": 0.1,
+            "cache_hits": 3,
+            "cache_misses": 2,
+            "hit_rate": 60.0,
+        }
+        with patch.object(utils.cache, "get_statistics", return_value=mock_stats):
+            ok, msg = main.mode_system_status()
+        assert ok is True
+
+
+class TestSelectFilesEdgeCases:
+    """Test select_files uncovered branches."""
+
+    def test_invalid_selection_index(self, tmp_path, monkeypatch):
+        """Lines 627-629: selection index out of range."""
+        monkeypatch.setattr(config, "INPUT_DIR", tmp_path)
+        f1 = tmp_path / "doc1.txt"
+        f1.write_text("hello")
+
+        # First "99" is out of range, then "0" cancels
+        inputs = iter(["99", "0"])
+        with patch("builtins.input", side_effect=inputs):
+            result = main.select_files()
+        assert result == []
+
+    def test_value_error_input(self, tmp_path, monkeypatch):
+        """Line 635: non-numeric input."""
+        monkeypatch.setattr(config, "INPUT_DIR", tmp_path)
+        f1 = tmp_path / "doc1.txt"
+        f1.write_text("hello")
+
+        inputs = iter(["abc", "0"])
+        with patch("builtins.input", side_effect=inputs):
+            result = main.select_files()
+        assert result == []
+
+
+class TestInteractiveMenuExpanded:
+    """Test interactive_menu uncovered branches."""
+
+    def test_mode_selection_with_files(self, tmp_path, monkeypatch):
+        """Lines 711-730: full mode dispatch with file selection."""
+        monkeypatch.setattr(config, "INPUT_DIR", tmp_path)
+        monkeypatch.setattr(config, "OUTPUT_MD_DIR", tmp_path / "out")
+        monkeypatch.setattr(config, "OUTPUT_TXT_DIR", tmp_path / "out_txt")
+        (tmp_path / "out").mkdir()
+        (tmp_path / "out_txt").mkdir()
+
+        test_file = tmp_path / "test.txt"
+        test_file.write_text("hello world")
+
+        # Choose mode 2, select file 1, then exit
+        inputs = iter(["2", "1", "", "0"])
+        with patch("builtins.input", side_effect=inputs):
+            with patch.object(local_converter, "convert_with_markitdown", return_value=(True, "content", None)):
+                main.interactive_menu()
+
+    def test_mode_no_valid_files(self, tmp_path, monkeypatch):
+        """Lines 717-720: no valid files after filtering."""
+        monkeypatch.setattr(config, "INPUT_DIR", tmp_path)
+
+        # Create an empty file (0 bytes, will be filtered out)
+        empty_file = tmp_path / "empty.txt"
+        empty_file.touch()
+
+        inputs = iter(["2", "1", "", "0"])
+        with patch("builtins.input", side_effect=inputs):
+            main.interactive_menu()
+
+    def test_mode_handler_exception(self, tmp_path, monkeypatch):
+        """Lines 736-739: unexpected exception in handler."""
+        monkeypatch.setattr(config, "INPUT_DIR", tmp_path)
+
+        test_file = tmp_path / "test.txt"
+        test_file.write_text("hello world")
+
+        def raise_handler(files):
+            raise RuntimeError("unexpected boom")
+
+        # Patch the dispatch table entry directly
+        original = main.MODE_DISPATCH["2"]
+        main.MODE_DISPATCH["2"] = ("markitdown", raise_handler)
+
+        try:
+            inputs = iter(["2", "1", "", "0"])
+            with patch("builtins.input", side_effect=inputs):
+                main.interactive_menu()
+        finally:
+            main.MODE_DISPATCH["2"] = original
+
+    def test_select_files_returns_empty(self, tmp_path, monkeypatch):
+        """Lines 711-712: select_files returns empty → continue."""
+        monkeypatch.setattr(config, "INPUT_DIR", tmp_path)
+
+        test_file = tmp_path / "test.txt"
+        test_file.write_text("content")
+
+        # Choose mode 2, cancel file selection (0), then exit
+        inputs = iter(["2", "0", "0"])
+        with patch("builtins.input", side_effect=inputs):
+            main.interactive_menu()
+
+
+class TestMainCliExpanded:
+    """Test main() CLI uncovered branches."""
+
+    def test_no_valid_files_exits_1(self, tmp_path, monkeypatch):
+        """Lines 826-827: no valid files with --mode exits with code 1."""
+        monkeypatch.setattr("sys.argv", ["main.py", "--mode", "markitdown", "--no-interactive"])
+        monkeypatch.setattr(config, "INPUT_DIR", tmp_path)
+
+        # Create an empty file that won't pass validation
+        empty = tmp_path / "empty.txt"
+        empty.touch()
+
+        with pytest.raises(SystemExit) as exc_info:
+            main.main()
+        assert exc_info.value.code == 1
+
+
 class TestModeDocumentQnaExpanded:
     """Test Document QnA mode with mocked interactions."""
 
-    def test_no_client_available(self, tmp_path):
+    def test_no_client_available(self, tmp_path, monkeypatch):
+        """Line 324: client returns None."""
         pdf = tmp_path / "test.pdf"
         pdf.write_bytes(b"%PDF-1.4")
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
 
         with patch.object(mistral_converter, "get_mistral_client", return_value=None):
             ok, msg = main.mode_document_qna([pdf])
         assert ok is False
+        assert "not available" in msg
 
     def test_file_too_large(self, tmp_path, monkeypatch):
         pdf = tmp_path / "test.pdf"
@@ -862,6 +1274,146 @@ class TestModeDocumentQnaExpanded:
             ok, msg = main.mode_document_qna([pdf])
         assert ok is False
         assert "too large" in msg.lower() or "50 MB" in msg
+
+    def test_os_error_reading_file(self, tmp_path, monkeypatch):
+        """Lines 333-334: OSError when checking file size."""
+        pdf = tmp_path / "test.pdf"
+        pdf.write_bytes(b"%PDF-1.4")
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+
+        with patch.object(mistral_converter, "get_mistral_client", return_value=MagicMock()):
+            with patch.object(Path, "stat", side_effect=OSError("disk error")):
+                ok, msg = main.mode_document_qna([pdf])
+        assert ok is False
+        assert "Cannot read" in msg
+
+    def test_upload_fails(self, tmp_path, monkeypatch):
+        """Line 324 area: upload returns None."""
+        pdf = tmp_path / "test.pdf"
+        pdf.write_bytes(b"%PDF-1.4")
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        monkeypatch.setattr(config, "MISTRAL_SIGNED_URL_EXPIRY", 1)
+
+        mock_client = MagicMock()
+        with patch.object(mistral_converter, "get_mistral_client", return_value=mock_client):
+            with patch.object(mistral_converter, "upload_file_for_ocr", return_value=None):
+                ok, msg = main.mode_document_qna([pdf])
+        assert ok is False
+        assert "Failed to upload" in msg
+
+    def test_interactive_session(self, tmp_path, monkeypatch):
+        """Lines 416-489: full interactive QnA loop."""
+        pdf = tmp_path / "test.pdf"
+        pdf.write_bytes(b"%PDF-1.4")
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        monkeypatch.setattr(config, "MISTRAL_SIGNED_URL_EXPIRY", 1)
+        monkeypatch.setattr(config, "MISTRAL_DOCUMENT_QNA_MODEL", "test-model")
+
+        mock_client = MagicMock()
+        mock_chunk = MagicMock()
+        mock_chunk.data.choices = [MagicMock()]
+        mock_chunk.data.choices[0].delta.content = "Answer text"
+
+        inputs = iter(["What is this?", "exit"])
+
+        with patch.object(mistral_converter, "get_mistral_client", return_value=mock_client):
+            with patch.object(mistral_converter, "upload_file_for_ocr", return_value="https://example.com/doc"):
+                with patch.object(
+                    mistral_converter, "query_document_stream",
+                    return_value=(True, [mock_chunk], None)
+                ):
+                    with patch("builtins.input", side_effect=inputs):
+                        ok, msg = main.mode_document_qna([pdf])
+
+        assert ok is True
+        assert "1 question" in msg
+
+    def test_qna_stream_error(self, tmp_path, monkeypatch):
+        """Lines 472-476: stream error in QnA."""
+        pdf = tmp_path / "test.pdf"
+        pdf.write_bytes(b"%PDF-1.4")
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        monkeypatch.setattr(config, "MISTRAL_SIGNED_URL_EXPIRY", 1)
+        monkeypatch.setattr(config, "MISTRAL_DOCUMENT_QNA_MODEL", "test-model")
+
+        mock_client = MagicMock()
+        inputs = iter(["What?", "exit"])
+
+        with patch.object(mistral_converter, "get_mistral_client", return_value=mock_client):
+            with patch.object(mistral_converter, "upload_file_for_ocr", return_value="https://example.com/doc"):
+                with patch.object(
+                    mistral_converter, "query_document_stream",
+                    return_value=(False, None, "API error")
+                ):
+                    with patch("builtins.input", side_effect=inputs):
+                        ok, msg = main.mode_document_qna([pdf])
+
+        assert ok is True
+
+    def test_qna_keyboard_interrupt(self, tmp_path, monkeypatch):
+        """KeyboardInterrupt breaks QnA loop."""
+        pdf = tmp_path / "test.pdf"
+        pdf.write_bytes(b"%PDF-1.4")
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        monkeypatch.setattr(config, "MISTRAL_SIGNED_URL_EXPIRY", 1)
+        monkeypatch.setattr(config, "MISTRAL_DOCUMENT_QNA_MODEL", "test-model")
+
+        mock_client = MagicMock()
+
+        with patch.object(mistral_converter, "get_mistral_client", return_value=mock_client):
+            with patch.object(mistral_converter, "upload_file_for_ocr", return_value="https://example.com/doc"):
+                with patch("builtins.input", side_effect=KeyboardInterrupt):
+                    ok, msg = main.mode_document_qna([pdf])
+
+        assert ok is True
+
+    def test_qna_stream_iteration_error(self, tmp_path, monkeypatch):
+        """Lines 378-379: stream raises exception during iteration."""
+        pdf = tmp_path / "test.pdf"
+        pdf.write_bytes(b"%PDF-1.4")
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        monkeypatch.setattr(config, "MISTRAL_SIGNED_URL_EXPIRY", 1)
+        monkeypatch.setattr(config, "MISTRAL_DOCUMENT_QNA_MODEL", "test-model")
+
+        mock_client = MagicMock()
+
+        def bad_stream():
+            raise ConnectionError("stream broken")
+            yield  # make it a generator  # noqa: E111
+
+        inputs = iter(["What?", "exit"])
+
+        with patch.object(mistral_converter, "get_mistral_client", return_value=mock_client):
+            with patch.object(mistral_converter, "upload_file_for_ocr", return_value="https://example.com/doc"):
+                with patch.object(
+                    mistral_converter, "query_document_stream",
+                    return_value=(True, bad_stream(), None)
+                ):
+                    with patch("builtins.input", side_effect=inputs):
+                        ok, msg = main.mode_document_qna([pdf])
+
+        assert ok is True
+
+    def test_qna_url_refresh_fails(self, tmp_path, monkeypatch):
+        """URL refresh fails during loop."""
+        pdf = tmp_path / "test.pdf"
+        pdf.write_bytes(b"%PDF-1.4")
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        monkeypatch.setattr(config, "MISTRAL_SIGNED_URL_EXPIRY", 0)  # Force refresh
+        monkeypatch.setattr(config, "MISTRAL_DOCUMENT_QNA_MODEL", "test-model")
+
+        mock_client = MagicMock()
+        # First call succeeds (initial upload), second call fails (refresh)
+        upload_calls = iter(["https://example.com/doc", None])
+
+        inputs = iter(["What?", "exit"])
+
+        with patch.object(mistral_converter, "get_mistral_client", return_value=mock_client):
+            with patch.object(mistral_converter, "upload_file_for_ocr", side_effect=upload_calls):
+                with patch("builtins.input", side_effect=inputs):
+                    ok, msg = main.mode_document_qna([pdf])
+
+        assert ok is True
 
 
 if __name__ == "__main__":

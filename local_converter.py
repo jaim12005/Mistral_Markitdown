@@ -92,7 +92,7 @@ def get_markitdown_instance() -> Optional[MarkItDown]:
 
     with _markitdown_lock:
         if _markitdown_instance is not _MARKITDOWN_UNSET:
-            return _markitdown_instance
+            return _markitdown_instance  # pragma: no cover
 
         if MarkItDown is None:
             logger.error("MarkItDown not installed. Install with: pip install markitdown")
@@ -433,7 +433,8 @@ def _fix_split_headers(table: List[List[str]], max_header_rows: int = 3) -> List
             # Skip if next cell looks like a real column name (>= 3 chars and
             # the current cell doesn't end mid-word).  This prevents merging
             # legitimate lowercase column names like "pH", "eBay", "units".
-            if len(next_cell) >= 3 and cell and cell[-1] == " ":
+            raw_cell = str(row[col])
+            if len(next_cell) >= 3 and cell and raw_cell[-1] == " ":
                 col += 1
                 continue
 

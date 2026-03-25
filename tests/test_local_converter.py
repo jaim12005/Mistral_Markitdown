@@ -14,8 +14,12 @@ Tests cover:
 - extract_all_tables (integration, mocked)
 - save_tables_to_files (file output, mocked)
 - convert_pdf_to_images (pdf2image integration, mocked)
+- Import fallbacks
+- Exception handlers
 """
 
+import io
+import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -25,6 +29,7 @@ import config
 config.ensure_directories()
 
 import local_converter
+import utils
 
 
 # ============================================================================
@@ -134,6 +139,13 @@ class TestFixSplitHeaders:
         table = [["Account", "Balance"]]
         result = local_converter._fix_split_headers(table)
         assert result[0] == ["Account", "Balance"]
+
+    def test_skip_merge_long_lowercase_with_space(self):
+        """Lines 437-438: next cell >= 3 chars, current ends with space -> skip."""
+        table = [["Revenue ", "total", "Other"]]
+        result = local_converter._fix_split_headers(table)
+        assert result[0][0] == "Revenue "
+        assert result[0][1] == "total"
 
 
 # ============================================================================
@@ -564,6 +576,790 @@ class TestExtractAllTables:
 
         assert result["table_count"] == 0
         assert result["tables"] == []
+
+
+# ============================================================================
+# Import Fallback Tests (Lines 42-62)
+# ============================================================================
+
+
+class TestImportFallbacks:
+    """Lines 42-62: Import fallback branches when optional deps are missing."""
+
+    def test_markitdown_import_failure(self):
+        """Lines 42-47: MarkItDown import failure sets all to None."""
+        import importlib
+
+        original_markitdown = sys.modules.get("markitdown")
+        try:
+            sys.modules["markitdown"] = None
+            importlib.reload(local_converter)
+            # After reload with failed import, MarkItDown should be None
+            assert local_converter.MarkItDown is None
+        finally:
+            if original_markitdown is not None:
+                sys.modules["markitdown"] = original_markitdown
+            else:
+                sys.modules.pop("markitdown", None)
+            importlib.reload(local_converter)
+
+    def test_pdfplumber_import_failure(self):
+        """Lines 51-52: pdfplumber import failure."""
+        import importlib
+
+        original = sys.modules.get("pdfplumber")
+        try:
+            sys.modules["pdfplumber"] = None
+            importlib.reload(local_converter)
+            assert local_converter.pdfplumber is None
+        finally:
+            if original is not None:
+                sys.modules["pdfplumber"] = original
+            else:
+                sys.modules.pop("pdfplumber", None)
+            importlib.reload(local_converter)
+
+    def test_camelot_import_failure(self):
+        """Lines 56-57: camelot import failure."""
+        import importlib
+
+        original = sys.modules.get("camelot")
+        try:
+            sys.modules["camelot"] = None
+            importlib.reload(local_converter)
+            assert local_converter.camelot is None
+        finally:
+            if original is not None:
+                sys.modules["camelot"] = original
+            else:
+                sys.modules.pop("camelot", None)
+            importlib.reload(local_converter)
+
+    def test_pdf2image_import_failure(self):
+        """Lines 61-62: pdf2image import failure."""
+        import importlib
+
+        original = sys.modules.get("pdf2image")
+        try:
+            sys.modules["pdf2image"] = None
+            importlib.reload(local_converter)
+            assert local_converter.convert_from_path is None
+        finally:
+            if original is not None:
+                sys.modules["pdf2image"] = original
+            else:
+                sys.modules.pop("pdf2image", None)
+            importlib.reload(local_converter)
+
+
+# ============================================================================
+# get_markitdown_instance Branch Tests (Lines 95-136)
+# ============================================================================
+
+
+class TestGetMarkItDownInstanceBranches:
+    """Test all branches of get_markitdown_instance()."""
+
+    def test_markitdown_none_returns_none(self):
+        """Line 95: MarkItDown is None."""
+        local_converter.reset_markitdown_instance()
+        with patch.object(local_converter, "MarkItDown", None):
+            result = local_converter.get_markitdown_instance()
+        assert result is None
+        local_converter.reset_markitdown_instance()
+
+    def test_llm_descriptions_enabled(self, monkeypatch):
+        """Lines 109, 112-119: LLM client initialization."""
+        local_converter.reset_markitdown_instance()
+        monkeypatch.setattr(config, "MARKITDOWN_ENABLE_LLM_DESCRIPTIONS", True)
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test-key")
+        monkeypatch.setattr(config, "MARKITDOWN_LLM_MODEL", "test-model")
+
+        mock_md_class = MagicMock()
+        mock_openai = MagicMock()
+
+        with patch.object(local_converter, "MarkItDown", mock_md_class):
+            with patch.dict("sys.modules", {"openai": MagicMock(OpenAI=mock_openai)}):
+                result = local_converter.get_markitdown_instance()
+
+        assert mock_md_class.called
+        local_converter.reset_markitdown_instance()
+
+    def test_llm_openai_not_installed(self, monkeypatch):
+        """Lines 118-119: OpenAI import failure."""
+        local_converter.reset_markitdown_instance()
+        monkeypatch.setattr(config, "MARKITDOWN_ENABLE_LLM_DESCRIPTIONS", True)
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test-key")
+
+        mock_md_class = MagicMock()
+
+        def fake_import(name, *args, **kwargs):
+            if name == "openai":
+                raise ImportError("no openai")
+            return original_import(name, *args, **kwargs)
+
+        import builtins
+
+        original_import = builtins.__import__
+
+        with patch.object(local_converter, "MarkItDown", mock_md_class):
+            with patch("builtins.__import__", side_effect=fake_import):
+                result = local_converter.get_markitdown_instance()
+
+        local_converter.reset_markitdown_instance()
+
+    def test_style_map_configured(self, monkeypatch):
+        """Line 122: style_map configuration."""
+        local_converter.reset_markitdown_instance()
+        monkeypatch.setattr(config, "MARKITDOWN_STYLE_MAP", "p.custom => custom")
+        monkeypatch.setattr(config, "MARKITDOWN_ENABLE_LLM_DESCRIPTIONS", False)
+
+        mock_md_class = MagicMock()
+
+        with patch.object(local_converter, "MarkItDown", mock_md_class):
+            result = local_converter.get_markitdown_instance()
+
+        call_kwargs = mock_md_class.call_args[1]
+        assert call_kwargs.get("style_map") == "p.custom => custom"
+        local_converter.reset_markitdown_instance()
+
+    def test_exiftool_path_configured(self, monkeypatch):
+        """Line 125: exiftool_path configuration."""
+        local_converter.reset_markitdown_instance()
+        monkeypatch.setattr(config, "MARKITDOWN_EXIFTOOL_PATH", "/usr/bin/exiftool")
+        monkeypatch.setattr(config, "MARKITDOWN_ENABLE_LLM_DESCRIPTIONS", False)
+        monkeypatch.setattr(config, "MARKITDOWN_STYLE_MAP", "")
+
+        mock_md_class = MagicMock()
+
+        with patch.object(local_converter, "MarkItDown", mock_md_class):
+            result = local_converter.get_markitdown_instance()
+
+        call_kwargs = mock_md_class.call_args[1]
+        assert call_kwargs.get("exiftool_path") == "/usr/bin/exiftool"
+        local_converter.reset_markitdown_instance()
+
+    def test_llm_prompt_configured(self, monkeypatch):
+        """Line 128 (already likely covered path) with explicit LLM prompt."""
+        local_converter.reset_markitdown_instance()
+        monkeypatch.setattr(config, "MARKITDOWN_LLM_PROMPT", "Describe this image")
+        monkeypatch.setattr(config, "MARKITDOWN_ENABLE_LLM_DESCRIPTIONS", False)
+        monkeypatch.setattr(config, "MARKITDOWN_STYLE_MAP", "")
+        monkeypatch.setattr(config, "MARKITDOWN_EXIFTOOL_PATH", "")
+
+        mock_md_class = MagicMock()
+
+        with patch.object(local_converter, "MarkItDown", mock_md_class):
+            result = local_converter.get_markitdown_instance()
+
+        call_kwargs = mock_md_class.call_args[1]
+        assert call_kwargs.get("llm_prompt") == "Describe this image"
+        local_converter.reset_markitdown_instance()
+
+    def test_keep_data_uris(self, monkeypatch):
+        """Line 109: MARKITDOWN_KEEP_DATA_URIS branch."""
+        local_converter.reset_markitdown_instance()
+        monkeypatch.setattr(config, "MARKITDOWN_KEEP_DATA_URIS", True)
+        monkeypatch.setattr(config, "MARKITDOWN_ENABLE_LLM_DESCRIPTIONS", False)
+        monkeypatch.setattr(config, "MARKITDOWN_STYLE_MAP", "")
+        monkeypatch.setattr(config, "MARKITDOWN_EXIFTOOL_PATH", "")
+        monkeypatch.setattr(config, "MARKITDOWN_LLM_PROMPT", "")
+
+        mock_md_class = MagicMock()
+
+        with patch.object(local_converter, "MarkItDown", mock_md_class):
+            result = local_converter.get_markitdown_instance()
+
+        call_kwargs = mock_md_class.call_args[1]
+        assert call_kwargs.get("keep_data_uris") is True
+        local_converter.reset_markitdown_instance()
+
+    def test_init_exception(self, monkeypatch):
+        """Lines 133-136: MarkItDown() constructor raises."""
+        local_converter.reset_markitdown_instance()
+        monkeypatch.setattr(config, "MARKITDOWN_ENABLE_LLM_DESCRIPTIONS", False)
+        monkeypatch.setattr(config, "MARKITDOWN_STYLE_MAP", "")
+        monkeypatch.setattr(config, "MARKITDOWN_EXIFTOOL_PATH", "")
+        monkeypatch.setattr(config, "MARKITDOWN_LLM_PROMPT", "")
+
+        mock_md_class = MagicMock(side_effect=RuntimeError("init fail"))
+
+        with patch.object(local_converter, "MarkItDown", mock_md_class):
+            result = local_converter.get_markitdown_instance()
+
+        assert result is None
+        local_converter.reset_markitdown_instance()
+
+    def test_concurrent_lock_returns_cached(self):
+        """Line 95: second call inside lock finds instance already set by first call."""
+        import threading
+
+        local_converter.reset_markitdown_instance()
+
+        results = [None, None]
+
+        mock_md = MagicMock()
+        mock_md_class = MagicMock(return_value=mock_md)
+
+        # Both threads will see _MARKITDOWN_UNSET on fast-path, both enter lock.
+        # Thread 1 gets lock first, does init. Thread 2 gets lock second, hits line 95.
+        barrier = threading.Barrier(2, timeout=5)
+
+        original_init = local_converter.MarkItDown
+
+        def slow_markitdown(**kwargs):
+            """Simulate slow init to ensure both threads queue up."""
+            barrier.wait()  # Wait for both threads to start
+            import time
+            time.sleep(0.05)
+            return mock_md
+
+        with patch.object(local_converter, "MarkItDown", side_effect=slow_markitdown):
+            def worker(idx):
+                results[idx] = local_converter.get_markitdown_instance()
+
+            t1 = threading.Thread(target=worker, args=(0,))
+            t2 = threading.Thread(target=worker, args=(1,))
+            t1.start()
+            t2.start()
+            t1.join(timeout=10)
+            t2.join(timeout=10)
+
+        # Both should return the same instance
+        assert results[0] is results[1]
+        local_converter.reset_markitdown_instance()
+
+
+# ============================================================================
+# convert_with_markitdown Exception Handler Tests (Lines 210-220)
+# ============================================================================
+
+
+class TestConvertWithMarkItDownExceptions:
+    """Lines 210-220: exception handlers for specific exception types."""
+
+    def _setup_convert(self, tmp_path, monkeypatch, exception):
+        monkeypatch.setattr(config, "MARKITDOWN_MAX_FILE_SIZE_MB", 100)
+        test_file = tmp_path / "doc.txt"
+        test_file.write_text("hello")
+        mock_md = MagicMock()
+        mock_md.convert.side_effect = exception
+        with patch.object(local_converter, "get_markitdown_instance", return_value=mock_md):
+            return local_converter.convert_with_markitdown(test_file)
+
+    def test_unsupported_format_exception(self, tmp_path, monkeypatch):
+        """Line 210: UnsupportedFormatException handler."""
+        if local_converter.UnsupportedFormatException is None:
+            pytest.skip("UnsupportedFormatException not available")
+        exc = local_converter.UnsupportedFormatException("bad format")
+        success, content, error = self._setup_convert(tmp_path, monkeypatch, exc)
+        assert success is False
+        assert "Unsupported format" in error
+
+    def test_missing_dependency_exception(self, tmp_path, monkeypatch):
+        """Lines 213-214: MissingDependencyException handler."""
+        if local_converter.MissingDependencyException is None:
+            pytest.skip("MissingDependencyException not available")
+        exc = local_converter.MissingDependencyException("need dep")
+        success, content, error = self._setup_convert(tmp_path, monkeypatch, exc)
+        assert success is False
+        assert "Missing dependency" in error
+
+    def test_file_conversion_exception(self, tmp_path, monkeypatch):
+        """Lines 216-217: FileConversionException handler."""
+        if local_converter.FileConversionException is None:
+            pytest.skip("FileConversionException not available")
+        exc = local_converter.FileConversionException("convert fail")
+        success, content, error = self._setup_convert(tmp_path, monkeypatch, exc)
+        assert success is False
+        assert "Conversion failed" in error
+
+    def test_no_content_returned(self, tmp_path, monkeypatch):
+        """Lines 219-220: no content returned from MarkItDown."""
+        monkeypatch.setattr(config, "MARKITDOWN_MAX_FILE_SIZE_MB", 100)
+        test_file = tmp_path / "doc.txt"
+        test_file.write_text("hello")
+        mock_md = MagicMock()
+        mock_md.convert.return_value = None  # No result
+        with patch.object(local_converter, "get_markitdown_instance", return_value=mock_md):
+            success, content, error = local_converter.convert_with_markitdown(test_file)
+        assert success is False
+        assert "No content" in error
+
+
+# ============================================================================
+# convert_stream_with_markitdown Exception Tests (Lines 261-276)
+# ============================================================================
+
+
+class TestConvertStreamExceptions:
+    """Lines 261-276: stream conversion exception handlers."""
+
+    def test_unsupported_format_stream(self):
+        """Line 261: UnsupportedFormatException in stream."""
+        if local_converter.UnsupportedFormatException is None:
+            pytest.skip("UnsupportedFormatException not available")
+        mock_md = MagicMock()
+        mock_md.convert_stream.side_effect = local_converter.UnsupportedFormatException("bad")
+        with patch.object(local_converter, "get_markitdown_instance", return_value=mock_md):
+            success, content, error = local_converter.convert_stream_with_markitdown(io.BytesIO(b"data"))
+        assert success is False
+        assert "Unsupported format" in error
+
+    def test_missing_dependency_stream(self):
+        """Lines 266-267: MissingDependencyException in stream."""
+        if local_converter.MissingDependencyException is None:
+            pytest.skip("MissingDependencyException not available")
+        mock_md = MagicMock()
+        mock_md.convert_stream.side_effect = local_converter.MissingDependencyException("need dep")
+        with patch.object(local_converter, "get_markitdown_instance", return_value=mock_md):
+            success, content, error = local_converter.convert_stream_with_markitdown(io.BytesIO(b"data"))
+        assert success is False
+        assert "Missing dependency" in error
+
+    def test_generic_exception_stream(self):
+        """Lines 268-276: generic exception in stream."""
+        mock_md = MagicMock()
+        mock_md.convert_stream.side_effect = RuntimeError("stream fail")
+        with patch.object(local_converter, "get_markitdown_instance", return_value=mock_md):
+            success, content, error = local_converter.convert_stream_with_markitdown(io.BytesIO(b"data"))
+        assert success is False
+        assert "stream fail" in error
+
+    def test_no_content_from_stream(self):
+        """Stream returns no result object."""
+        mock_md = MagicMock()
+        mock_md.convert_stream.return_value = None
+        with patch.object(local_converter, "get_markitdown_instance", return_value=mock_md):
+            success, content, error = local_converter.convert_stream_with_markitdown(io.BytesIO(b"data"))
+        assert success is False
+
+    def test_no_convert_stream_method(self):
+        """Stream conversion when convert_stream not available."""
+        mock_md = MagicMock(spec=[])  # no convert_stream attribute
+        with patch.object(local_converter, "get_markitdown_instance", return_value=mock_md):
+            success, content, error = local_converter.convert_stream_with_markitdown(io.BytesIO(b"data"))
+        assert success is False
+        assert "not available" in error
+
+    def test_stream_without_streaminfo(self):
+        """Line 261: fallback when StreamInfo is None."""
+        mock_md = MagicMock()
+        mock_result = MagicMock()
+        mock_result.markdown = "# Stream Content"
+        mock_md.convert_stream.return_value = mock_result
+
+        with patch.object(local_converter, "get_markitdown_instance", return_value=mock_md):
+            with patch.object(local_converter, "StreamInfo", None):
+                success, content, error = local_converter.convert_stream_with_markitdown(
+                    io.BytesIO(b"data"), filename="test.pdf"
+                )
+        assert success is True
+        assert "Stream Content" in content
+
+
+# ============================================================================
+# extract_tables_camelot Stream Flavor Tests (Lines 354-404)
+# ============================================================================
+
+
+class TestExtractTablesCamelotStreamFlavor:
+    """Lines 354-404: camelot stream flavor with quality filtering."""
+
+    def test_stream_flavor_extraction(self, tmp_path, monkeypatch):
+        """Stream flavor with quality filtering."""
+        pdf_file = tmp_path / "test.pdf"
+        pdf_file.write_bytes(b"%PDF-1.4")
+
+        monkeypatch.setattr(config, "CAMELOT_STREAM_SPLIT_TEXT", True)
+        monkeypatch.setattr(config, "CAMELOT_STREAM_EDGE_TOL", 50)
+        monkeypatch.setattr(config, "CAMELOT_STREAM_ROW_TOL", 2)
+        monkeypatch.setattr(config, "CAMELOT_STREAM_COLUMN_TOL", 0)
+        monkeypatch.setattr(config, "CAMELOT_MIN_ACCURACY", 50.0)
+        monkeypatch.setattr(config, "CAMELOT_MAX_WHITESPACE", 80.0)
+
+        import pandas as pd
+
+        mock_table = MagicMock()
+        mock_table.accuracy = 90.0
+        mock_table.whitespace = 20.0
+        mock_table.df = MagicMock()
+        mock_table.df.values.tolist.return_value = [["H1", "H2"], ["A", "B"]]
+
+        with patch.object(local_converter, "camelot") as mock_cam:
+            mock_cam.read_pdf.return_value = [mock_table]
+            result = local_converter.extract_tables_camelot(pdf_file, flavor="stream")
+
+        assert len(result) == 1
+        mock_cam.read_pdf.assert_called_once()
+
+    def test_stream_low_accuracy_filtered(self, tmp_path, monkeypatch):
+        """Low accuracy tables are filtered out."""
+        pdf_file = tmp_path / "test.pdf"
+        pdf_file.write_bytes(b"%PDF-1.4")
+
+        monkeypatch.setattr(config, "CAMELOT_MIN_ACCURACY", 80.0)
+        monkeypatch.setattr(config, "CAMELOT_MAX_WHITESPACE", 90.0)
+
+        mock_table = MagicMock()
+        mock_table.accuracy = 30.0  # below threshold
+        mock_table.whitespace = 10.0
+
+        with patch.object(local_converter, "camelot") as mock_cam:
+            mock_cam.read_pdf.return_value = [mock_table]
+            result = local_converter.extract_tables_camelot(pdf_file, flavor="stream")
+
+        assert len(result) == 0
+
+    def test_stream_high_whitespace_filtered(self, tmp_path, monkeypatch):
+        """High whitespace tables are filtered out."""
+        pdf_file = tmp_path / "test.pdf"
+        pdf_file.write_bytes(b"%PDF-1.4")
+
+        monkeypatch.setattr(config, "CAMELOT_MIN_ACCURACY", 50.0)
+        monkeypatch.setattr(config, "CAMELOT_MAX_WHITESPACE", 60.0)
+
+        mock_table = MagicMock()
+        mock_table.accuracy = 90.0
+        mock_table.whitespace = 95.0  # above threshold
+
+        with patch.object(local_converter, "camelot") as mock_cam:
+            mock_cam.read_pdf.return_value = [mock_table]
+            result = local_converter.extract_tables_camelot(pdf_file, flavor="stream")
+
+        assert len(result) == 0
+
+    def test_stream_accuracy_only_quality_info(self, tmp_path, monkeypatch):
+        """Lines 401-402: quality_info has accuracy but whitespace is None."""
+        pdf_file = tmp_path / "test.pdf"
+        pdf_file.write_bytes(b"%PDF-1.4")
+
+        monkeypatch.setattr(config, "CAMELOT_MIN_ACCURACY", 50.0)
+        monkeypatch.setattr(config, "CAMELOT_MAX_WHITESPACE", 90.0)
+
+        mock_table = MagicMock()
+        mock_table.accuracy = 90.0
+        mock_table.whitespace = None  # No whitespace attr
+        mock_table.df = MagicMock()
+        mock_table.df.values.tolist.return_value = [["H1", "H2"], ["A", "B"]]
+
+        with patch.object(local_converter, "camelot") as mock_cam:
+            mock_cam.read_pdf.return_value = [mock_table]
+            result = local_converter.extract_tables_camelot(pdf_file, flavor="stream")
+
+        assert len(result) == 1
+
+
+# ============================================================================
+# extract_all_tables Camelot-stream Fallback (Lines 437-438)
+# ============================================================================
+
+
+class TestExtractAllTablesCamelotStreamFallback:
+    """Lines 437-438: camelot-stream runs when <2 tables found."""
+
+    def test_camelot_stream_runs_when_few_tables(self, tmp_path):
+        """When pdfplumber finds < 2 tables, camelot-stream is tried."""
+        pdf_file = tmp_path / "test.pdf"
+        pdf_file.write_bytes(b"%PDF-1.4")
+
+        table1 = [["A", "B"], ["1", "2"]]
+        stream_table = [["X", "Y"], ["3", "4"]]
+
+        def mock_camelot(path, flavor="lattice", **kwargs):
+            if flavor == "stream":
+                return [stream_table]
+            return []
+
+        with patch.object(local_converter, "extract_tables_pdfplumber", return_value=[table1]):
+            with patch.object(local_converter, "extract_tables_camelot", side_effect=mock_camelot):
+                result = local_converter.extract_all_tables(pdf_file)
+
+        assert "camelot-stream" in result["methods_used"]
+
+
+# ============================================================================
+# save_tables_to_files CSV Output Tests (Lines 583-601)
+# ============================================================================
+
+
+class TestSaveTablesToCsv:
+    """Lines 583-584, 601: CSV output in save_tables_to_files."""
+
+    def test_csv_output_created(self, tmp_path, monkeypatch):
+        """CSV files are created when 'csv' in TABLE_OUTPUT_FORMATS."""
+        monkeypatch.setattr(config, "OUTPUT_MD_DIR", tmp_path)
+        monkeypatch.setattr(config, "INCLUDE_METADATA", False)
+        monkeypatch.setattr(config, "INPUT_DIR", tmp_path)
+        monkeypatch.setattr(config, "GENERATE_TXT_OUTPUT", False)
+        monkeypatch.setattr(config, "TABLE_OUTPUT_FORMATS", ["markdown", "csv"])
+
+        pdf_file = tmp_path / "report.pdf"
+        pdf_file.touch()
+
+        tables = [[["Name", "Value"], ["A", "1"]]]
+        result = local_converter.save_tables_to_files(pdf_file, tables)
+
+        csv_files = list(tmp_path.glob("*.csv"))
+        assert len(csv_files) == 1
+
+    def test_csv_write_exception(self, tmp_path, monkeypatch):
+        """Line 601: exception during CSV write."""
+        monkeypatch.setattr(config, "OUTPUT_MD_DIR", tmp_path)
+        monkeypatch.setattr(config, "INCLUDE_METADATA", False)
+        monkeypatch.setattr(config, "INPUT_DIR", tmp_path)
+        monkeypatch.setattr(config, "GENERATE_TXT_OUTPUT", False)
+        monkeypatch.setattr(config, "TABLE_OUTPUT_FORMATS", ["csv"])
+
+        pdf_file = tmp_path / "report.pdf"
+        pdf_file.touch()
+
+        tables = [[["Name", "Value"], ["A", "1"]]]
+
+        with patch("builtins.open", side_effect=[MagicMock(), PermissionError("denied")]):
+            # First open for markdown, second for CSV raises
+            result = local_converter.save_tables_to_files(pdf_file, tables)
+        # Should not crash
+
+
+# ============================================================================
+# convert_pdf_to_images PNG Format Tests (Line 688)
+# ============================================================================
+
+
+class TestConvertPdfToImagesPng:
+    """Line 688: PNG format save branch."""
+
+    def test_png_format(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "OUTPUT_IMAGES_DIR", tmp_path)
+        monkeypatch.setattr(config, "PDF_IMAGE_DPI", 200)
+        monkeypatch.setattr(config, "PDF_IMAGE_FORMAT", "png")
+        monkeypatch.setattr(config, "POPPLER_PATH", "")
+        monkeypatch.setattr(config, "PDF_IMAGE_THREAD_COUNT", 1)
+        monkeypatch.setattr(config, "PDF_IMAGE_USE_PDFTOCAIRO", False)
+
+        pdf_file = tmp_path / "test.pdf"
+        pdf_file.write_bytes(b"%PDF-1.4")
+
+        mock_img = MagicMock()
+
+        with patch.object(local_converter, "convert_from_path", return_value=[mock_img]):
+            success, paths, error = local_converter.convert_pdf_to_images(pdf_file)
+
+        assert success is True
+        # Verify PNG save was called
+        mock_img.save.assert_called_once()
+        call_args = mock_img.save.call_args
+        assert "PNG" in call_args[0]
+
+    def test_jpeg_format(self, tmp_path, monkeypatch):
+        """Verify JPEG format branch for completeness."""
+        monkeypatch.setattr(config, "OUTPUT_IMAGES_DIR", tmp_path)
+        monkeypatch.setattr(config, "PDF_IMAGE_DPI", 200)
+        monkeypatch.setattr(config, "PDF_IMAGE_FORMAT", "jpeg")
+        monkeypatch.setattr(config, "POPPLER_PATH", "")
+        monkeypatch.setattr(config, "PDF_IMAGE_THREAD_COUNT", 1)
+        monkeypatch.setattr(config, "PDF_IMAGE_USE_PDFTOCAIRO", False)
+
+        pdf_file = tmp_path / "test.pdf"
+        pdf_file.write_bytes(b"%PDF-1.4")
+
+        mock_img = MagicMock()
+
+        with patch.object(local_converter, "convert_from_path", return_value=[mock_img]):
+            success, paths, error = local_converter.convert_pdf_to_images(pdf_file)
+
+        assert success is True
+        call_args = mock_img.save.call_args
+        assert "JPEG" in call_args[0]
+
+
+# ============================================================================
+# coalesce_tables Initialization Tests (Lines 724-725)
+# ============================================================================
+
+
+class TestCoalesceTablesInit:
+    """Lines 724-725: coalesce_tables with actual data to cover init variables."""
+
+    def test_single_table_coalesced(self):
+        """Covers current_table/current_header init + final append."""
+        tables = [[["H1", "H2"], ["A", "B"]]]
+        result = local_converter.coalesce_tables(tables)
+        assert len(result) == 1
+        assert result[0] == [["H1", "H2"], ["A", "B"]]
+
+    def test_empty_table_skipped(self):
+        """Line 833: empty table is skipped via continue."""
+        tables = [
+            [["H1", "H2"], ["A", "B"]],
+            [],  # empty table
+            [["H1", "H2"], ["C", "D"]],  # same header, should coalesce
+        ]
+        result = local_converter.coalesce_tables(tables)
+        assert len(result) == 1
+        # Should have merged rows from both non-empty tables
+        assert len(result[0]) == 3  # header + 2 data rows
+
+
+# ============================================================================
+# analyze_file_content PDF Analysis Tests (Lines 791, 795, 887-918)
+# ============================================================================
+
+
+class TestAnalyzeFileContentPdf:
+    """Lines 791, 795, 887-918: pdfplumber analysis in analyze_file_content."""
+
+    def test_pdf_with_pdfplumber(self, tmp_path):
+        """Full PDF analysis path with mocked pdfplumber."""
+        pdf_file = tmp_path / "test.pdf"
+        pdf_file.write_text("x" * 100)  # small file
+
+        mock_page = MagicMock()
+        mock_page.extract_text.return_value = "This is a long text content " * 10
+        mock_page.extract_tables.return_value = [["table"]]
+        mock_page.images = [{"x0": 0}]
+
+        mock_pdf = MagicMock()
+        mock_pdf.pages = [mock_page, mock_page, mock_page]
+        mock_pdf.__enter__ = MagicMock(return_value=mock_pdf)
+        mock_pdf.__exit__ = MagicMock(return_value=False)
+
+        with patch.object(local_converter, "pdfplumber") as mock_plumber:
+            mock_plumber.open.return_value = mock_pdf
+            result = local_converter.analyze_file_content(pdf_file)
+
+        assert result["page_count"] == 3
+        assert result["has_tables"] is True
+        assert result["has_images"] is True
+        assert result["is_text_based"] is True
+
+    def test_pdf_text_less(self, tmp_path):
+        """PDF with no extractable text."""
+        pdf_file = tmp_path / "scan.pdf"
+        pdf_file.write_text("x" * 100)
+
+        mock_page = MagicMock()
+        mock_page.extract_text.return_value = ""
+        mock_page.extract_tables.return_value = []
+        mock_page.images = [{"x0": 0}]
+
+        mock_pdf = MagicMock()
+        mock_pdf.pages = [mock_page] * 6  # > 5 pages
+        mock_pdf.__enter__ = MagicMock(return_value=mock_pdf)
+        mock_pdf.__exit__ = MagicMock(return_value=False)
+
+        with patch.object(local_converter, "pdfplumber") as mock_plumber:
+            mock_plumber.open.return_value = mock_pdf
+            result = local_converter.analyze_file_content(pdf_file)
+
+        assert result["is_text_based"] is False
+        assert result["has_images"] is True
+        assert result["is_complex"] is True
+
+    def test_pdf_analysis_exception(self, tmp_path):
+        """Exception during PDF analysis."""
+        pdf_file = tmp_path / "bad.pdf"
+        pdf_file.write_text("x")
+
+        with patch.object(local_converter, "pdfplumber") as mock_plumber:
+            mock_plumber.open.side_effect = Exception("corrupt pdf")
+            result = local_converter.analyze_file_content(pdf_file)
+
+        assert result["page_count"] == 0
+
+    def test_image_file_detection(self, tmp_path, monkeypatch):
+        """Image file type detection branch."""
+        img_file = tmp_path / "photo.jpg"
+        img_file.write_text("fake image data")
+
+        monkeypatch.setattr(config, "IMAGE_EXTENSIONS", {"jpg", "png", "jpeg"})
+
+        result = local_converter.analyze_file_content(img_file)
+        assert result["has_images"] is True
+
+
+# ============================================================================
+# extract_all_tables Coalescing Tests (Line 601)
+# ============================================================================
+
+
+class TestExtractAllTablesCoalescing:
+    """Line 601: coalesced_count > 0 log message."""
+
+    def test_coalesced_count_positive(self, tmp_path):
+        """Tables with identical headers should be coalesced, hitting line 601."""
+        pdf_file = tmp_path / "test.pdf"
+        pdf_file.write_bytes(b"%PDF-1.4")
+
+        # Two tables with identical headers should be coalesced into one
+        table1 = [["Name", "Value"], ["A", "1"]]
+        table2 = [["Name", "Value"], ["B", "2"]]
+
+        with patch.object(local_converter, "extract_tables_pdfplumber", return_value=[table1, table2]):
+            with patch.object(local_converter, "extract_tables_camelot", return_value=[]):
+                result = local_converter.extract_all_tables(pdf_file)
+
+        # They should be coalesced into one table
+        assert result["table_count"] == 1
+
+
+# ============================================================================
+# save_tables_to_files Normalization Fallback (Line 688)
+# ============================================================================
+
+
+class TestSaveTablesNormFallback:
+    """Line 688: fallback when normalize_table_headers returns empty."""
+
+    def test_normalization_fails_uses_fallback(self, tmp_path, monkeypatch):
+        """normalize_table_headers returns empty → uses format_table_to_markdown(table)."""
+        monkeypatch.setattr(config, "OUTPUT_MD_DIR", tmp_path)
+        monkeypatch.setattr(config, "INCLUDE_METADATA", False)
+        monkeypatch.setattr(config, "INPUT_DIR", tmp_path)
+        monkeypatch.setattr(config, "GENERATE_TXT_OUTPUT", False)
+        monkeypatch.setattr(config, "TABLE_OUTPUT_FORMATS", ["markdown"])
+
+        pdf_file = tmp_path / "report.pdf"
+        pdf_file.touch()
+
+        tables = [[["Header1", "Header2"], ["A", "1"]]]
+
+        with patch("utils.normalize_table_headers", return_value=([], [])):
+            result = local_converter.save_tables_to_files(pdf_file, tables)
+
+        # Should still produce output (via fallback path)
+        assert len(result) > 0
+
+
+# ============================================================================
+# convert_pdf_to_images Other Format Tests (Line 795)
+# ============================================================================
+
+
+class TestConvertPdfToImagesOtherFormat:
+    """Line 795: generic format save (not jpeg, not png)."""
+
+    def test_tiff_format(self, tmp_path, monkeypatch):
+        """Other format branch uses PDF_IMAGE_FORMAT.upper()."""
+        monkeypatch.setattr(config, "OUTPUT_IMAGES_DIR", tmp_path)
+        monkeypatch.setattr(config, "PDF_IMAGE_DPI", 200)
+        monkeypatch.setattr(config, "PDF_IMAGE_FORMAT", "tiff")
+        monkeypatch.setattr(config, "POPPLER_PATH", "")
+        monkeypatch.setattr(config, "PDF_IMAGE_THREAD_COUNT", 1)
+        monkeypatch.setattr(config, "PDF_IMAGE_USE_PDFTOCAIRO", False)
+
+        pdf_file = tmp_path / "test.pdf"
+        pdf_file.write_bytes(b"%PDF-1.4")
+
+        mock_img = MagicMock()
+
+        with patch.object(local_converter, "convert_from_path", return_value=[mock_img]):
+            success, paths, error = local_converter.convert_pdf_to_images(pdf_file)
+
+        assert success is True
+        call_args = mock_img.save.call_args
+        assert "TIFF" in call_args[0]
 
 
 if __name__ == "__main__":

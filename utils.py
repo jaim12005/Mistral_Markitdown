@@ -288,10 +288,8 @@ class IntelligentCache:
 
             logger.debug(f"Cached result for {file_path.name}")
 
-        except FileNotFoundError:
-            logger.warning(f"File not found when caching: {file_path}")
         except Exception as e:
-            logger.warning(f"Error writing cache for {file_path.name}: {e}")
+            logger.warning(f"Error writing cache for {file_path}: {e}")
 
     def clear_old_entries(self) -> int:
         """

@@ -588,7 +588,7 @@ def initialize() -> List[str]:
 
 
 # Run as a standalone config diagnostic: ``python config.py``
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     _issues = initialize()
     print(f"Enhanced Document Converter v{VERSION}")
     print(f"Base directory: {BASE_DIR}")
