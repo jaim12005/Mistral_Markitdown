@@ -22,7 +22,6 @@ import time
 import traceback
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any, Callable
-from functools import lru_cache
 
 # The mistralai SDK moved its import paths between v1.x and v2.x:
 #   v1.x: from mistralai import Mistral
@@ -104,54 +103,66 @@ def _track_pages(count: int) -> None:
 # Mistral Client Initialization
 # ============================================================================
 
+_client_lock = threading.Lock()
+_client_instance: Optional["Mistral"] = None
 
-@lru_cache(maxsize=1)
+
 def get_mistral_client() -> Optional[Mistral]:
     """
     Create and configure a Mistral client instance.
-    Cached to prevent connection pool churn in batch operations.
+    Uses a Lock-guarded singleton to prevent connection pool churn in batch
+    operations while remaining safe under concurrent ``ThreadPoolExecutor``
+    usage.
 
     Thread-safety note:
         The Mistral SDK client uses ``httpx`` under the hood, which is
-        thread-safe for concurrent requests.  This cached singleton is
-        therefore safe to share across the ``ThreadPoolExecutor`` used
-        by batch processing modes.  If you switch to a different HTTP
-        backend or need per-thread isolation, replace this with a
-        ``threading.local()`` pattern.
+        thread-safe for concurrent requests.  This singleton is therefore
+        safe to share across threads.
 
     Returns:
         Configured Mistral client or None if unavailable
     """
-    if Mistral is None:
-        logger.error(
-            "Mistral SDK not available. Run: pip install mistralai  "
-            "(check logs/pip_install.log if you already installed it)"
-        )
-        return None
+    global _client_instance
 
-    if not config.MISTRAL_API_KEY:
-        logger.error(
-            "MISTRAL_API_KEY not set. Add it to your .env file in the project root."
-        )
-        return None
+    if _client_instance is not None:
+        return _client_instance
 
-    try:
-        client_kwargs = {"api_key": config.MISTRAL_API_KEY}
+    with _client_lock:
+        # Double-checked locking
+        if _client_instance is not None:
+            return _client_instance
 
-        # Set global retry config on client (applies to all calls by default)
-        global_retry = get_retry_config()
-        if global_retry:
-            client_kwargs["retry_config"] = global_retry
+        if Mistral is None:
+            logger.error(
+                "Mistral SDK not available. Run: pip install mistralai  "
+                "(check logs/pip_install.log if you already installed it)"
+            )
+            return None
 
-        # Set global timeout (60 seconds default)
-        client_kwargs["timeout_ms"] = config.RETRY_MAX_ELAPSED_TIME_MS
+        if not config.MISTRAL_API_KEY:
+            logger.error(
+                "MISTRAL_API_KEY not set. Add it to your .env file in the project root."
+            )
+            return None
 
-        client = Mistral(**client_kwargs)
-        return client
+        try:
+            client_kwargs = {"api_key": config.MISTRAL_API_KEY}
 
-    except Exception as e:
-        logger.error(f"Error initializing Mistral client: {e}")
-        return None
+            # Set global retry config on client (applies to all calls by default)
+            global_retry = get_retry_config()
+            if global_retry:
+                client_kwargs["retry_config"] = global_retry
+
+            # Set global timeout (60 seconds default)
+            client_kwargs["timeout_ms"] = config.RETRY_MAX_ELAPSED_TIME_MS
+
+            client = Mistral(**client_kwargs)
+            _client_instance = client
+            return client
+
+        except Exception as e:
+            logger.error("Error initializing Mistral client: %s", e)
+            return None
 
 
 def reset_mistral_client() -> None:
@@ -159,7 +170,9 @@ def reset_mistral_client() -> None:
 
     Useful after rotating an API key at runtime or in tests.
     """
-    get_mistral_client.cache_clear()
+    global _client_instance
+    with _client_lock:
+        _client_instance = None
 
 
 # ============================================================================
@@ -197,7 +210,7 @@ def get_retry_config() -> Optional[Any]:
         return retry_config
 
     except Exception as e:
-        logger.warning(f"Error creating retry config: {e}")
+        logger.warning("Error creating retry config: %s", e)
         return None
 
 
@@ -270,7 +283,7 @@ def get_bbox_annotation_format() -> Optional[Dict[str, Any]]:
                 logger.debug("Using Pydantic-derived JSON schema for bbox annotation")
                 return _wrap_response_format(json_schema, "bbox_annotation")
         except Exception as e:
-            logger.debug(f"Could not get JSON schema from Pydantic model: {e}, falling back to predefined schema")
+            logger.debug("Could not get JSON schema from Pydantic model: %s, falling back to predefined schema", e)
 
     # Fallback to predefined JSON schema from schemas.py
     bbox_schema = schemas.get_bbox_schema("structured")
@@ -385,11 +398,11 @@ def optimize_image(image_path: Path) -> Optional[Path]:
         else:
             img.save(optimized_path, optimize=True)
 
-        logger.debug(f"Optimized image: {image_path.name} -> {optimized_path.name}")
+        logger.debug("Optimized image: %s -> %s", image_path.name, optimized_path.name)
         return optimized_path
 
     except Exception as e:
-        logger.warning(f"Error optimizing image {image_path.name}: {e}")
+        logger.warning("Error optimizing image %s: %s", image_path.name, e)
         return image_path
 
 
@@ -429,11 +442,11 @@ def preprocess_image(image_path: Path) -> Optional[Path]:
         else:
             img.save(preprocessed_path)
 
-        logger.debug(f"Preprocessed image: {image_path.name}")
+        logger.debug("Preprocessed image: %s", image_path.name)
         return preprocessed_path
 
     except Exception as e:
-        logger.warning(f"Error preprocessing image {image_path.name}: {e}")
+        logger.warning("Error preprocessing image %s: %s", image_path.name, e)
         return image_path
 
 
@@ -472,7 +485,7 @@ def cleanup_uploaded_files(client: Mistral, days_old: Optional[int] = None) -> i
                     files_response = client.files.list(purpose=purpose, page=page, page_size=page_size)
                     files_list = files_response.data if hasattr(files_response, 'data') else files_response
                 except Exception as e:
-                    logger.debug(f"Error listing {purpose} files for cleanup (page {page}): {e}")
+                    logger.debug("Error listing %s files for cleanup (page %s): %s", purpose, page, e)
                     break
 
                 if not files_list:
@@ -490,15 +503,15 @@ def cleanup_uploaded_files(client: Mistral, days_old: Optional[int] = None) -> i
                             if file_created.tzinfo is None:
                                 file_created = file_created.replace(tzinfo=timezone.utc)
                         else:
-                            logger.debug(f"Unexpected created_at type for file {file.id}: {type(file.created_at)}")
+                            logger.debug("Unexpected created_at type for file %s: %s", file.id, type(file.created_at))
                             continue
 
                         if file_created < cutoff_date:
                             client.files.delete(file_id=file.id)
                             deleted += 1
-                            logger.debug(f"Deleted old {purpose} file: {file.id} (created {file_created})")
+                            logger.debug("Deleted old %s file: %s (created %s)", purpose, file.id, file_created)
                     except Exception as e:
-                        logger.debug(f"Error processing {purpose} file {file.id}: {e}")
+                        logger.debug("Error processing %s file %s: %s", purpose, file.id, e)
                         continue
 
                 total = getattr(files_response, 'total', None)
@@ -514,12 +527,12 @@ def cleanup_uploaded_files(client: Mistral, days_old: Optional[int] = None) -> i
         deleted += _cleanup_files_by_purpose("batch")
 
         if deleted > 0:
-            logger.info(f"Cleaned up {deleted} old uploaded files (older than {days_old} days)")
+            logger.info("Cleaned up %s old uploaded files (older than %s days)", deleted, days_old)
 
         return deleted
 
     except Exception as e:
-        logger.warning(f"Error cleaning up uploaded files: {e}")
+        logger.warning("Error cleaning up uploaded files: %s", e)
         return 0
 
 
@@ -554,7 +567,7 @@ def upload_file_for_ocr(
         # Note: This does NOT work for PDFs - only for standalone image files
         processed_file_path = file_path
         if file_path.suffix.lower().lstrip(".") in config.IMAGE_EXTENSIONS:
-            logger.debug(f"Image file detected: {file_path.suffix}")
+            logger.debug("Image file detected: %s", file_path.suffix)
 
             # Apply image preprocessing if enabled (contrast, sharpness)
             if config.MISTRAL_ENABLE_IMAGE_PREPROCESSING:
@@ -562,7 +575,7 @@ def upload_file_for_ocr(
                 if preprocessed_path and preprocessed_path != file_path:
                     processed_file_path = preprocessed_path
                     temp_files_to_cleanup.append(preprocessed_path)
-                    logger.info(f"Image preprocessed: {processed_file_path.name}")
+                    logger.info("Image preprocessed: %s", processed_file_path.name)
 
             # Apply image optimization if enabled (resize, compress)
             if config.MISTRAL_ENABLE_IMAGE_OPTIMIZATION:
@@ -570,7 +583,7 @@ def upload_file_for_ocr(
                 if optimized_path and optimized_path != processed_file_path:
                     processed_file_path = optimized_path
                     temp_files_to_cleanup.append(optimized_path)
-                    logger.info(f"Image optimized: {processed_file_path.name}")
+                    logger.info("Image optimized: %s", processed_file_path.name)
         else:
             logger.debug("PDF/document file - preprocessing skipped (not applicable)")
 
@@ -599,14 +612,14 @@ def upload_file_for_ocr(
         )
 
         if hasattr(signed_url_response, "url"):
-            logger.debug(f"Got signed URL for file {response.id}")
+            logger.debug("Got signed URL for file %s", response.id)
             return signed_url_response.url
 
         logger.error("Failed to get signed URL for uploaded file")
         return None
 
     except Exception as e:
-        logger.error(f"Error uploading file: {e}")
+        logger.error("Error uploading file: %s", e)
         return None
     finally:
         _cleanup_temp_files(temp_files_to_cleanup)
@@ -639,11 +652,11 @@ def upload_file_for_ocr_chunk(client: Mistral, file_path: Path) -> Optional[Any]
         if not hasattr(response, "id"):
             return None
 
-        logger.info(f"File uploaded for FileChunk: {response.id}")
+        logger.info("File uploaded for FileChunk: %s", response.id)
         return FileChunk(file_id=response.id)
 
     except Exception as e:
-        logger.warning(f"FileChunk upload failed: {e}, will fall back to signed URL")
+        logger.warning("FileChunk upload failed: %s, will fall back to signed URL", e)
         return None
 
 
@@ -661,9 +674,9 @@ def _cleanup_temp_files(temp_files: List[Path]) -> None:
         try:
             if temp_file and temp_file.exists():
                 temp_file.unlink()
-                logger.debug(f"Deleted temporary file: {temp_file.name}")
+                logger.debug("Deleted temporary file: %s", temp_file.name)
         except Exception as e:
-            logger.warning(f"Could not delete temporary file {temp_file.name}: {e}")
+            logger.warning("Could not delete temporary file %s: %s", temp_file.name, e)
 
 
 # ============================================================================
@@ -739,23 +752,23 @@ def process_with_ocr(
         if is_image:
             if ImageURLChunk is not None:
                 document = ImageURLChunk(image_url=signed_url)
-                logger.debug(f"Using ImageURLChunk for {ext} file")
+                logger.debug("Using ImageURLChunk for %s file", ext)
             else:
                 document = {
                     "type": "image_url",
                     "image_url": signed_url,
                 }
-                logger.debug(f"Using image_url dict for {ext} file")
+                logger.debug("Using image_url dict for %s file", ext)
         else:
             if DocumentURLChunk is not None:
                 document = DocumentURLChunk(document_url=signed_url)
-                logger.debug(f"Using DocumentURLChunk for {ext} file")
+                logger.debug("Using DocumentURLChunk for %s file", ext)
             else:
                 document = {
                     "type": "document_url",
                     "document_url": signed_url,
                 }
-                logger.debug(f"Using document_url dict for {ext} file")
+                logger.debug("Using document_url dict for %s file", ext)
 
         # Get retry configuration
         retry_config = get_retry_config()
@@ -1085,9 +1098,14 @@ def _is_weak_page(text: str) -> bool:
         return True
 
     # Check 2: Count digits (financial docs should have many numbers)
-    # Configurable via OCR_MIN_DIGIT_COUNT
+    # Supports both absolute count (OCR_MIN_DIGIT_COUNT) and ratio-based
+    # threshold (OCR_WEAK_PAGE_DIGIT_RATIO). Ratio is checked first when > 0.
     digit_count = sum(1 for char in text if char.isdigit())
-    if digit_count < config.OCR_MIN_DIGIT_COUNT:
+    text_len = len(text.strip())
+    if config.OCR_WEAK_PAGE_DIGIT_RATIO > 0 and text_len > 0:
+        if digit_count / text_len < config.OCR_WEAK_PAGE_DIGIT_RATIO:
+            return True
+    elif digit_count < config.OCR_MIN_DIGIT_COUNT:
         return True
 
     # Check 3: Token uniqueness ratio (detect heavy repetition)
@@ -1100,7 +1118,7 @@ def _is_weak_page(text: str) -> bool:
     uniqueness_ratio = len(unique_tokens) / len(tokens)
 
     if uniqueness_ratio < config.OCR_MIN_UNIQUENESS_RATIO:
-        logger.debug(f"Low uniqueness ratio: {uniqueness_ratio:.2f}")
+        logger.debug("Low uniqueness ratio: %.2f", uniqueness_ratio)
         return True
 
     # Check 4: Detect repeated header patterns
@@ -1108,7 +1126,7 @@ def _is_weak_page(text: str) -> bool:
     # Configurable via OCR_MAX_PHRASE_REPETITIONS
     page_refs = re.findall(r"Page\s+\d+", text)
     if len(page_refs) > config.OCR_MAX_PHRASE_REPETITIONS:
-        logger.debug(f"Repeated page references found {len(page_refs)} times")
+        logger.debug("Repeated page references found %s times", len(page_refs))
         return True
 
     # Check 5: Average line length (very short lines suggest parsing issues)
@@ -1117,7 +1135,7 @@ def _is_weak_page(text: str) -> bool:
     if lines:
         avg_line_length = sum(len(line) for line in lines) / len(lines)
         if avg_line_length < config.OCR_MIN_AVG_LINE_LENGTH:
-            logger.debug(f"Short average line length: {avg_line_length:.1f}")
+            logger.debug("Short average line length: %.1f", avg_line_length)
             return True
 
     return False
@@ -1248,13 +1266,13 @@ def improve_weak_pages(
         # Use enhanced weak page detection
         if _is_weak_page(text):
             weak_pages.append(i)
-            logger.debug(f"Page {i + 1} has weak OCR result ({len(text)} chars)")
+            logger.debug("Page %s has weak OCR result (%s chars)", i + 1, len(text))
 
     if not weak_pages:
         logger.info("No weak pages detected")
         return ocr_result
 
-    logger.info(f"Re-processing {len(weak_pages)} weak pages...")
+    logger.info("Re-processing %s weak pages...", len(weak_pages))
 
     # Upload file ONCE and reuse the signed URL for all weak pages.
     # Re-upload if the URL is nearing expiry (within 10% of the TTL).
@@ -1369,13 +1387,13 @@ def save_extracted_images(ocr_result: Dict[str, Any], file_path: Path) -> List[P
                     f.write(image_data)
 
                 saved_images.append(image_path)
-                logger.debug(f"Saved extracted image: {image_path.name}")
+                logger.debug("Saved extracted image: %s", image_path.name)
 
             except Exception as e:
-                logger.error(f"Error saving image: {e}")
+                logger.error("Error saving image: %s", e)
 
     if saved_images:
-        logger.info(f"Saved {len(saved_images)} extracted images to {image_dir}")
+        logger.info("Saved %s extracted images to %s", len(saved_images), image_dir)
 
     return saved_images
 
@@ -1503,7 +1521,7 @@ def convert_with_mistral_ocr(
     if use_cache:
         cached_result = utils.cache.get(file_path, cache_type="mistral_ocr")
         if cached_result:
-            logger.info(f"Using cached Mistral OCR result for {file_path.name}")
+            logger.info("Using cached Mistral OCR result for %s", file_path.name)
             ocr_result = cached_result
             success = True
             error = None
@@ -1536,7 +1554,7 @@ def _save_structured_outputs(file_path: Path, ocr_result: Dict[str, Any]) -> Non
         bbox_path = config.OUTPUT_MD_DIR / f"{utils.safe_output_stem(file_path)}_bbox_annotations.json"
         with open(bbox_path, "w", encoding="utf-8") as f:
             json.dump(ocr_result["bbox_annotations"], f, indent=2, ensure_ascii=False)
-        logger.info(f"Saved bbox annotations: {bbox_path.name}")
+        logger.info("Saved bbox annotations: %s", bbox_path.name)
 
     # Save document annotations if present
     if "document_annotation" in ocr_result and ocr_result["document_annotation"]:
@@ -1545,7 +1563,7 @@ def _save_structured_outputs(file_path: Path, ocr_result: Dict[str, Any]) -> Non
             json.dump(
                 ocr_result["document_annotation"], f, indent=2, ensure_ascii=False
             )
-        logger.info(f"Saved document annotation: {doc_path.name}")
+        logger.info("Saved document annotation: %s", doc_path.name)
 
 
 def _create_markdown_output(file_path: Path, ocr_result: Dict[str, Any]) -> Path:
@@ -1609,7 +1627,7 @@ def _create_markdown_output(file_path: Path, ocr_result: Dict[str, Any]) -> Path
     # Save text version
     utils.save_text_output(output_path, md_content)
 
-    logger.info(f"Saved Mistral OCR output: {output_path.name}")
+    logger.info("Saved Mistral OCR output: %s", output_path.name)
 
     return output_path
 
@@ -1701,9 +1719,9 @@ def _validate_document_url(url: str) -> Tuple[bool, Optional[str]]:
             if not ok:
                 return ok, err
     except socket.gaierror:
-        logger.debug(f"Could not resolve hostname during SSRF validation: {hostname}")
+        logger.debug("Could not resolve hostname during SSRF validation: %s", hostname)
     except Exception as e:
-        logger.debug(f"DNS resolution check skipped for {hostname}: {e}")
+        logger.debug("DNS resolution check skipped for %s: %s", hostname, e)
 
     return True, None
 
@@ -1752,7 +1770,7 @@ def query_document(
         model = config.MISTRAL_DOCUMENT_QNA_MODEL
     
     try:
-        logger.info(f"Querying document with question: {question[:50]}...")
+        logger.info("Querying document with question: %s...", question[:50])
         
         # Build message with document_url content type
         messages = []
@@ -1907,7 +1925,7 @@ def create_batch_ocr_file(
     )
     
     try:
-        logger.info(f"Creating batch OCR file for {len(file_paths)} documents...")
+        logger.info("Creating batch OCR file for %s documents...", len(file_paths))
         
         entries = []
         
@@ -1915,7 +1933,7 @@ def create_batch_ocr_file(
             # Upload file and get signed URL
             signed_url = upload_file_for_ocr(client, file_path, expiry_hours=batch_signed_url_expiry)
             if not signed_url:
-                logger.warning(f"Failed to upload {file_path.name}, skipping...")
+                logger.warning("Failed to upload %s, skipping...", file_path.name)
                 continue
             
             # Determine document type
@@ -1954,7 +1972,7 @@ def create_batch_ocr_file(
                 entry["body"]["document_annotation_prompt"] = config.MISTRAL_DOCUMENT_ANNOTATION_PROMPT
 
             entries.append(entry)
-            logger.debug(f"Added {file_path.name} to batch (id: {entry['custom_id']})")
+            logger.debug("Added %s to batch (id: %s)", file_path.name, entry['custom_id'])
         
         if not entries:
             return False, None, "No files could be prepared for batch processing"
@@ -1964,7 +1982,7 @@ def create_batch_ocr_file(
             for entry in entries:
                 f.write(json.dumps(entry) + '\n')
         
-        logger.info(f"Created batch file with {len(entries)} entries: {output_file}")
+        logger.info("Created batch file with %s entries: %s", len(entries), output_file)
         return True, output_file, None
     
     except Exception as e:
@@ -2008,7 +2026,7 @@ def submit_batch_ocr_job(
         model = config.get_ocr_model()
     
     try:
-        logger.info(f"Uploading batch file: {batch_file_path.name}")
+        logger.info("Uploading batch file: %s", batch_file_path.name)
         
         # Upload the batch file (read content as bytes, consistent with OCR upload)
         with open(batch_file_path, "rb") as f:
@@ -2022,7 +2040,7 @@ def submit_batch_ocr_job(
             purpose="batch"
         )
         
-        logger.info(f"Batch file uploaded: {batch_data.id}")
+        logger.info("Batch file uploaded: %s", batch_data.id)
         
         # Create the batch job
         job_params = {
@@ -2039,7 +2057,7 @@ def submit_batch_ocr_job(
 
         created_job = client.batch.jobs.create(**job_params)
         
-        logger.info(f"Batch job created: {created_job.id}")
+        logger.info("Batch job created: %s", created_job.id)
         return True, created_job.id, None
     
     except Exception as e:
@@ -2137,7 +2155,7 @@ def download_batch_results(
             return False, None, "No output file available"
         
         # Download the output file
-        logger.info(f"Downloading batch results for job {job_id}...")
+        logger.info("Downloading batch results for job %s...", job_id)
         
         output_path = output_dir / f"batch_ocr_results_{job_id}.jsonl"
         
@@ -2147,7 +2165,7 @@ def download_batch_results(
         with open(output_path, 'wb') as f:
             f.write(file_content)
         
-        logger.info(f"Batch results saved to: {output_path}")
+        logger.info("Batch results saved to: %s", output_path)
         return True, output_path, None
     
     except Exception as e:
@@ -2201,7 +2219,7 @@ def list_batch_jobs(
             if status is None or job_info["status"] == status:
                 jobs_list.append(job_info)
 
-        logger.info(f"Found {len(jobs_list)} batch jobs")
+        logger.info("Found %s batch jobs", len(jobs_list))
         return True, jobs_list, None
 
     except Exception as e:
@@ -2226,7 +2244,7 @@ def cancel_batch_job(job_id: str) -> Tuple[bool, Optional[str], Optional[str]]:
 
     try:
         job = client.batch.jobs.cancel(job_id=job_id)
-        logger.info(f"Batch job {job_id} cancellation requested")
+        logger.info("Batch job %s cancellation requested", job_id)
         return True, job.status, None
 
     except Exception as e:
@@ -2262,7 +2280,7 @@ def download_batch_errors(
         if not getattr(job, 'error_file', None):
             return False, None, "No error file available for this job"
 
-        logger.info(f"Downloading batch errors for job {job_id}...")
+        logger.info("Downloading batch errors for job %s...", job_id)
 
         output_path = output_dir / f"batch_ocr_errors_{job_id}.jsonl"
         file_content = client.files.download(file_id=job.error_file)
@@ -2270,7 +2288,7 @@ def download_batch_errors(
         with open(output_path, 'wb') as f:
             f.write(file_content)
 
-        logger.info(f"Batch errors saved to: {output_path}")
+        logger.info("Batch errors saved to: %s", output_path)
         return True, output_path, None
 
     except Exception as e:

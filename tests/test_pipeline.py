@@ -7,19 +7,15 @@ Tests cover:
 - Dispatch table integrity
 """
 
-import sys
-from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-import config  # noqa: E402
+import config
 
 config.ensure_directories()
 
-import main  # noqa: E402
+import main
 
 
 # ============================================================================
@@ -254,6 +250,35 @@ class TestDispatchTable:
     def test_dispatch_handlers_are_callable(self):
         for choice, (cli_name, handler) in main.MODE_DISPATCH.items():
             assert callable(handler), f"Handler for {cli_name} (choice {choice}) is not callable"
+
+
+# ============================================================================
+# Job ID Validation Tests
+# ============================================================================
+
+
+class TestValidateJobId:
+    """Test batch job ID input validation."""
+
+    @pytest.mark.parametrize("job_id", [
+        "abc-def-123",
+        "550e8400-e29b-41d4-a716-446655440000",
+        "a" * 128,
+        "job_123_test",
+    ])
+    def test_valid_job_ids(self, job_id):
+        assert main._validate_job_id(job_id) is True
+
+    @pytest.mark.parametrize("job_id", [
+        "",
+        "id with spaces",
+        "id;DROP TABLE",
+        "../../../etc/passwd",
+        "a" * 129,
+        "id\nnewline",
+    ])
+    def test_invalid_job_ids(self, job_id):
+        assert main._validate_job_id(job_id) is False
 
 
 if __name__ == "__main__":

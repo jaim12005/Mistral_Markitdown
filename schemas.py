@@ -13,15 +13,7 @@ Documentation references:
 
 from typing import Dict, Any, Optional, List, Type
 
-# Try to import Pydantic for model-based schema definitions
-# The new Mistral SDK recommends using Pydantic models with response_format_from_pydantic_model
-try:
-    from pydantic import BaseModel, Field
-    PYDANTIC_AVAILABLE = True
-except ImportError:
-    BaseModel = None
-    Field = None
-    PYDANTIC_AVAILABLE = False
+from pydantic import BaseModel, Field
 
 
 # ============================================================================
@@ -30,182 +22,170 @@ except ImportError:
 # Use with: from mistralai.extra import response_format_from_pydantic_model
 # ============================================================================
 
-if PYDANTIC_AVAILABLE:
-    class ImageAnnotation(BaseModel):
-        """Pydantic model for image/bbox annotation extraction."""
-        image_type: str = Field(..., description="The type of the image (chart, diagram, photo, table, figure, etc.)")
-        short_description: str = Field(..., description="A brief description in English describing the image content.")
-        summary: str = Field(..., description="A detailed summary of the image including key information and data points.")
+class ImageAnnotation(BaseModel):
+    """Pydantic model for image/bbox annotation extraction."""
+    image_type: str = Field(..., description="The type of the image (chart, diagram, photo, table, figure, etc.)")
+    short_description: str = Field(..., description="A brief description in English describing the image content.")
+    summary: str = Field(..., description="A detailed summary of the image including key information and data points.")
+
+class TableAnnotation(BaseModel):
+    """Pydantic model for table bbox annotation extraction."""
+    table_type: str = Field(..., description="The type of table (data, financial, comparison, schedule, etc.)")
+    caption: Optional[str] = Field(None, description="Table caption or title if present.")
+    rows: int = Field(..., description="Number of rows in the table.")
+    columns: int = Field(..., description="Number of columns in the table.")
+    has_header: bool = Field(..., description="Whether the table has a header row.")
+    content_summary: str = Field(..., description="Summary of the table's content and purpose.")
+
+class ChartAnnotation(BaseModel):
+    """Pydantic model for chart/graph bbox annotation extraction."""
+    chart_type: str = Field(..., description="The type of chart (bar, line, pie, scatter, histogram, etc.)")
+    title: Optional[str] = Field(None, description="Chart title if present.")
+    x_axis_label: Optional[str] = Field(None, description="X-axis label if present.")
+    y_axis_label: Optional[str] = Field(None, description="Y-axis label if present.")
+    data_summary: str = Field(..., description="Summary of the data trends and key insights from the chart.")
     
-    class TableAnnotation(BaseModel):
-        """Pydantic model for table bbox annotation extraction."""
-        table_type: str = Field(..., description="The type of table (data, financial, comparison, schedule, etc.)")
-        caption: Optional[str] = Field(None, description="Table caption or title if present.")
-        rows: int = Field(..., description="Number of rows in the table.")
-        columns: int = Field(..., description="Number of columns in the table.")
-        has_header: bool = Field(..., description="Whether the table has a header row.")
-        content_summary: str = Field(..., description="Summary of the table's content and purpose.")
-    
-    class ChartAnnotation(BaseModel):
-        """Pydantic model for chart/graph bbox annotation extraction."""
-        chart_type: str = Field(..., description="The type of chart (bar, line, pie, scatter, histogram, etc.)")
-        title: Optional[str] = Field(None, description="Chart title if present.")
-        x_axis_label: Optional[str] = Field(None, description="X-axis label if present.")
-        y_axis_label: Optional[str] = Field(None, description="Y-axis label if present.")
-        data_summary: str = Field(..., description="Summary of the data trends and key insights from the chart.")
-        
-    class BBoxStructuredAnnotation(BaseModel):
-        """Comprehensive Pydantic model for bounding box annotation."""
-        bbox_type: str = Field(..., description="Type of content in bounding box: text, table, figure, heading, list, chart, other")
-        text_content: str = Field(..., description="Extracted text from the bounding box.")
-        confidence: Optional[float] = Field(None, ge=0, le=1, description="Confidence score for extraction (0-1).")
-        is_handwritten: Optional[bool] = Field(None, description="Whether content appears handwritten.")
-        language: Optional[str] = Field(None, description="Detected language.")
-    
-    # Document-level Pydantic models
-    class VendorInfo(BaseModel):
-        """Vendor information for invoice extraction."""
-        name: str = Field(..., description="Vendor name")
-        address: Optional[str] = Field(None, description="Vendor address")
-        tax_id: Optional[str] = Field(None, description="Tax ID or VAT number")
-        contact: Optional[str] = Field(None, description="Contact information")
-    
-    class CustomerInfo(BaseModel):
-        """Customer information for invoice extraction."""
-        name: Optional[str] = Field(None, description="Customer name")
-        address: Optional[str] = Field(None, description="Customer address")
-        tax_id: Optional[str] = Field(None, description="Tax ID or VAT number")
-    
-    class InvoiceDetails(BaseModel):
-        """Invoice details for extraction."""
-        invoice_number: str = Field(..., description="Invoice number")
-        invoice_date: str = Field(..., description="Invoice date (ISO format)")
-        due_date: Optional[str] = Field(None, description="Payment due date")
-        purchase_order: Optional[str] = Field(None, description="PO number if applicable")
-    
-    class LineItem(BaseModel):
-        """Line item for invoice extraction."""
-        description: str = Field(..., description="Item description")
-        quantity: Optional[float] = Field(None, description="Quantity")
-        unit_price: Optional[float] = Field(None, description="Unit price")
-        amount: float = Field(..., description="Total amount for this line")
-        tax_rate: Optional[float] = Field(None, description="Tax rate if applicable")
-    
-    class InvoiceTotals(BaseModel):
-        """Invoice totals for extraction."""
-        subtotal: Optional[float] = Field(None, description="Subtotal before tax")
-        tax: Optional[float] = Field(None, description="Total tax amount")
-        total: float = Field(..., description="Total amount due")
-        currency: Optional[str] = Field(None, description="Currency code (USD, EUR, etc.)")
-    
-    class InvoiceDocument(BaseModel):
-        """Complete invoice document extraction model."""
-        document_type: str = Field(..., description="Type of financial document: invoice, receipt, bill")
-        vendor: VendorInfo = Field(..., description="Vendor information")
-        customer: Optional[CustomerInfo] = Field(None, description="Customer information")
-        invoice_details: InvoiceDetails = Field(..., description="Invoice details")
-        line_items: Optional[List[LineItem]] = Field(None, description="List of invoice line items")
-        totals: InvoiceTotals = Field(..., description="Invoice totals")
-        payment_terms: Optional[str] = Field(None, description="Payment terms and conditions")
-        notes: Optional[str] = Field(None, description="Additional notes or comments")
-    
-    class DocumentSection(BaseModel):
-        """Document section for generic extraction."""
-        heading: str = Field(..., description="Section heading")
-        level: Optional[int] = Field(None, description="Heading level (1-6)")
-        content_summary: Optional[str] = Field(None, description="Brief summary of section content")
+class BBoxStructuredAnnotation(BaseModel):
+    """Comprehensive Pydantic model for bounding box annotation."""
+    bbox_type: str = Field(..., description="Type of content in bounding box: text, table, figure, heading, list, chart, other")
+    text_content: str = Field(..., description="Extracted text from the bounding box.")
+    confidence: Optional[float] = Field(None, ge=0, le=1, description="Confidence score for extraction (0-1).")
+    is_handwritten: Optional[bool] = Field(None, description="Whether content appears handwritten.")
+    language: Optional[str] = Field(None, description="Detected language.")
 
-    class GenericDocument(BaseModel):
-        """Generic document extraction model."""
-        document_type: str = Field(..., description="Type or category of document")
-        title: Optional[str] = Field(None, description="Document title")
-        authors: Optional[List[str]] = Field(None, description="Document authors or creators")
-        date: Optional[str] = Field(None, description="Document date (ISO format)")
-        sections: Optional[List[DocumentSection]] = Field(None, description="Document sections and headings")
-        summary: Optional[str] = Field(None, description="Brief document summary")
+# Document-level Pydantic models
+class VendorInfo(BaseModel):
+    """Vendor information for invoice extraction."""
+    name: str = Field(..., description="Vendor name")
+    address: Optional[str] = Field(None, description="Vendor address")
+    tax_id: Optional[str] = Field(None, description="Tax ID or VAT number")
+    contact: Optional[str] = Field(None, description="Contact information")
 
-    # Financial statement models
-    class CompanyInfo(BaseModel):
-        """Company information for financial statement extraction."""
-        name: str = Field(..., description="Company name")
-        registration_number: Optional[str] = Field(None, description="Registration or tax ID number")
-        address: Optional[str] = Field(None, description="Company address")
+class CustomerInfo(BaseModel):
+    """Customer information for invoice extraction."""
+    name: Optional[str] = Field(None, description="Customer name")
+    address: Optional[str] = Field(None, description="Customer address")
+    tax_id: Optional[str] = Field(None, description="Tax ID or VAT number")
 
-    class StatementPeriod(BaseModel):
-        """Reporting period for financial statement extraction."""
-        start_date: Optional[str] = Field(None, description="Period start (ISO format)")
-        end_date: str = Field(..., description="Period end (ISO format)")
-        fiscal_year: Optional[int] = Field(None, description="Fiscal year")
+class InvoiceDetails(BaseModel):
+    """Invoice details for extraction."""
+    invoice_number: str = Field(..., description="Invoice number")
+    invoice_date: str = Field(..., description="Invoice date (ISO format)")
+    due_date: Optional[str] = Field(None, description="Payment due date")
+    purchase_order: Optional[str] = Field(None, description="PO number if applicable")
 
-    class AccountEntry(BaseModel):
-        """Individual account line in a financial statement."""
-        account_number: Optional[str] = Field(None, description="Account number")
-        account_name: str = Field(..., description="Account name")
-        category: Optional[str] = Field(None, description="Category: Assets, Liabilities, Revenue, etc.")
-        debit: Optional[float] = Field(None, description="Debit amount")
-        credit: Optional[float] = Field(None, description="Credit amount")
-        balance: Optional[float] = Field(None, description="Account balance")
+class LineItem(BaseModel):
+    """Line item for invoice extraction."""
+    description: str = Field(..., description="Item description")
+    quantity: Optional[float] = Field(None, description="Quantity")
+    unit_price: Optional[float] = Field(None, description="Unit price")
+    amount: float = Field(..., description="Total amount for this line")
+    tax_rate: Optional[float] = Field(None, description="Tax rate if applicable")
 
-    class StatementTotals(BaseModel):
-        """Aggregate totals for financial statement extraction."""
-        total_assets: Optional[float] = Field(None, description="Total assets")
-        total_liabilities: Optional[float] = Field(None, description="Total liabilities")
-        total_equity: Optional[float] = Field(None, description="Total equity")
-        total_revenue: Optional[float] = Field(None, description="Total revenue")
-        total_expenses: Optional[float] = Field(None, description="Total expenses")
-        net_income: Optional[float] = Field(None, description="Net income")
+class InvoiceTotals(BaseModel):
+    """Invoice totals for extraction."""
+    subtotal: Optional[float] = Field(None, description="Subtotal before tax")
+    tax: Optional[float] = Field(None, description="Total tax amount")
+    total: float = Field(..., description="Total amount due")
+    currency: Optional[str] = Field(None, description="Currency code (USD, EUR, etc.)")
 
-    class FinancialStatementDocument(BaseModel):
-        """Complete financial statement extraction model."""
-        statement_type: str = Field(..., description="Type: balance_sheet, income_statement, cash_flow, trial_balance")
-        company: CompanyInfo = Field(..., description="Company information")
-        period: StatementPeriod = Field(..., description="Reporting period")
-        accounts: List[AccountEntry] = Field(..., description="List of accounts with balances")
-        totals: Optional[StatementTotals] = Field(None, description="Aggregate totals")
-        currency: Optional[str] = Field(None, description="Currency code")
-        audited: Optional[bool] = Field(None, description="Whether the statement is audited")
-        notes: Optional[List[str]] = Field(None, description="Footnotes and additional information")
+class InvoiceDocument(BaseModel):
+    """Complete invoice document extraction model."""
+    document_type: str = Field(..., description="Type of financial document: invoice, receipt, bill")
+    vendor: VendorInfo = Field(..., description="Vendor information")
+    customer: Optional[CustomerInfo] = Field(None, description="Customer information")
+    invoice_details: InvoiceDetails = Field(..., description="Invoice details")
+    line_items: Optional[List[LineItem]] = Field(None, description="List of invoice line items")
+    totals: InvoiceTotals = Field(..., description="Invoice totals")
+    payment_terms: Optional[str] = Field(None, description="Payment terms and conditions")
+    notes: Optional[str] = Field(None, description="Additional notes or comments")
 
-    # Form document models
-    class FormField(BaseModel):
-        """Individual field in a form document."""
-        field_name: str = Field(..., description="Field label or name")
-        field_type: Optional[str] = Field(None, description="Field type: text, number, date, checkbox, signature, other")
-        field_value: str = Field(..., description="Value entered in the field")
-        is_filled: Optional[bool] = Field(None, description="Whether the field has been filled in")
+class DocumentSection(BaseModel):
+    """Document section for generic extraction."""
+    heading: str = Field(..., description="Section heading")
+    level: Optional[int] = Field(None, description="Heading level (1-6)")
+    content_summary: Optional[str] = Field(None, description="Brief summary of section content")
 
-    class FormSignature(BaseModel):
-        """Signature field in a form document."""
-        signer_name: Optional[str] = Field(None, description="Name of the signer")
-        title: Optional[str] = Field(None, description="Title or role of the signer")
-        date: Optional[str] = Field(None, description="Date signed (ISO format)")
-        is_signed: Optional[bool] = Field(None, description="Whether the field has been signed")
+class GenericDocument(BaseModel):
+    """Generic document extraction model."""
+    document_type: str = Field(..., description="Type or category of document")
+    title: Optional[str] = Field(None, description="Document title")
+    authors: Optional[List[str]] = Field(None, description="Document authors or creators")
+    date: Optional[str] = Field(None, description="Document date (ISO format)")
+    sections: Optional[List[DocumentSection]] = Field(None, description="Document sections and headings")
+    summary: Optional[str] = Field(None, description="Brief document summary")
 
-    class FormDates(BaseModel):
-        """Key dates in a form document."""
-        submission_date: Optional[str] = Field(None, description="Date submitted")
-        effective_date: Optional[str] = Field(None, description="Date effective")
-        expiration_date: Optional[str] = Field(None, description="Date of expiration")
+# Financial statement models
+class CompanyInfo(BaseModel):
+    """Company information for financial statement extraction."""
+    name: str = Field(..., description="Company name")
+    registration_number: Optional[str] = Field(None, description="Registration or tax ID number")
+    address: Optional[str] = Field(None, description="Company address")
 
-    class FormDocument(BaseModel):
-        """Complete form document extraction model."""
-        form_type: Optional[str] = Field(None, description="Type of form: application, survey, contract, etc.")
-        form_title: str = Field(..., description="Title or name of the form")
-        form_number: Optional[str] = Field(None, description="Form number or identifier")
-        fields: List[FormField] = Field(..., description="Form fields and their values")
-        signatures: Optional[List[FormSignature]] = Field(None, description="Signature fields")
-        dates: Optional[FormDates] = Field(None, description="Key dates")
+class StatementPeriod(BaseModel):
+    """Reporting period for financial statement extraction."""
+    start_date: Optional[str] = Field(None, description="Period start (ISO format)")
+    end_date: str = Field(..., description="Period end (ISO format)")
+    fiscal_year: Optional[int] = Field(None, description="Fiscal year")
 
-else:
-    # Placeholder classes when Pydantic is not available
-    ImageAnnotation = None
-    TableAnnotation = None
-    ChartAnnotation = None
-    BBoxStructuredAnnotation = None
-    InvoiceDocument = None
-    GenericDocument = None
-    FinancialStatementDocument = None
-    FormDocument = None
+class AccountEntry(BaseModel):
+    """Individual account line in a financial statement."""
+    account_number: Optional[str] = Field(None, description="Account number")
+    account_name: str = Field(..., description="Account name")
+    category: Optional[str] = Field(None, description="Category: Assets, Liabilities, Revenue, etc.")
+    debit: Optional[float] = Field(None, description="Debit amount")
+    credit: Optional[float] = Field(None, description="Credit amount")
+    balance: Optional[float] = Field(None, description="Account balance")
+
+class StatementTotals(BaseModel):
+    """Aggregate totals for financial statement extraction."""
+    total_assets: Optional[float] = Field(None, description="Total assets")
+    total_liabilities: Optional[float] = Field(None, description="Total liabilities")
+    total_equity: Optional[float] = Field(None, description="Total equity")
+    total_revenue: Optional[float] = Field(None, description="Total revenue")
+    total_expenses: Optional[float] = Field(None, description="Total expenses")
+    net_income: Optional[float] = Field(None, description="Net income")
+
+class FinancialStatementDocument(BaseModel):
+    """Complete financial statement extraction model."""
+    statement_type: str = Field(..., description="Type: balance_sheet, income_statement, cash_flow, trial_balance")
+    company: CompanyInfo = Field(..., description="Company information")
+    period: StatementPeriod = Field(..., description="Reporting period")
+    accounts: List[AccountEntry] = Field(..., description="List of accounts with balances")
+    totals: Optional[StatementTotals] = Field(None, description="Aggregate totals")
+    currency: Optional[str] = Field(None, description="Currency code")
+    audited: Optional[bool] = Field(None, description="Whether the statement is audited")
+    notes: Optional[List[str]] = Field(None, description="Footnotes and additional information")
+
+# Form document models
+class FormField(BaseModel):
+    """Individual field in a form document."""
+    field_name: str = Field(..., description="Field label or name")
+    field_type: Optional[str] = Field(None, description="Field type: text, number, date, checkbox, signature, other")
+    field_value: str = Field(..., description="Value entered in the field")
+    is_filled: Optional[bool] = Field(None, description="Whether the field has been filled in")
+
+class FormSignature(BaseModel):
+    """Signature field in a form document."""
+    signer_name: Optional[str] = Field(None, description="Name of the signer")
+    title: Optional[str] = Field(None, description="Title or role of the signer")
+    date: Optional[str] = Field(None, description="Date signed (ISO format)")
+    is_signed: Optional[bool] = Field(None, description="Whether the field has been signed")
+
+class FormDates(BaseModel):
+    """Key dates in a form document."""
+    submission_date: Optional[str] = Field(None, description="Date submitted")
+    effective_date: Optional[str] = Field(None, description="Date effective")
+    expiration_date: Optional[str] = Field(None, description="Date of expiration")
+
+class FormDocument(BaseModel):
+    """Complete form document extraction model."""
+    form_type: Optional[str] = Field(None, description="Type of form: application, survey, contract, etc.")
+    form_title: str = Field(..., description="Title or name of the form")
+    form_number: Optional[str] = Field(None, description="Form number or identifier")
+    fields: List[FormField] = Field(..., description="Form fields and their values")
+    signatures: Optional[List[FormSignature]] = Field(None, description="Signature fields")
+    dates: Optional[FormDates] = Field(None, description="Key dates")
 
 # ============================================================================
 # Document-Level Schemas (document_annotation_format)
@@ -655,7 +635,7 @@ def get_bbox_schema(schema_type: str = "structured") -> Dict[str, Any]:
 # mistralai.extra.response_format_from_pydantic_model()
 # ============================================================================
 
-def get_bbox_pydantic_model(annotation_type: str = "structured") -> Optional[Type]:
+def get_bbox_pydantic_model(annotation_type: str = "structured") -> Type:
     """
     Get a Pydantic model class for bounding box annotation.
 
@@ -673,7 +653,7 @@ def get_bbox_pydantic_model(annotation_type: str = "structured") -> Optional[Typ
             - "structured": Comprehensive bbox annotation
 
     Returns:
-        Pydantic model class, or None if Pydantic not available
+        Pydantic model class
 
     Example:
         >>> # Get the Pydantic model
@@ -693,9 +673,6 @@ def get_bbox_pydantic_model(annotation_type: str = "structured") -> Optional[Typ
         >>> from mistralai.extra import response_format_from_pydantic_model
         >>> response_format = response_format_from_pydantic_model(model)
     """
-    if not PYDANTIC_AVAILABLE:
-        return None
-
     model_map = {
         "image": ImageAnnotation,
         "table": TableAnnotation,
@@ -706,7 +683,7 @@ def get_bbox_pydantic_model(annotation_type: str = "structured") -> Optional[Typ
     return model_map.get(annotation_type, ImageAnnotation)
 
 
-def get_document_pydantic_model(doc_type: str = "generic") -> Optional[Type]:
+def get_document_pydantic_model(doc_type: str = "generic") -> Type:
     """
     Get a Pydantic model class for document-level annotation.
 
@@ -722,7 +699,7 @@ def get_document_pydantic_model(doc_type: str = "generic") -> Optional[Type]:
             - "invoice": Invoice/receipt extraction
 
     Returns:
-        Pydantic model class, or None if Pydantic not available
+        Pydantic model class
 
     Example:
         >>> # Get the Pydantic model
@@ -741,9 +718,6 @@ def get_document_pydantic_model(doc_type: str = "generic") -> Optional[Type]:
         >>> from mistralai.extra import response_format_from_pydantic_model
         >>> response_format = response_format_from_pydantic_model(model)
     """
-    if not PYDANTIC_AVAILABLE:
-        return None
-
     model_map = {
         "generic": GenericDocument,
         "invoice": InvoiceDocument,

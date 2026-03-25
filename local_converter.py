@@ -383,8 +383,21 @@ def _fix_split_headers(table: List[List[str]], max_header_rows: int = 3) -> List
                 col += 1
                 continue
 
+            # Skip if next cell looks like a real column name (>= 3 chars and
+            # the current cell doesn't end mid-word).  This prevents merging
+            # legitimate lowercase column names like "pH", "eBay", "units".
+            if len(next_cell) >= 3 and cell and cell[-1] == ' ':
+                col += 1
+                continue
+
             # Check if current cell ends with a fragment (partial word)
             if cell and cell[-1].isalpha():
+                trailing_fragment = cell.rsplit(' ', 1)[-1] if ' ' in cell else cell
+                # Only merge when the trailing fragment is very short (1-2 chars),
+                # strongly suggesting a word was split across columns.
+                if len(trailing_fragment) > 2:
+                    col += 1
+                    continue
                 # Find the trailing fragment in current cell
                 parts = cell.rsplit(' ', 1)
                 if len(parts) == 2:

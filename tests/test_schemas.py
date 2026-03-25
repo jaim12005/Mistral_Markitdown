@@ -7,15 +7,11 @@ Tests cover:
 - Schema structure validation (required keys, types)
 """
 
-import sys
-from pathlib import Path
 from typing import Dict, Any
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-import schemas  # noqa: E402
+import schemas
 
 
 # ============================================================================

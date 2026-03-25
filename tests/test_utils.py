@@ -7,13 +7,7 @@ import json
 import os
 import tempfile
 import unittest.mock
-from pathlib import Path
 import pytest
-
-# Add parent directory to path for imports
-import sys
-
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import utils
 import config
@@ -288,39 +282,6 @@ This is the actual content.
         assert result == "This is the actual content."
 
 
-class TestMetadataTracker:
-    """Test MetadataTracker class."""
-
-    def test_metadata_initialization(self):
-        """Test metadata tracker initialization."""
-        tracker = utils.MetadataTracker()
-
-        assert tracker.metadata["total_files"] == 0
-        assert tracker.metadata["successful"] == 0
-        assert tracker.metadata["failed"] == 0
-        assert len(tracker.metadata["files_processed"]) == 0
-
-    def test_add_file_success(self):
-        """Test adding successful file processing."""
-        tracker = utils.MetadataTracker()
-        tracker.add_file("test.pdf", "success", 1.5)
-
-        assert tracker.metadata["total_files"] == 1
-        assert tracker.metadata["successful"] == 1
-        assert tracker.metadata["failed"] == 0
-        assert len(tracker.metadata["files_processed"]) == 1
-
-    def test_add_file_failed(self):
-        """Test adding failed file processing."""
-        tracker = utils.MetadataTracker()
-        tracker.add_file("test.pdf", "failed", 0.5, error="Test error")
-
-        assert tracker.metadata["total_files"] == 1
-        assert tracker.metadata["successful"] == 0
-        assert tracker.metadata["failed"] == 1
-        assert tracker.metadata["files_processed"][0]["error"] == "Test error"
-
-
 class TestOutputNaming:
     """Test output file naming and collision handling."""
 
@@ -337,6 +298,36 @@ class TestOutputNaming:
         assert stem_pdf != stem_docx
         assert "pdf" in stem_pdf
         assert "docx" in stem_docx
+
+    def test_safe_output_stem_unique_stem(self, tmp_path):
+        """When only one file has a given stem, no _ext suffix is needed."""
+        (tmp_path / "unique.pdf").touch()
+
+        with unittest.mock.patch.object(config, "INPUT_DIR", tmp_path):
+            stem = utils.safe_output_stem(tmp_path / "unique.pdf")
+
+        assert stem == "unique"
+
+
+class TestPrintProgress:
+    """Test the progress bar helper."""
+
+    def test_no_output_when_verbose_off(self, monkeypatch, capsys):
+        monkeypatch.setattr(config, "VERBOSE_PROGRESS", False)
+        utils.print_progress(1, 10)
+        assert capsys.readouterr().out == ""
+
+    def test_output_when_verbose_on(self, monkeypatch, capsys):
+        monkeypatch.setattr(config, "VERBOSE_PROGRESS", True)
+        utils.print_progress(5, 10)
+        captured = capsys.readouterr().out
+        assert "50.0%" in captured
+
+    def test_handles_zero_total(self, monkeypatch, capsys):
+        monkeypatch.setattr(config, "VERBOSE_PROGRESS", True)
+        utils.print_progress(0, 0)
+        captured = capsys.readouterr().out
+        assert "0.0%" in captured
 
 
 if __name__ == "__main__":

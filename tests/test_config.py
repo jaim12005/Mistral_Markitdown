@@ -3,13 +3,7 @@ Tests for config.py module
 """
 
 import os
-from pathlib import Path
 import pytest
-
-# Add parent directory to path for imports
-import sys
-
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import config
 
@@ -136,6 +130,49 @@ class TestConfigurationDefaults:
     def test_ocr_model_correct(self):
         """Test OCR model is set correctly."""
         assert config.MISTRAL_OCR_MODEL == "mistral-ocr-latest"
+
+
+class TestSafeParsingHelpers:
+    """Test edge cases of _safe_int, _safe_float, _safe_bool, _safe_csv."""
+
+    def test_safe_int_below_min(self, monkeypatch):
+        monkeypatch.setenv("TEST_INT_VAR", "-5")
+        result = config._safe_int("TEST_INT_VAR", 10, min_val=0)
+        assert result == 10
+
+    def test_safe_int_invalid(self, monkeypatch):
+        monkeypatch.setenv("TEST_INT_VAR", "not_a_number")
+        result = config._safe_int("TEST_INT_VAR", 42)
+        assert result == 42
+
+    def test_safe_float_below_min(self, monkeypatch):
+        monkeypatch.setenv("TEST_FLOAT_VAR", "-1.5")
+        result = config._safe_float("TEST_FLOAT_VAR", 0.5, min_val=0.0)
+        assert result == 0.5
+
+    def test_safe_float_invalid(self, monkeypatch):
+        monkeypatch.setenv("TEST_FLOAT_VAR", "abc")
+        result = config._safe_float("TEST_FLOAT_VAR", 3.14)
+        assert result == 3.14
+
+    def test_safe_bool_truthy_values(self, monkeypatch):
+        for val in ("1", "true", "yes", "y", "on", "True", "YES"):
+            monkeypatch.setenv("TEST_BOOL_VAR", val)
+            assert config._safe_bool("TEST_BOOL_VAR", False) is True
+
+    def test_safe_bool_falsy_values(self, monkeypatch):
+        for val in ("0", "false", "no", "n", "off"):
+            monkeypatch.setenv("TEST_BOOL_VAR", val)
+            assert config._safe_bool("TEST_BOOL_VAR", True) is False
+
+    def test_safe_bool_invalid_returns_default(self, monkeypatch):
+        monkeypatch.setenv("TEST_BOOL_VAR", "maybe")
+        assert config._safe_bool("TEST_BOOL_VAR", True) is True
+
+    def test_safe_csv_empty_returns_default(self, monkeypatch):
+        monkeypatch.setenv("TEST_CSV_VAR", "")
+        result = config._safe_csv("TEST_CSV_VAR", "a,b,c")
+        assert result == ["a", "b", "c"]
 
 
 if __name__ == "__main__":

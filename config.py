@@ -10,6 +10,7 @@ Documentation references:
 - Mistral Python SDK: https://github.com/mistralai/client-python
 """
 
+import logging
 import os
 import sys
 from importlib.metadata import version as _pkg_version, PackageNotFoundError
@@ -38,14 +39,12 @@ def _safe_int(env_var: str, default: int, min_val: int = 0) -> int:
     try:
         value = int(raw)
         if value < min_val:
-            import logging
             logging.getLogger("document_converter").warning(
                 f"{env_var}={value} is below minimum {min_val}, using default {default}"
             )
             return default
         return value
     except (ValueError, TypeError):
-        import logging
         logging.getLogger("document_converter").warning(
             f"Invalid integer for {env_var}={raw!r}, using default {default}"
         )
@@ -64,14 +63,12 @@ def _safe_float(env_var: str, default: float, min_val: float = 0.0) -> float:
     try:
         value = float(raw)
         if value < min_val:
-            import logging
             logging.getLogger("document_converter").warning(
                 f"{env_var}={value} is below minimum {min_val}, using default {default}"
             )
             return default
         return value
     except (ValueError, TypeError):
-        import logging
         logging.getLogger("document_converter").warning(
             f"Invalid float for {env_var}={raw!r}, using default {default}"
         )
@@ -92,7 +89,6 @@ def _safe_bool(env_var: str, default: bool) -> bool:
         return True
     if value in {"0", "false", "no", "n", "off"}:
         return False
-    import logging
     logging.getLogger("document_converter").warning(
         "Invalid boolean for %s=%r, using default %s",
         env_var,
@@ -203,6 +199,7 @@ OCR_QUALITY_THRESHOLD_ACCEPTABLE = _safe_int("OCR_QUALITY_THRESHOLD_ACCEPTABLE",
 # OCR Quality Detection Thresholds
 OCR_MIN_TEXT_LENGTH = _safe_int("OCR_MIN_TEXT_LENGTH", 50)
 OCR_MIN_DIGIT_COUNT = _safe_int("OCR_MIN_DIGIT_COUNT", 20)
+OCR_WEAK_PAGE_DIGIT_RATIO = _safe_float("OCR_WEAK_PAGE_DIGIT_RATIO", 0.0)
 OCR_MIN_UNIQUENESS_RATIO = _safe_float("OCR_MIN_UNIQUENESS_RATIO", 0.3)
 OCR_MAX_PHRASE_REPETITIONS = _safe_int("OCR_MAX_PHRASE_REPETITIONS", 5)
 OCR_MIN_AVG_LINE_LENGTH = _safe_int("OCR_MIN_AVG_LINE_LENGTH", 10)

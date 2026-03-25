@@ -9,21 +9,16 @@ Tests cover:
 - Client cache invalidation (reset_mistral_client)
 """
 
-import sys
-from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 import pytest
 
-# Ensure project root is importable
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-import config  # noqa: E402
+import config
 
 # Initialize config dirs so imports work
 config.ensure_directories()
 
-import mistral_converter  # noqa: E402
+import mistral_converter
 
 
 # ============================================================================
@@ -258,11 +253,62 @@ class TestClientCacheInvalidation:
     """Test the reset_mistral_client helper."""
 
     def test_reset_clears_cache(self):
-        """Calling reset should not raise."""
+        """Calling reset should not raise and should clear the cached client."""
         mistral_converter.reset_mistral_client()
-        # After reset, cache_info should show 0 hits
-        info = mistral_converter.get_mistral_client.cache_info()
-        assert info.currsize == 0
+        # After reset, the internal singleton should be None
+        assert mistral_converter._client_instance is None
+
+    def test_get_client_without_api_key_returns_none(self, monkeypatch):
+        """Without API key, get_mistral_client should return None."""
+        mistral_converter.reset_mistral_client()
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "")
+        result = mistral_converter.get_mistral_client()
+        assert result is None
+
+    def test_singleton_is_thread_safe(self, monkeypatch):
+        """Multiple threads calling get_mistral_client get the same None (no key)."""
+        import concurrent.futures
+
+        mistral_converter.reset_mistral_client()
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "")
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+            results = list(pool.map(lambda _: mistral_converter.get_mistral_client(), range(8)))
+
+        assert all(r is None for r in results)
+
+
+# ============================================================================
+# _is_weak_page Digit Ratio Tests
+# ============================================================================
+
+
+class TestIsWeakPageDigitRatio:
+    """Test the configurable digit ratio threshold."""
+
+    def test_ratio_based_detection(self, monkeypatch):
+        """When OCR_WEAK_PAGE_DIGIT_RATIO > 0, ratio is used instead of absolute count."""
+        monkeypatch.setattr(config, "OCR_WEAK_PAGE_DIGIT_RATIO", 0.1)
+        monkeypatch.setattr(config, "OCR_MIN_TEXT_LENGTH", 10)
+        monkeypatch.setattr(config, "OCR_MIN_DIGIT_COUNT", 20)
+
+        # Text with ~5% digits — below the 10% ratio threshold
+        text = "This is text with very few digits 12 and some more unique words here now. " * 3
+        assert mistral_converter._is_weak_page(text) is True
+
+    def test_ratio_passes_when_enough_digits(self, monkeypatch):
+        """Text with sufficient digit ratio should not be weak."""
+        monkeypatch.setattr(config, "OCR_WEAK_PAGE_DIGIT_RATIO", 0.05)
+        monkeypatch.setattr(config, "OCR_MIN_TEXT_LENGTH", 10)
+        monkeypatch.setattr(config, "OCR_MIN_UNIQUENESS_RATIO", 0.1)
+        monkeypatch.setattr(config, "OCR_MAX_PHRASE_REPETITIONS", 100)
+        monkeypatch.setattr(config, "OCR_MIN_AVG_LINE_LENGTH", 5)
+
+        text = (
+            "Revenue 12345678901234567890 grew significantly across all regions "
+            "with unique valuable insightful data metrics and comprehensive analysis."
+        )
+        assert mistral_converter._is_weak_page(text) is False
 
 
 # ============================================================================

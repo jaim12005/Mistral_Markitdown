@@ -23,6 +23,7 @@ Documentation references:
 
 import argparse
 import json
+import re
 import sys
 import time
 import warnings
@@ -390,6 +391,15 @@ def mode_document_qna(file_paths: List[Path]) -> Tuple[bool, str]:
 # ============================================================================
 
 
+# Batch job ID validation
+_JOB_ID_RE = re.compile(r"^[a-zA-Z0-9_\-]{1,128}$")
+
+
+def _validate_job_id(job_id: str) -> bool:
+    """Return True if *job_id* looks like a valid Mistral batch job identifier."""
+    return bool(_JOB_ID_RE.match(job_id))
+
+
 def mode_batch_ocr(file_paths: List[Path]) -> Tuple[bool, str]:
     """Submit files for batch OCR processing at 50% cost reduction."""
     logger.info("BATCH OCR MODE: %d file(s) selected", len(file_paths))
@@ -441,6 +451,8 @@ def mode_batch_ocr(file_paths: List[Path]) -> Tuple[bool, str]:
         job_id = input("Enter job ID: ").strip()
         if not job_id:
             return False, "No job ID provided"
+        if not _validate_job_id(job_id):
+            return False, "Invalid job ID format"
         success, status, error = mistral_converter.get_batch_job_status(job_id)
         if success:
             print(f"\nJob: {job_id}")
@@ -469,6 +481,8 @@ def mode_batch_ocr(file_paths: List[Path]) -> Tuple[bool, str]:
         job_id = input("Enter job ID: ").strip()
         if not job_id:
             return False, "No job ID provided"
+        if not _validate_job_id(job_id):
+            return False, "Invalid job ID format"
         success, path, error = mistral_converter.download_batch_results(job_id)
         if success:
             print(f"\nResults saved to: {path}")

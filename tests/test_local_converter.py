@@ -9,19 +9,15 @@ Tests cover:
 - analyze_file_content (file type analysis)
 """
 
-import sys
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-import config  # noqa: E402
+import config
 
 config.ensure_directories()
 
-import local_converter  # noqa: E402
+import local_converter
 
 
 # ============================================================================
@@ -101,6 +97,19 @@ class TestFixSplitHeaders:
         table = [["Name", "Age", "City"]]
         result = local_converter._fix_split_headers(table)
         assert result[0] == ["Name", "Age", "City"]
+
+    def test_does_not_merge_legitimate_lowercase_columns(self):
+        """Legitimate lowercase column names (>= 3 chars) should not be merged."""
+        table = [["Account ", "units", "Total"]]
+        result = local_converter._fix_split_headers(table)
+        # "units" should remain its own column since current cell ends with space
+        assert "units" in result[0]
+
+    def test_does_not_merge_long_trailing_fragment(self):
+        """Trailing fragment > 2 chars in current cell should not trigger merge."""
+        table = [["Some Header", "value", "Other"]]
+        result = local_converter._fix_split_headers(table)
+        assert result[0][1] == "value"
 
     def test_only_touches_first_rows(self):
         """Data rows below max_header_rows should not be modified."""
