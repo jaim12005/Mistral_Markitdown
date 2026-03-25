@@ -80,8 +80,8 @@ Smart mode prints its routing decisions before processing:
 
 ```
 Routing plan:
-  sample.pdf                  -> Mistral OCR (+ table extraction)
-  report.docx                 -> Mistral OCR
+  scan.pdf                    -> Mistral OCR (scanned + table extraction)
+  report.docx                 -> MarkItDown (local)
   notes.txt                   -> MarkItDown (local)
 ```
 

@@ -1044,9 +1044,19 @@ VERBOSE_PROGRESS=true
 |----------|------|---------|----------|---------|
 | MISTRAL_API_KEY | string | - | Yes (for smart, mistral_ocr, qna, batch_ocr; optional for markitdown) | API Keys |
 | MISTRAL_OCR_MODEL | string | mistral-ocr-latest | No | OCR |
-| MISTRAL_DOCUMENT_QNA_MODEL | string | mistral-small-latest | No | Document QnA |
 | MISTRAL_INCLUDE_IMAGES | bool | true | No | OCR |
 | SAVE_MISTRAL_JSON | bool | true | No | OCR |
+| OCR_QUALITY_THRESHOLD_EXCELLENT | int | 80 | No | OCR Quality |
+| OCR_QUALITY_THRESHOLD_GOOD | int | 60 | No | OCR Quality |
+| OCR_QUALITY_THRESHOLD_ACCEPTABLE | int | 40 | No | OCR Quality |
+| ENABLE_OCR_QUALITY_ASSESSMENT | bool | true | No | OCR Quality |
+| ENABLE_OCR_WEAK_PAGE_IMPROVEMENT | bool | true | No | OCR Quality |
+| OCR_MIN_TEXT_LENGTH | int | 50 | No | OCR Quality |
+| OCR_MIN_DIGIT_COUNT | int | 20 | No | OCR Quality |
+| OCR_WEAK_PAGE_DIGIT_RATIO | float | 0.0 | No | OCR Quality |
+| OCR_MIN_UNIQUENESS_RATIO | float | 0.3 | No | OCR Quality |
+| OCR_MAX_PHRASE_REPETITIONS | int | 5 | No | OCR Quality |
+| OCR_MIN_AVG_LINE_LENGTH | int | 10 | No | OCR Quality |
 | MISTRAL_TABLE_FORMAT | string | "" | No | OCR 3 |
 | MISTRAL_EXTRACT_HEADER | bool | true | No | OCR 3 |
 | MISTRAL_EXTRACT_FOOTER | bool | true | No | OCR 3 |
@@ -1054,6 +1064,7 @@ VERBOSE_PROGRESS=true
 | MISTRAL_IMAGE_LIMIT | int | 0 | No | OCR 3 |
 | MISTRAL_IMAGE_MIN_SIZE | int | 0 | No | OCR 3 |
 | MISTRAL_SIGNED_URL_EXPIRY | int | 1 | No | OCR 3 |
+| MISTRAL_DOCUMENT_QNA_MODEL | string | mistral-small-latest | No | Document QnA |
 | MISTRAL_QNA_SYSTEM_PROMPT | string | "" | No | Document QnA |
 | MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT | int | 0 | No | Document QnA |
 | MISTRAL_QNA_DOCUMENT_PAGE_LIMIT | int | 0 | No | Document QnA |
@@ -1079,12 +1090,23 @@ VERBOSE_PROGRESS=true
 | PDF_IMAGE_FORMAT | string | png | No | PDF to Image |
 | PDF_IMAGE_DPI | int | 200 | No | PDF to Image |
 | PDF_IMAGE_THREAD_COUNT | int | 4 | No | PDF to Image |
+| PDF_IMAGE_USE_PDFTOCAIRO | bool | true | No | PDF to Image |
+| POPPLER_PATH | string | "" | No | System Paths |
+| GHOSTSCRIPT_PATH | string | "" | No | System Paths |
 | CACHE_DURATION_HOURS | int | 24 | No | Caching |
 | AUTO_CLEAR_CACHE | bool | true | No | Caching |
 | LOG_LEVEL | string | INFO | No | Logging |
+| SAVE_PROCESSING_LOGS | bool | true | No | Logging |
+| VERBOSE_PROGRESS | bool | true | No | Logging |
 | MAX_CONCURRENT_FILES | int | 5 | No | Performance |
 | MAX_BATCH_FILES | int | 100 | No | Performance |
 | MAX_PAGES_PER_SESSION | int | 1000 | No | Performance |
+| MAX_RETRIES | int | 3 | No | Retry |
+| RETRY_INITIAL_INTERVAL_MS | int | 1000 | No | Retry |
+| RETRY_MAX_INTERVAL_MS | int | 10000 | No | Retry |
+| RETRY_EXPONENT | float | 2.0 | No | Retry |
+| RETRY_MAX_ELAPSED_TIME_MS | int | 60000 | No | Retry |
+| RETRY_CONNECTION_ERRORS | bool | true | No | Retry |
 | GENERATE_TXT_OUTPUT | bool | true | No | Output |
 | INCLUDE_METADATA | bool | true | No | Output |
 | TABLE_OUTPUT_FORMATS | string | markdown,csv | No | Output |
@@ -1103,7 +1125,7 @@ See README.md for complete feature documentation.
 
 ---
 
-**Last Updated:** 2026-02-10
+**Last Updated:** 2026-03-25
 
 **Version:** 3.0.0
 

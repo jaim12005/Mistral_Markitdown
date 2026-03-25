@@ -59,12 +59,12 @@ flowchart TD
 
 | Module | Role |
 |--------|------|
-| `config.py` | Environment loading, path setup, runtime constants |
-| `utils.py` | File I/O, caching (SHA-256 + TTL), URL validation, PDF table extraction |
-| `schemas.py` | Pydantic models for structured extraction (invoices, contracts, etc.) |
-| `local_converter.py` | MarkItDown wrapper — converts 30+ formats locally |
-| `mistral_converter.py` | Mistral OCR client — upload, process, batch, stream QnA |
-| `main.py` | CLI entry point, smart routing, menu system |
+| `config.py` | Environment loading, path setup, runtime constants, validation |
+| `utils.py` | Logging, caching (SHA-256 + TTL), table formatting, file validation, YAML frontmatter |
+| `schemas.py` | Pydantic models and JSON schemas for structured extraction (invoices, contracts, etc.) |
+| `local_converter.py` | MarkItDown wrapper, PDF table extraction (pdfplumber + Camelot), PDF to images |
+| `mistral_converter.py` | Mistral OCR client, upload/process/batch, QnA streaming, SSRF validation, image optimization |
+| `main.py` | CLI entry point, smart routing, concurrent processing, interactive menu |
 
 ## Data Flow
 
