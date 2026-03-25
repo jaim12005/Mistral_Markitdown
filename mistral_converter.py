@@ -48,7 +48,7 @@ except ImportError as _e:
 
 try:
     try:
-        from mistralai.client import DocumentURLChunk, ImageURLChunk, FileChunk
+        from mistralai.client.models import DocumentURLChunk, ImageURLChunk, FileChunk
     except ImportError:
         from mistralai import DocumentURLChunk, ImageURLChunk, FileChunk
 except ImportError:
