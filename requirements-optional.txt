@@ -103,6 +103,16 @@ olefile>=0.47
 
 # pdfminer-six>=20221105  # Auto-installed by MarkItDown
 
+# ----------------------------------------------------------------------------
+# MarkItDown OCR Plugin (LLM-powered OCR within MarkItDown pipeline)
+# ----------------------------------------------------------------------------
+# Enables: Native LLM-powered text extraction from images embedded in documents
+# Requires: MARKITDOWN_ENABLE_PLUGINS=true in .env and an LLM client configured
+# Note: This is separate from Mistral OCR; it runs OCR inside the MarkItDown
+#        conversion pipeline itself using image-capable LLM models.
+
+markitdown-ocr>=0.1.0
+
 # ============================================================================
 # FEATURE MATRIX
 # ============================================================================
@@ -113,6 +123,7 @@ olefile>=0.47
 # YouTube Transcription      | youtube-transcript-api         | MARKITDOWN_ENABLE_PLUGINS=true
 # Azure Document Intel       | azure-ai-*, azure-identity     | AZURE_DOC_INTEL_ENDPOINT/KEY
 # Outlook MSG Files          | olefile                        | (automatic)
+# MarkItDown OCR Plugin     | markitdown-ocr                 | MARKITDOWN_ENABLE_PLUGINS=true
 # Advanced DOCX             | lxml, mammoth                  | (automatic - in requirements.txt)
 # Excel (modern)            | openpyxl, pandas               | (automatic - in requirements.txt)
 # Excel (legacy)            | xlrd, pandas                   | (automatic - in requirements.txt)

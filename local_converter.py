@@ -18,9 +18,18 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 
 try:
-    from markitdown import MarkItDown
+    from markitdown import MarkItDown, StreamInfo
+    from markitdown import (
+        UnsupportedFormatException,
+        MissingDependencyException,
+        FileConversionException,
+    )
 except ImportError:
     MarkItDown = None
+    StreamInfo = None
+    UnsupportedFormatException = None
+    MissingDependencyException = None
+    FileConversionException = None
 
 try:
     import pdfplumber
@@ -148,8 +157,8 @@ def convert_with_markitdown(file_path: Path) -> Tuple[bool, Optional[str], Optio
         # Convert the file
         result = md.convert(str(file_path))
 
-        if result and (hasattr(result, 'markdown') or hasattr(result, 'text_content')):
-            markdown_content = getattr(result, 'markdown', None) or getattr(result, 'text_content', '')
+        if result and hasattr(result, 'markdown'):
+            markdown_content = result.markdown
 
             # Extract document metadata if available
             doc_metadata = {
@@ -185,6 +194,15 @@ def convert_with_markitdown(file_path: Path) -> Tuple[bool, Optional[str], Optio
         else:
             return False, None, "No content returned from MarkItDown"
 
+    except UnsupportedFormatException as e:
+        logger.warning("Unsupported format for %s: %s", file_path.name, e)
+        return False, None, f"Unsupported format: {e}"
+    except MissingDependencyException as e:
+        logger.error("Missing dependency for %s: %s", file_path.name, e)
+        return False, None, f"Missing dependency: {e}"
+    except FileConversionException as e:
+        logger.error("Conversion failed for %s: %s", file_path.name, e)
+        return False, None, f"Conversion failed: {e}"
     except Exception as e:
         logger.error(f"Error converting with MarkItDown: {e}")
         return False, None, str(e)
@@ -216,14 +234,28 @@ def convert_stream_with_markitdown(
 
     try:
         logger.info("Converting stream with MarkItDown: %s", filename)
-        result = md.convert_stream(stream, file_extension=Path(filename).suffix)
+        stream_info = None
+        if StreamInfo is not None:
+            stream_info = StreamInfo(
+                extension=Path(filename).suffix,
+                filename=filename,
+            )
+        if stream_info is not None:
+            result = md.convert_stream(stream, stream_info=stream_info)
+        else:
+            result = md.convert_stream(stream, file_extension=Path(filename).suffix)
 
-        if result and (hasattr(result, "markdown") or hasattr(result, "text_content")):
-            markdown_content = getattr(result, "markdown", None) or getattr(result, "text_content", "")
-            return True, markdown_content, None
+        if result and hasattr(result, "markdown"):
+            return True, result.markdown, None
 
         return False, None, "No content returned from MarkItDown stream conversion"
 
+    except UnsupportedFormatException as e:
+        logger.warning("Unsupported format for stream %s: %s", filename, e)
+        return False, None, f"Unsupported format: {e}"
+    except MissingDependencyException as e:
+        logger.error("Missing dependency for stream %s: %s", filename, e)
+        return False, None, f"Missing dependency: {e}"
     except Exception as e:
         logger.error("Error converting stream with MarkItDown: %s", e)
         return False, None, str(e)

@@ -56,6 +56,11 @@ except ImportError:
     FileChunk = None
 
 try:
+    from mistralai.extra import response_format_from_pydantic_model
+except ImportError:
+    response_format_from_pydantic_model = None
+
+try:
     from PIL import Image
 except ImportError:
     Image = None
@@ -274,8 +279,17 @@ def get_bbox_annotation_format() -> Optional[Dict[str, Any]]:
     if not config.MISTRAL_ENABLE_STRUCTURED_OUTPUT or not config.MISTRAL_ENABLE_BBOX_ANNOTATION:
         return None
 
-    # Try to get JSON schema from Pydantic model (preferred - type-safe)
+    # Try SDK helper with Pydantic model (preferred - handles schema extraction automatically)
     pydantic_model = schemas.get_bbox_pydantic_model("structured")
+    if pydantic_model is not None and response_format_from_pydantic_model is not None:
+        try:
+            fmt = response_format_from_pydantic_model(pydantic_model)
+            logger.debug("Using SDK response_format_from_pydantic_model for bbox annotation")
+            return fmt
+        except Exception as e:
+            logger.debug("SDK helper failed for bbox annotation: %s, falling back...", e)
+
+    # Fallback: manual JSON schema extraction from Pydantic model
     if pydantic_model is not None:
         try:
             json_schema = _extract_model_json_schema(pydantic_model)
@@ -321,8 +335,17 @@ def get_document_annotation_format(doc_type: str = "auto") -> Optional[Dict[str,
 
     schema_name = f"document_annotation_{doc_type}"
 
-    # Try to get JSON schema from Pydantic model (preferred - type-safe)
+    # Try SDK helper with Pydantic model (preferred - handles schema extraction automatically)
     pydantic_model = schemas.get_document_pydantic_model(doc_type)
+    if pydantic_model is not None and response_format_from_pydantic_model is not None:
+        try:
+            fmt = response_format_from_pydantic_model(pydantic_model)
+            logger.debug("Using SDK response_format_from_pydantic_model for document annotation (type: %s)", doc_type)
+            return fmt
+        except Exception as e:
+            logger.debug("SDK helper failed for document annotation: %s, falling back...", e)
+
+    # Fallback: manual JSON schema extraction from Pydantic model
     if pydantic_model is not None:
         try:
             json_schema = _extract_model_json_schema(pydantic_model)
@@ -761,7 +784,10 @@ def process_with_ocr(
                 logger.debug("Using image_url dict for %s file", ext)
         else:
             if DocumentURLChunk is not None:
-                document = DocumentURLChunk(document_url=signed_url)
+                document = DocumentURLChunk(
+                    document_url=signed_url,
+                    document_name=file_path.name,
+                )
                 logger.debug("Using DocumentURLChunk for %s file", ext)
             else:
                 document = {
@@ -1820,6 +1846,75 @@ def query_document(
     
     except Exception as e:
         error_msg = f"Error querying document: {e}"
+        logger.error(error_msg)
+        return False, None, error_msg
+
+
+def query_document_stream(
+    document_url: str,
+    question: str,
+    model: Optional[str] = None,
+) -> Tuple[bool, Optional[Any], Optional[str]]:
+    """
+    Query a document using Mistral's Document QnA with streaming response.
+
+    Yields answer tokens as they arrive, enabling real-time display.
+    Use ``for chunk in stream:`` to iterate over the event stream.
+
+    Args:
+        document_url: Public HTTPS URL to the document
+        question: Natural language question about the document
+        model: Optional model override (default: mistral-small-latest)
+
+    Returns:
+        Tuple of (success, event_stream_or_None, error_message)
+    """
+    client = get_mistral_client()
+    if client is None:
+        return False, None, "Mistral client not available"
+
+    url_valid, url_error = _validate_document_url(document_url)
+    if not url_valid:
+        return False, None, f"Invalid document URL: {url_error}"
+
+    if model is None:
+        model = config.MISTRAL_DOCUMENT_QNA_MODEL
+
+    try:
+        logger.info("Streaming query for document: %s...", question[:50])
+
+        messages = []
+        if config.MISTRAL_QNA_SYSTEM_PROMPT:
+            messages.append({"role": "system", "content": config.MISTRAL_QNA_SYSTEM_PROMPT})
+        messages.append(
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": question},
+                    {"type": "document_url", "document_url": document_url},
+                ],
+            }
+        )
+
+        stream_params = {
+            "model": model,
+            "messages": messages,
+        }
+
+        retry_config = get_retry_config()
+        if retry_config:
+            stream_params["retries"] = retry_config
+
+        if config.MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT > 0:
+            stream_params["document_image_limit"] = config.MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT
+        if config.MISTRAL_QNA_DOCUMENT_PAGE_LIMIT > 0:
+            stream_params["document_page_limit"] = config.MISTRAL_QNA_DOCUMENT_PAGE_LIMIT
+
+        event_stream = client.chat.stream(**stream_params)
+        return True, event_stream, None
+
+    except Exception as e:
+        error_msg = f"Error streaming document query: {e}"
         logger.error(error_msg)
         return False, None, error_msg
 
