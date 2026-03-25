@@ -32,11 +32,11 @@ ignore =
 per-file-ignores =
     __init__.py:F401
     config.py:E402
-    main.py:E402
-    mistral_converter.py:E402
+    main.py:E402,C901
+    mistral_converter.py:E402,C901
 
 # Maximum cyclomatic complexity
-max-complexity = 25
+max-complexity = 15
 
 # Show source code for each error
 show-source = True

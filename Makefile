@@ -1,21 +1,23 @@
 # Enhanced Document Converter - Makefile
 # Convenience commands for development and testing
 
-.PHONY: help install install-dev test lint format type-check clean run dist publish
+.PHONY: help install install-dev test lint format type-check clean run check dist publish coverage security-audit dev-setup
 
 help:
 	@echo "Enhanced Document Converter - Development Commands"
 	@echo ""
 	@echo "Available commands:"
-	@echo "  make install      - Install production dependencies"
-	@echo "  make install-dev  - Install development dependencies"
-	@echo "  make test         - Run test suite"
-	@echo "  make lint         - Run linters (flake8, pylint)"
-	@echo "  make format       - Format code with black and isort"
-	@echo "  make type-check   - Run mypy type checker"
-	@echo "  make clean        - Clean build artifacts and cache"
-	@echo "  make run          - Run the converter"
-	@echo "  make check        - Run all checks (lint + type + test)"
+	@echo "  make install        - Install production dependencies"
+	@echo "  make install-dev    - Install development dependencies"
+	@echo "  make test           - Run test suite"
+	@echo "  make lint           - Run linters (flake8, pylint)"
+	@echo "  make format         - Format code with black and isort"
+	@echo "  make type-check     - Run mypy type checker"
+	@echo "  make coverage       - Run tests with coverage report"
+	@echo "  make security-audit - Run pip-audit dependency scan"
+	@echo "  make clean          - Clean build artifacts and cache"
+	@echo "  make run            - Run the converter"
+	@echo "  make check          - Run all checks (lint + type + test)"
 
 install:
 	pip install -r requirements.txt
@@ -50,6 +52,12 @@ run:
 
 check: lint type-check test
 	@echo "All checks passed!"
+
+coverage:
+	pytest tests/ --cov=. --cov-report=html --cov-report=term-missing
+
+security-audit:
+	pip-audit --desc
 
 dist: clean
 	python -m build

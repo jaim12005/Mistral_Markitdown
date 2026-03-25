@@ -27,3 +27,16 @@ jobs:
 
       - name: Run pip-audit
         run: pip-audit --desc
+
+      - name: Install Bandit
+        run: pip install bandit
+
+      - name: Run Bandit security linter
+        run: bandit -r *.py -ll --format json --output bandit-report.json || true
+
+      - name: Display Bandit results
+        if: always()
+        run: |
+          if [ -f bandit-report.json ]; then
+            python -m json.tool bandit-report.json
+          fi

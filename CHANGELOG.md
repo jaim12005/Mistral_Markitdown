@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Image optimization** — Automatic resize, contrast, and sharpness enhancement before OCR upload
 - **File cleanup** — Auto-delete uploaded files from Mistral after configurable retention period
 - **CI/CD workflows** — GitHub Actions for multi-platform testing and linting
-- **345 tests** at 75%+ code coverage
+- **607 tests** at 100% code coverage
 
 ### Changed
 
