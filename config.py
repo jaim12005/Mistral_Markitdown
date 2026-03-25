@@ -77,6 +77,42 @@ def _safe_float(env_var: str, default: float, min_val: float = 0.0) -> float:
         )
         return default
 
+
+def _safe_bool(env_var: str, default: bool) -> bool:
+    """Parse a boolean environment variable with a fallback default.
+
+    Accepts common truthy/falsy strings (true/false, yes/no, 1/0, on/off).
+    Logs a warning and returns *default* for unrecognised values.
+    """
+    raw = os.getenv(env_var, "")
+    if raw == "":
+        return default
+    value = raw.strip().lower()
+    if value in {"1", "true", "yes", "y", "on"}:
+        return True
+    if value in {"0", "false", "no", "n", "off"}:
+        return False
+    import logging
+    logging.getLogger("document_converter").warning(
+        "Invalid boolean for %s=%r, using default %s",
+        env_var,
+        raw,
+        default,
+    )
+    return default
+
+
+def _safe_csv(env_var: str, default: str) -> List[str]:
+    """Parse a comma-separated environment variable into a list of strings.
+
+    Returns the *default* list when the variable is empty or only whitespace.
+    """
+    raw = os.getenv(env_var, default)
+    values = [item.strip() for item in raw.split(",") if item.strip()]
+    if values:
+        return values
+    return [item.strip() for item in default.split(",") if item.strip()]
+
 # ============================================================================
 # Version (single source of truth)
 # ============================================================================
@@ -145,21 +181,19 @@ MISTRAL_OCR_MODEL = os.getenv("MISTRAL_OCR_MODEL", "mistral-ocr-latest")
 
 # Document QnA model (for querying documents with natural language)
 # Supports: mistral-small-latest, mistral-medium-latest, etc.
-MISTRAL_DOCUMENT_QNA_MODEL = os.getenv("MISTRAL_DOCUMENT_QNA_MODEL", "mistral-small-latest")
+MISTRAL_DOCUMENT_QNA_MODEL = os.getenv("MISTRAL_DOCUMENT_QNA_MODEL", "mistral-small-latest").strip()
 
 # OCR options
-MISTRAL_INCLUDE_IMAGES = os.getenv("MISTRAL_INCLUDE_IMAGES", "true").lower() == "true"
-SAVE_MISTRAL_JSON = (
-    os.getenv("SAVE_MISTRAL_JSON", "true").lower() == "true"
-)  # Default true for quality assessment
+MISTRAL_INCLUDE_IMAGES = _safe_bool("MISTRAL_INCLUDE_IMAGES", True)
+SAVE_MISTRAL_JSON = _safe_bool("SAVE_MISTRAL_JSON", True)
 
 # Batch OCR configuration (50% cost reduction for bulk processing)
-MISTRAL_BATCH_ENABLED = os.getenv("MISTRAL_BATCH_ENABLED", "true").lower() == "true"
-MISTRAL_BATCH_MIN_FILES = _safe_int("MISTRAL_BATCH_MIN_FILES", 10)  # Min files to trigger batch
+MISTRAL_BATCH_ENABLED = _safe_bool("MISTRAL_BATCH_ENABLED", True)
+MISTRAL_BATCH_MIN_FILES = _safe_int("MISTRAL_BATCH_MIN_FILES", 10, min_val=1)
 
 # File upload management
-CLEANUP_OLD_UPLOADS = os.getenv("CLEANUP_OLD_UPLOADS", "true").lower() == "true"
-UPLOAD_RETENTION_DAYS = _safe_int("UPLOAD_RETENTION_DAYS", 7)  # Delete files older than N days
+CLEANUP_OLD_UPLOADS = _safe_bool("CLEANUP_OLD_UPLOADS", True)
+UPLOAD_RETENTION_DAYS = _safe_int("UPLOAD_RETENTION_DAYS", 7, min_val=1)
 
 # OCR Quality Assessment Thresholds (0-100 scale)
 OCR_QUALITY_THRESHOLD_EXCELLENT = _safe_int("OCR_QUALITY_THRESHOLD_EXCELLENT", 80)
@@ -174,39 +208,28 @@ OCR_MAX_PHRASE_REPETITIONS = _safe_int("OCR_MAX_PHRASE_REPETITIONS", 5)
 OCR_MIN_AVG_LINE_LENGTH = _safe_int("OCR_MIN_AVG_LINE_LENGTH", 10)
 
 # Quality assessment controls
-ENABLE_OCR_QUALITY_ASSESSMENT = (
-    os.getenv("ENABLE_OCR_QUALITY_ASSESSMENT", "true").lower() == "true"
-)
-ENABLE_OCR_WEAK_PAGE_IMPROVEMENT = (
-    os.getenv("ENABLE_OCR_WEAK_PAGE_IMPROVEMENT", "true").lower() == "true"
-)
+ENABLE_OCR_QUALITY_ASSESSMENT = _safe_bool("ENABLE_OCR_QUALITY_ASSESSMENT", True)
+ENABLE_OCR_WEAK_PAGE_IMPROVEMENT = _safe_bool("ENABLE_OCR_WEAK_PAGE_IMPROVEMENT", True)
 
-MISTRAL_ENABLE_STRUCTURED_OUTPUT = (
-    os.getenv("MISTRAL_ENABLE_STRUCTURED_OUTPUT", "true").lower()
-    == "true"  # NOW ENABLED
-)
+MISTRAL_ENABLE_STRUCTURED_OUTPUT = _safe_bool("MISTRAL_ENABLE_STRUCTURED_OUTPUT", True)
 
 # Schema selection for structured extraction
 # Options: invoice, financial_statement, form, generic, auto
-MISTRAL_DOCUMENT_SCHEMA_TYPE = os.getenv("MISTRAL_DOCUMENT_SCHEMA_TYPE", "auto")
+MISTRAL_DOCUMENT_SCHEMA_TYPE = os.getenv("MISTRAL_DOCUMENT_SCHEMA_TYPE", "auto").strip().lower()
 
 # Enable bounding box structured extraction
-MISTRAL_ENABLE_BBOX_ANNOTATION = (
-    os.getenv("MISTRAL_ENABLE_BBOX_ANNOTATION", "false").lower() == "true"
-)
+MISTRAL_ENABLE_BBOX_ANNOTATION = _safe_bool("MISTRAL_ENABLE_BBOX_ANNOTATION", False)
 
 # Enable document-level structured extraction
-MISTRAL_ENABLE_DOCUMENT_ANNOTATION = (
-    os.getenv("MISTRAL_ENABLE_DOCUMENT_ANNOTATION", "false").lower() == "true"
-)
+MISTRAL_ENABLE_DOCUMENT_ANNOTATION = _safe_bool("MISTRAL_ENABLE_DOCUMENT_ANNOTATION", False)
 
 # OCR 3 (mistral-ocr-2512) features
 # Table output format: "markdown" (default) or "html" (gives colspan/rowspan for merged cells)
-MISTRAL_TABLE_FORMAT = os.getenv("MISTRAL_TABLE_FORMAT", "")  # Empty = API default (markdown)
+MISTRAL_TABLE_FORMAT = os.getenv("MISTRAL_TABLE_FORMAT", "").strip().lower()
 
 # Extract headers/footers separately from page content
-MISTRAL_EXTRACT_HEADER = os.getenv("MISTRAL_EXTRACT_HEADER", "true").lower() == "true"
-MISTRAL_EXTRACT_FOOTER = os.getenv("MISTRAL_EXTRACT_FOOTER", "true").lower() == "true"
+MISTRAL_EXTRACT_HEADER = _safe_bool("MISTRAL_EXTRACT_HEADER", True)
+MISTRAL_EXTRACT_FOOTER = _safe_bool("MISTRAL_EXTRACT_FOOTER", True)
 
 # Custom guidance prompt for document annotation LLM
 MISTRAL_DOCUMENT_ANNOTATION_PROMPT = os.getenv("MISTRAL_DOCUMENT_ANNOTATION_PROMPT", "")
@@ -216,17 +239,13 @@ MISTRAL_IMAGE_LIMIT = _safe_int("MISTRAL_IMAGE_LIMIT", 0)
 MISTRAL_IMAGE_MIN_SIZE = _safe_int("MISTRAL_IMAGE_MIN_SIZE", 0)
 
 # Signed URL expiry (hours) - increase for large batch jobs
-MISTRAL_SIGNED_URL_EXPIRY = _safe_int("MISTRAL_SIGNED_URL_EXPIRY", 1)
+MISTRAL_SIGNED_URL_EXPIRY = _safe_int("MISTRAL_SIGNED_URL_EXPIRY", 1, min_val=1)
 
 # Image optimization
-MISTRAL_ENABLE_IMAGE_OPTIMIZATION = (
-    os.getenv("MISTRAL_ENABLE_IMAGE_OPTIMIZATION", "true").lower() == "true"
-)
-MISTRAL_ENABLE_IMAGE_PREPROCESSING = (
-    os.getenv("MISTRAL_ENABLE_IMAGE_PREPROCESSING", "false").lower() == "true"
-)
-MISTRAL_MAX_IMAGE_DIMENSION = _safe_int("MISTRAL_MAX_IMAGE_DIMENSION", 2048)
-MISTRAL_IMAGE_QUALITY_THRESHOLD = _safe_int("MISTRAL_IMAGE_QUALITY_THRESHOLD", 70)
+MISTRAL_ENABLE_IMAGE_OPTIMIZATION = _safe_bool("MISTRAL_ENABLE_IMAGE_OPTIMIZATION", True)
+MISTRAL_ENABLE_IMAGE_PREPROCESSING = _safe_bool("MISTRAL_ENABLE_IMAGE_PREPROCESSING", False)
+MISTRAL_MAX_IMAGE_DIMENSION = _safe_int("MISTRAL_MAX_IMAGE_DIMENSION", 2048, min_val=1)
+MISTRAL_IMAGE_QUALITY_THRESHOLD = _safe_int("MISTRAL_IMAGE_QUALITY_THRESHOLD", 70, min_val=1)
 
 # ============================================================================
 # MarkItDown Configuration
@@ -234,25 +253,19 @@ MISTRAL_IMAGE_QUALITY_THRESHOLD = _safe_int("MISTRAL_IMAGE_QUALITY_THRESHOLD", 7
 
 # LLM integration - uses Mistral's OpenAI-compatible endpoint (no separate API key)
 # Set to true to enable LLM-powered image descriptions in MarkItDown conversions
-MARKITDOWN_ENABLE_LLM_DESCRIPTIONS = os.getenv("MARKITDOWN_ENABLE_LLM_DESCRIPTIONS", "false").lower() == "true"
+MARKITDOWN_ENABLE_LLM_DESCRIPTIONS = _safe_bool("MARKITDOWN_ENABLE_LLM_DESCRIPTIONS", False)
 # Vision-capable model for image descriptions (pixtral-large-latest recommended)
-MARKITDOWN_LLM_MODEL = os.getenv("MARKITDOWN_LLM_MODEL", "pixtral-large-latest")
+MARKITDOWN_LLM_MODEL = os.getenv("MARKITDOWN_LLM_MODEL", "pixtral-large-latest").strip()
 # Custom prompt for LLM image descriptions (empty = MarkItDown default)
 MARKITDOWN_LLM_PROMPT = os.getenv("MARKITDOWN_LLM_PROMPT", "")
 
-MARKITDOWN_ENABLE_PLUGINS = (
-    os.getenv("MARKITDOWN_ENABLE_PLUGINS", "false").lower() == "true"
-)
+MARKITDOWN_ENABLE_PLUGINS = _safe_bool("MARKITDOWN_ENABLE_PLUGINS", False)
 
 # Enable/disable built-in converters (v0.1.5+). Disable to selectively re-enable.
-MARKITDOWN_ENABLE_BUILTINS = (
-    os.getenv("MARKITDOWN_ENABLE_BUILTINS", "true").lower() == "true"
-)
+MARKITDOWN_ENABLE_BUILTINS = _safe_bool("MARKITDOWN_ENABLE_BUILTINS", True)
 
 # Preserve base64-encoded images from HTML/DOCX/PPTX in Markdown output (v0.1.5+)
-MARKITDOWN_KEEP_DATA_URIS = (
-    os.getenv("MARKITDOWN_KEEP_DATA_URIS", "false").lower() == "true"
-)
+MARKITDOWN_KEEP_DATA_URIS = _safe_bool("MARKITDOWN_KEEP_DATA_URIS", False)
 
 # DOCX style mapping for mammoth (e.g., "p[style-name='Custom Heading'] => h2:fresh")
 MARKITDOWN_STYLE_MAP = os.getenv("MARKITDOWN_STYLE_MAP", "")
@@ -273,7 +286,7 @@ CAMELOT_MAX_WHITESPACE = _safe_float("CAMELOT_MAX_WHITESPACE", 30.0)  # Maximum 
 
 # Camelot stream mode tuning (for tables without clear grid lines)
 # split_text: splits PDFMiner-merged strings across cell boundaries (critical for tight columns)
-CAMELOT_STREAM_SPLIT_TEXT = os.getenv("CAMELOT_STREAM_SPLIT_TEXT", "true").lower() == "true"
+CAMELOT_STREAM_SPLIT_TEXT = _safe_bool("CAMELOT_STREAM_SPLIT_TEXT", True)
 # edge_tol: tolerance for extending textedges vertically (default: 50)
 CAMELOT_STREAM_EDGE_TOL = _safe_int("CAMELOT_STREAM_EDGE_TOL", 50)
 # row_tol: tolerance for combining text into rows (camelot default: 2)
@@ -285,10 +298,10 @@ CAMELOT_STREAM_COLUMN_TOL = _safe_int("CAMELOT_STREAM_COLUMN_TOL", 0)
 # PDF to Image Configuration
 # ============================================================================
 
-PDF_IMAGE_FORMAT = os.getenv("PDF_IMAGE_FORMAT", "png")  # png, jpeg, ppm, tiff
-PDF_IMAGE_DPI = _safe_int("PDF_IMAGE_DPI", 200)  # Image resolution
-PDF_IMAGE_THREAD_COUNT = _safe_int("PDF_IMAGE_THREAD_COUNT", 4)  # Concurrent conversion threads
-PDF_IMAGE_USE_PDFTOCAIRO = os.getenv("PDF_IMAGE_USE_PDFTOCAIRO", "true").lower() == "true"  # Better quality
+PDF_IMAGE_FORMAT = os.getenv("PDF_IMAGE_FORMAT", "png").strip().lower()
+PDF_IMAGE_DPI = _safe_int("PDF_IMAGE_DPI", 200, min_val=72)
+PDF_IMAGE_THREAD_COUNT = _safe_int("PDF_IMAGE_THREAD_COUNT", 4, min_val=1)
+PDF_IMAGE_USE_PDFTOCAIRO = _safe_bool("PDF_IMAGE_USE_PDFTOCAIRO", True)
 
 # ============================================================================
 # System Configuration
@@ -300,15 +313,15 @@ GHOSTSCRIPT_PATH = os.getenv("GHOSTSCRIPT_PATH", "")
 
 # Caching
 CACHE_DURATION_HOURS = _safe_int("CACHE_DURATION_HOURS", 24)
-AUTO_CLEAR_CACHE = os.getenv("AUTO_CLEAR_CACHE", "true").lower() == "true"
+AUTO_CLEAR_CACHE = _safe_bool("AUTO_CLEAR_CACHE", True)
 
 # Logging
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
-SAVE_PROCESSING_LOGS = os.getenv("SAVE_PROCESSING_LOGS", "true").lower() == "true"
-VERBOSE_PROGRESS = os.getenv("VERBOSE_PROGRESS", "true").lower() == "true"
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").strip().upper()
+SAVE_PROCESSING_LOGS = _safe_bool("SAVE_PROCESSING_LOGS", True)
+VERBOSE_PROGRESS = _safe_bool("VERBOSE_PROGRESS", True)
 
 # Performance
-MAX_CONCURRENT_FILES = _safe_int("MAX_CONCURRENT_FILES", 5)
+MAX_CONCURRENT_FILES = _safe_int("MAX_CONCURRENT_FILES", 5, min_val=1)
 
 # API cost guardrails
 MAX_BATCH_FILES = _safe_int("MAX_BATCH_FILES", 100)
@@ -320,7 +333,7 @@ MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT = _safe_int("MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT",
 MISTRAL_QNA_DOCUMENT_PAGE_LIMIT = _safe_int("MISTRAL_QNA_DOCUMENT_PAGE_LIMIT", 0)  # 0 = API default (64)
 
 # Batch processing advanced configuration
-MISTRAL_BATCH_TIMEOUT_HOURS = _safe_int("MISTRAL_BATCH_TIMEOUT_HOURS", 24)
+MISTRAL_BATCH_TIMEOUT_HOURS = _safe_int("MISTRAL_BATCH_TIMEOUT_HOURS", 24, min_val=1)
 
 # Retry Configuration (for Mistral API calls)
 # Set to 0 to disable retries entirely. Actual retry count is bounded by
@@ -328,18 +341,18 @@ MISTRAL_BATCH_TIMEOUT_HOURS = _safe_int("MISTRAL_BATCH_TIMEOUT_HOURS", 24)
 MAX_RETRIES = _safe_int("MAX_RETRIES", 3)
 RETRY_INITIAL_INTERVAL_MS = _safe_int("RETRY_INITIAL_INTERVAL_MS", 1000)  # 1 second
 RETRY_MAX_INTERVAL_MS = _safe_int("RETRY_MAX_INTERVAL_MS", 10000)  # 10 seconds
-RETRY_EXPONENT = _safe_float("RETRY_EXPONENT", 2.0)  # Exponential backoff
+RETRY_EXPONENT = _safe_float("RETRY_EXPONENT", 2.0, min_val=1.0)  # Exponential backoff
 RETRY_MAX_ELAPSED_TIME_MS = _safe_int("RETRY_MAX_ELAPSED_TIME_MS", 60000)  # 1 minute
-RETRY_CONNECTION_ERRORS = os.getenv("RETRY_CONNECTION_ERRORS", "true").lower() == "true"
+RETRY_CONNECTION_ERRORS = _safe_bool("RETRY_CONNECTION_ERRORS", True)
 
 # ============================================================================
 # Output Configuration
 # ============================================================================
 
-GENERATE_TXT_OUTPUT = os.getenv("GENERATE_TXT_OUTPUT", "true").lower() == "true"
-INCLUDE_METADATA = os.getenv("INCLUDE_METADATA", "true").lower() == "true"
-TABLE_OUTPUT_FORMATS = os.getenv("TABLE_OUTPUT_FORMATS", "markdown,csv").split(",")
-ENABLE_BATCH_METADATA = os.getenv("ENABLE_BATCH_METADATA", "true").lower() == "true"
+GENERATE_TXT_OUTPUT = _safe_bool("GENERATE_TXT_OUTPUT", True)
+INCLUDE_METADATA = _safe_bool("INCLUDE_METADATA", True)
+TABLE_OUTPUT_FORMATS = _safe_csv("TABLE_OUTPUT_FORMATS", "markdown,csv")
+ENABLE_BATCH_METADATA = _safe_bool("ENABLE_BATCH_METADATA", True)
 
 # ============================================================================
 # Mistral Model Configuration
@@ -498,7 +511,6 @@ def validate_configuration() -> List[str]:
         )
 
     # Check for structured output flag conflicts
-    # bbox/document annotations require structured output to be enabled
     if not MISTRAL_ENABLE_STRUCTURED_OUTPUT:
         if MISTRAL_ENABLE_BBOX_ANNOTATION:
             issues.append(
@@ -511,7 +523,7 @@ def validate_configuration() -> List[str]:
                 "MISTRAL_ENABLE_STRUCTURED_OUTPUT is false. Document annotations will be silently disabled."
             )
 
-    # Validate quality threshold ordering
+    # Check OCR quality threshold ordering
     if not (OCR_QUALITY_THRESHOLD_EXCELLENT >= OCR_QUALITY_THRESHOLD_GOOD >= OCR_QUALITY_THRESHOLD_ACCEPTABLE):
         issues.append(
             f"WARNING: OCR quality thresholds are not in descending order "
@@ -519,6 +531,34 @@ def validate_configuration() -> List[str]:
             f"acceptable={OCR_QUALITY_THRESHOLD_ACCEPTABLE}). Quality ratings may be nonsensical."
         )
 
+    # Validate LOG_LEVEL
+    valid_log_levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+    if LOG_LEVEL not in valid_log_levels:
+        issues.append(f"WARNING: LOG_LEVEL={LOG_LEVEL!r} is invalid. Use one of {sorted(valid_log_levels)}.")
+
+    # Validate MISTRAL_DOCUMENT_SCHEMA_TYPE
+    valid_schema_types = {"auto", "invoice", "financial_statement", "form", "generic"}
+    if MISTRAL_DOCUMENT_SCHEMA_TYPE not in valid_schema_types:
+        issues.append(
+            f"WARNING: MISTRAL_DOCUMENT_SCHEMA_TYPE={MISTRAL_DOCUMENT_SCHEMA_TYPE!r} is invalid. "
+            f"Use one of {sorted(valid_schema_types)}."
+        )
+
+    # Validate MISTRAL_TABLE_FORMAT
+    valid_mistral_table_formats = {"", "markdown", "html"}
+    if MISTRAL_TABLE_FORMAT not in valid_mistral_table_formats:
+        issues.append(
+            f"WARNING: MISTRAL_TABLE_FORMAT={MISTRAL_TABLE_FORMAT!r} is invalid. "
+            "Use '', 'markdown', or 'html'."
+        )
+
+    # Validate TABLE_OUTPUT_FORMATS
+    invalid_table_output_formats = set(TABLE_OUTPUT_FORMATS) - {"markdown", "csv"}
+    if invalid_table_output_formats:
+        issues.append(
+            f"WARNING: Unsupported TABLE_OUTPUT_FORMATS={sorted(invalid_table_output_formats)}. "
+            "Supported values: ['csv', 'markdown']."
+        )
     return issues
 
 

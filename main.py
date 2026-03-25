@@ -43,6 +43,31 @@ logger = utils.logger
 
 
 # ============================================================================
+# Helper: file listing and validation
+# ============================================================================
+
+
+def _list_input_files() -> List[Path]:
+    """Return sorted list of files in the input directory."""
+    return sorted(
+        (f for f in config.INPUT_DIR.glob("*.*") if f.is_file()),
+        key=lambda p: p.name.lower(),
+    )
+
+
+def _filter_valid_files(files: List[Path]) -> List[Path]:
+    """Return only valid files, logging warnings for invalid ones."""
+    valid_files = []
+    for file_path in files:
+        is_valid, error = utils.validate_file(file_path)
+        if is_valid:
+            valid_files.append(file_path)
+        else:
+            logger.warning(error)
+    return valid_files
+
+
+# ============================================================================
 # Helper: concurrent file processing
 # ============================================================================
 
@@ -297,6 +322,36 @@ def mode_document_qna(file_paths: List[Path]) -> Tuple[bool, str]:
         return False, "Document QnA works on one file at a time"
 
     file_path = file_paths[0]
+
+    client = mistral_converter.get_mistral_client()
+    if client is None:
+        return False, "Mistral client not available"
+
+    try:
+        file_size_mb = file_path.stat().st_size / (1024 * 1024)
+        if file_size_mb > 50:
+            return False, (
+                f"File too large for Document QnA ({file_size_mb:.1f} MB). "
+                "Mistral limits documents to 50 MB. Consider splitting the document."
+            )
+    except OSError as e:
+        return False, f"Cannot read file: {e}"
+
+    ttl_seconds = config.MISTRAL_SIGNED_URL_EXPIRY * 3600
+    upload_started_at = 0.0
+    signed_url: Optional[str] = None
+
+    def _get_document_url() -> Optional[str]:
+        nonlocal signed_url, upload_started_at
+        if signed_url and (time.time() - upload_started_at) < ttl_seconds * 0.9:
+            return signed_url
+        signed_url = mistral_converter.upload_file_for_ocr(client, file_path)
+        upload_started_at = time.time()
+        return signed_url
+
+    if not _get_document_url():
+        return False, f"Failed to upload {file_path.name} for QnA"
+
     print(f"\nQuerying: {file_path.name}")
     print(f"Model: {config.MISTRAL_DOCUMENT_QNA_MODEL}")
     print("Type 'exit' or 'quit' to return to menu.\n")
@@ -308,8 +363,14 @@ def mode_document_qna(file_paths: List[Path]) -> Tuple[bool, str]:
             if not question or question.lower() in ("exit", "quit"):
                 break
 
-            success, answer, error = mistral_converter.query_document_file(
-                file_path, question
+            document_url = _get_document_url()
+            if not document_url:
+                print(f"\nError: Failed to refresh document URL for {file_path.name}\n")
+                continue
+
+            success, answer, error = mistral_converter.query_document(
+                document_url,
+                question,
             )
 
             if success:
@@ -515,7 +576,7 @@ def mode_system_status() -> Tuple[bool, str]:
 
 def select_files() -> List[Path]:
     """Prompt user to select files from input directory."""
-    input_files = [f for f in config.INPUT_DIR.glob("*.*") if f.is_file()]
+    input_files = _list_input_files()
 
     if not input_files:
         logger.warning("No files found in %s", config.INPUT_DIR)
@@ -639,11 +700,7 @@ def interactive_menu():
             if not files:
                 continue
 
-            valid_files = [f for f in files if utils.validate_file(f)[0]]
-            for f in files:
-                is_valid, error = utils.validate_file(f)
-                if not is_valid:
-                    logger.warning(error)
+            valid_files = _filter_valid_files(files)
 
             if not valid_files:
                 print("\nNo valid files to process.\n")
@@ -733,38 +790,38 @@ Examples:
         mode_system_status()
         return
 
+    # Status mode doesn't need file selection
+    if args.mode == "status":
+        mode_system_status()
+        return
+
     # Direct mode execution
     if args.mode:
         if args.no_interactive:
-            input_files = [f for f in config.INPUT_DIR.glob("*.*") if f.is_file()]
-            if not input_files:
+            files = _list_input_files()
+            if not files:
                 print(f"No files found in {config.INPUT_DIR}")
                 return
-            files = input_files
             print(f"Non-interactive mode: Processing {len(files)} files from input directory")
         else:
             files = select_files()
             if not files:
                 return
 
-        start_time = time.time()
-        all_success = True
+        files = _filter_valid_files(files)
+        if not files:
+            print("No valid files to process.")
+            sys.exit(1)
 
-        if args.mode == "status":
-            mode_system_status()
-        elif args.mode in _CLI_MODE_DISPATCH:
-            handler = _CLI_MODE_DISPATCH[args.mode]
-            success, message = handler(files)
-            print(f"\n{message}")
-            all_success = success
-        else:
-            print(f"Unknown mode: {args.mode}")
-            all_success = False
+        start_time = time.time()
+        handler = _CLI_MODE_DISPATCH[args.mode]
+        success, message = handler(files)
+        print(f"\n{message}")
 
         elapsed = time.time() - start_time
         print(f"\nTotal processing time: {elapsed:.2f} seconds")
 
-        sys.exit(0 if all_success else 1)
+        sys.exit(0 if success else 1)
 
     # Interactive menu
     interactive_menu()

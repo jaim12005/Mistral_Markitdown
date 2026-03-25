@@ -655,7 +655,7 @@ def get_bbox_schema(schema_type: str = "structured") -> Dict[str, Any]:
 # mistralai.extra.response_format_from_pydantic_model()
 # ============================================================================
 
-def get_bbox_pydantic_model(annotation_type: str = "image") -> Optional[Type]:
+def get_bbox_pydantic_model(annotation_type: str = "structured") -> Optional[Type]:
     """
     Get a Pydantic model class for bounding box annotation.
 

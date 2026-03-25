@@ -1,53 +1,31 @@
-# Python
+.env
+!.env.example
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
-.Python
+.pytest_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
 build/
-develop-eggs/
 dist/
-downloads/
-eggs/
 .eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
 *.egg-info/
-.installed.cfg
-*.egg
-pip-log.txt
-
-# Virtual environments
 env/
 venv/
 .venv/
-ENV/
-env.bak/
-venv.bak/
-
-# IDEs
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# Project specific
-.env
-!.env.example
-*.log
-*.tmp
-*.bak
-cache/
-logs/
-output_md/
-output_txt/
-output_images/
+cache/*
+!cache/.gitkeep
 input/*
+!input/.gitkeep
+logs/*
+!logs/.gitkeep
+output_md/*
+!output_md/.gitkeep
+output_txt/*
+!output_txt/.gitkeep
+output_images/*
+!output_images/.gitkeep
 !input/.gitkeep
 
 # Testing

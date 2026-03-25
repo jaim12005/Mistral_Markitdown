@@ -258,11 +258,11 @@ def get_bbox_annotation_format() -> Optional[Dict[str, Any]]:
     Returns:
         ResponseFormat dict for bbox annotation, or None if disabled
     """
-    if not config.MISTRAL_ENABLE_BBOX_ANNOTATION:
+    if not config.MISTRAL_ENABLE_STRUCTURED_OUTPUT or not config.MISTRAL_ENABLE_BBOX_ANNOTATION:
         return None
 
     # Try to get JSON schema from Pydantic model (preferred - type-safe)
-    pydantic_model = schemas.get_bbox_pydantic_model()
+    pydantic_model = schemas.get_bbox_pydantic_model("structured")
     if pydantic_model is not None:
         try:
             json_schema = _extract_model_json_schema(pydantic_model)
@@ -298,7 +298,7 @@ def get_document_annotation_format(doc_type: str = "auto") -> Optional[Dict[str,
     Returns:
         ResponseFormat dict for document annotation, or None if disabled
     """
-    if not config.MISTRAL_ENABLE_DOCUMENT_ANNOTATION:
+    if not config.MISTRAL_ENABLE_STRUCTURED_OUTPUT or not config.MISTRAL_ENABLE_DOCUMENT_ANNOTATION:
         return None
 
     if doc_type == "auto":
@@ -346,24 +346,25 @@ def optimize_image(image_path: Path) -> Optional[Path]:
         return image_path
 
     try:
-        img = Image.open(image_path)
+        resample = Image.Resampling.LANCZOS if hasattr(Image, "Resampling") else Image.LANCZOS
 
-        # Check if optimization needed
-        width, height = img.size
-        max_dim = config.MISTRAL_MAX_IMAGE_DIMENSION
+        with Image.open(image_path) as src:
+            # Check if optimization needed
+            width, height = src.size
+            max_dim = config.MISTRAL_MAX_IMAGE_DIMENSION
 
-        if width <= max_dim and height <= max_dim:
-            return image_path  # No optimization needed
+            if width <= max_dim and height <= max_dim:
+                return image_path  # No optimization needed
 
-        # Resize while maintaining aspect ratio
-        if width > height:
-            new_width = max_dim
-            new_height = int(height * (max_dim / width))
-        else:
-            new_height = max_dim
-            new_width = int(width * (max_dim / height))
+            # Resize while maintaining aspect ratio
+            if width > height:
+                new_width = max_dim
+                new_height = int(height * (max_dim / width))
+            else:
+                new_height = max_dim
+                new_width = int(width * (max_dim / height))
 
-        img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+            img = src.resize((new_width, new_height), resample)
 
         # Save optimized image with format-appropriate parameters
         optimized_path = (
@@ -371,14 +372,10 @@ def optimize_image(image_path: Path) -> Optional[Path]:
         )
 
         # Use different save parameters based on format
-        if img.format == "PNG" or image_path.suffix.lower() == ".png":
-            # PNG supports optimize and compress_level, not quality
+        suffix = image_path.suffix.lower()
+        if suffix == ".png":
             img.save(optimized_path, format="PNG", optimize=True, compress_level=6)
-        elif img.format in ["JPEG", "JPG"] or image_path.suffix.lower() in [
-            ".jpg",
-            ".jpeg",
-        ]:
-            # JPEG supports quality parameter
+        elif suffix in {".jpg", ".jpeg"}:
             img.save(
                 optimized_path,
                 format="JPEG",
@@ -386,7 +383,6 @@ def optimize_image(image_path: Path) -> Optional[Path]:
                 optimize=True,
             )
         else:
-            # For other formats, save with optimize only
             img.save(optimized_path, optimize=True)
 
         logger.debug(f"Optimized image: {image_path.name} -> {optimized_path.name}")
@@ -413,25 +409,20 @@ def preprocess_image(image_path: Path) -> Optional[Path]:
     try:
         from PIL import ImageEnhance
 
-        img = Image.open(image_path)
-
-        # Convert to RGB if needed
-        if img.mode != "RGB":
-            img = img.convert("RGB")
+        with Image.open(image_path) as src:
+            img = src.convert("RGB")
 
         # Enhance contrast
-        enhancer = ImageEnhance.Contrast(img)
-        img = enhancer.enhance(1.5)
+        img = ImageEnhance.Contrast(img).enhance(1.5)
 
         # Enhance sharpness
-        enhancer = ImageEnhance.Sharpness(img)
-        img = enhancer.enhance(1.3)
+        img = ImageEnhance.Sharpness(img).enhance(1.3)
 
         # Save preprocessed image with format-appropriate parameters
         preprocessed_path = (
             image_path.parent / f"{image_path.stem}_preprocessed{image_path.suffix}"
         )
-        if image_path.suffix.lower() in [".jpg", ".jpeg"]:
+        if image_path.suffix.lower() in {".jpg", ".jpeg"}:
             img.save(preprocessed_path, format="JPEG", quality=95, optimize=True)
         elif image_path.suffix.lower() == ".png":
             img.save(preprocessed_path, format="PNG", optimize=True)
@@ -532,7 +523,11 @@ def cleanup_uploaded_files(client: Mistral, days_old: Optional[int] = None) -> i
         return 0
 
 
-def upload_file_for_ocr(client: Mistral, file_path: Path) -> Optional[str]:
+def upload_file_for_ocr(
+    client: Mistral,
+    file_path: Path,
+    expiry_hours: Optional[int] = None,
+) -> Optional[str]:
     """
     Upload file to Mistral using Files API with purpose="ocr" and get signed URL.
 
@@ -545,6 +540,7 @@ def upload_file_for_ocr(client: Mistral, file_path: Path) -> Optional[str]:
     Args:
         client: Mistral client instance
         file_path: Path to file to upload
+        expiry_hours: Signed URL expiry in hours (default: from config)
 
     Returns:
         Signed URL if successful, None otherwise
@@ -552,6 +548,8 @@ def upload_file_for_ocr(client: Mistral, file_path: Path) -> Optional[str]:
     temp_files_to_cleanup: List[Path] = []
 
     try:
+        if expiry_hours is None:
+            expiry_hours = config.MISTRAL_SIGNED_URL_EXPIRY
         # Apply preprocessing to images (if enabled)
         # Note: This does NOT work for PDFs - only for standalone image files
         processed_file_path = file_path
@@ -597,7 +595,7 @@ def upload_file_for_ocr(client: Mistral, file_path: Path) -> Optional[str]:
         # Get signed URL for the uploaded file
         signed_url_response = client.files.get_signed_url(
             file_id=response.id,
-            expiry=config.MISTRAL_SIGNED_URL_EXPIRY,  # URL expiry in hours
+            expiry=expiry_hours,  # URL expiry in hours
         )
 
         if hasattr(signed_url_response, "url"):
@@ -1199,6 +1197,9 @@ def assess_ocr_quality(ocr_result: Dict[str, Any]) -> Dict[str, Any]:
         assessment["issues"].append(
             f"High repetition (uniqueness: {assessment['uniqueness_ratio']:.1%})"
         )
+
+    # Clamp score to [0, 100]
+    assessment["quality_score"] = max(0.0, min(100.0, assessment["quality_score"]))
 
     # Final verdict (configurable via OCR_QUALITY_THRESHOLD_ACCEPTABLE)
     if assessment["quality_score"] < config.OCR_QUALITY_THRESHOLD_ACCEPTABLE:
@@ -1863,7 +1864,7 @@ def create_batch_ocr_file(
     file_paths: List[Path],
     output_file: Path,
     model: Optional[str] = None,
-    include_image_base64: bool = True,
+    include_image_base64: Optional[bool] = None,
 ) -> Tuple[bool, Optional[Path], Optional[str]]:
     """
     Create a JSONL batch file for OCR processing.
@@ -1896,6 +1897,15 @@ def create_batch_ocr_file(
     if model is None:
         model = config.get_ocr_model()
     
+    if include_image_base64 is None:
+        include_image_base64 = config.MISTRAL_INCLUDE_IMAGES
+    
+    # Use a signed-URL expiry that outlasts the batch timeout
+    batch_signed_url_expiry = max(
+        config.MISTRAL_SIGNED_URL_EXPIRY,
+        config.MISTRAL_BATCH_TIMEOUT_HOURS + 1,
+    )
+    
     try:
         logger.info(f"Creating batch OCR file for {len(file_paths)} documents...")
         
@@ -1903,7 +1913,7 @@ def create_batch_ocr_file(
         
         for idx, file_path in enumerate(file_paths):
             # Upload file and get signed URL
-            signed_url = upload_file_for_ocr(client, file_path)
+            signed_url = upload_file_for_ocr(client, file_path, expiry_hours=batch_signed_url_expiry)
             if not signed_url:
                 logger.warning(f"Failed to upload {file_path.name}, skipping...")
                 continue

@@ -69,6 +69,8 @@ def setup_logging(log_file: Optional[str] = None) -> logging.Logger:
 # Default logger
 logger = setup_logging()
 
+_FRONTMATTER_RE = re.compile(r"\A---\s*\r?\n.*?\r?\n---\s*(?:\r?\n)?", re.DOTALL)
+
 # ============================================================================
 # Intelligent Caching System
 # ============================================================================
@@ -582,10 +584,7 @@ def markdown_to_text(markdown_content: str) -> str:
     Returns:
         Plain text string
     """
-    text = markdown_content
-
-    # Remove YAML frontmatter
-    text = re.sub(r'^---\n.*?\n---\n', '', text, flags=re.DOTALL)
+    text = strip_yaml_frontmatter(markdown_content)
 
     # Remove images
     text = re.sub(r'!\[.*?\]\(.*?\)', '', text)
@@ -736,12 +735,16 @@ def print_progress(current: int, total: int, prefix: str = "Progress") -> None:
     if not config.VERBOSE_PROGRESS:
         return
 
-    percent = (current / total) * 100 if total > 0 else 0
+    if total <= 0:
+        print(f"\r{prefix}: [----------------------------------------] 0.0% (0/0)", end="", flush=True)
+        return
+
+    current = max(0, min(current, total))
+    percent = (current / total) * 100
     bar_length = 40
-    filled = int(bar_length * current // total) if total > 0 else 0
+    filled = int(bar_length * current / total)
     bar = '=' * filled + '-' * (bar_length - filled)
 
-    # Use ASCII characters for better Windows console compatibility
     print(f'\r{prefix}: [{bar}] {percent:.1f}% ({current}/{total})', end='', flush=True)
 
     if current == total:
@@ -784,13 +787,23 @@ def safe_output_stem(file_path: Path) -> str:
     avoid collisions when multiple files share the same name (e.g. from different
     directories passed programmatically).
 
-    For files in the standard input directory, this just returns ``file_path.stem``.
-    For files elsewhere, it appends ``_<4-char hash>`` derived from the full path.
+    For files in the standard input directory, this checks for same-stem collisions
+    (e.g. report.pdf and report.docx) and appends ``_<ext>`` when needed.
+    For files elsewhere, it appends ``_<6-char hash>`` derived from the full path.
     """
     stem = file_path.stem
+    ext = file_path.suffix.lower().lstrip(".")
     try:
         resolved = file_path.resolve()
-        if resolved.parent != config.INPUT_DIR.resolve():
+        input_dir = config.INPUT_DIR.resolve()
+        if resolved.parent == input_dir:
+            collisions = [
+                p for p in input_dir.glob(f"{stem}.*")
+                if p.is_file() and p.suffix.lower() != file_path.suffix.lower()
+            ]
+            if collisions:
+                return f"{stem}_{ext}"
+        else:
             path_hash = hashlib.sha256(str(resolved).encode()).hexdigest()[:6]
             return f"{stem}_{path_hash}"
     except (OSError, ValueError):
@@ -858,11 +871,4 @@ def strip_yaml_frontmatter(content: str) -> str:
     Returns:
         Content without frontmatter
     """
-    # Pattern to match YAML frontmatter at the start of content
-    # Matches: ---\n...anything...\n---\n
-    pattern = r'^---\s*\n.*?\n---\s*\n'
-
-    # Remove frontmatter if found
-    cleaned = re.sub(pattern, '', content, count=1, flags=re.DOTALL)
-
-    return cleaned.strip()
+    return _FRONTMATTER_RE.sub("", content, count=1).strip()

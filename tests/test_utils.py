@@ -6,6 +6,7 @@ import concurrent.futures
 import json
 import os
 import tempfile
+import unittest.mock
 from pathlib import Path
 import pytest
 
@@ -15,7 +16,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import utils
-
+import config
 
 class TestIntelligentCache:
     """Test the IntelligentCache class."""
@@ -280,17 +281,11 @@ class TestYAMLFrontmatter:
 title: "Test"
 date: 2025-01-01
 ---
-
-# Content starts here
-
 This is the actual content.
 """
         result = utils.strip_yaml_frontmatter(content)
 
-        assert "---" not in result
-        assert "title:" not in result
-        assert "# Content starts here" in result
-        assert "This is the actual content." in result
+        assert result == "This is the actual content."
 
 
 class TestMetadataTracker:
@@ -324,6 +319,24 @@ class TestMetadataTracker:
         assert tracker.metadata["successful"] == 0
         assert tracker.metadata["failed"] == 1
         assert tracker.metadata["files_processed"][0]["error"] == "Test error"
+
+
+class TestOutputNaming:
+    """Test output file naming and collision handling."""
+
+    def test_safe_output_stem_disambiguates_same_stem(self, tmp_path):
+        """When two files share the same stem, each gets a _ext suffix."""
+        # Create two files with the same stem but different extensions
+        (tmp_path / "report.pdf").touch()
+        (tmp_path / "report.docx").touch()
+
+        with unittest.mock.patch.object(config, "INPUT_DIR", tmp_path):
+            stem_pdf = utils.safe_output_stem(tmp_path / "report.pdf")
+            stem_docx = utils.safe_output_stem(tmp_path / "report.docx")
+
+        assert stem_pdf != stem_docx
+        assert "pdf" in stem_pdf
+        assert "docx" in stem_docx
 
 
 if __name__ == "__main__":

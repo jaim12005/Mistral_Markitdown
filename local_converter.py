@@ -825,31 +825,34 @@ def analyze_file_content(file_path: Path) -> Dict[str, Any]:
             with pdfplumber.open(file_path) as pdf:
                 analysis["page_count"] = len(pdf.pages)
 
-                # Check first page for content type
-                first_page = pdf.pages[0] if pdf.pages else None
-                if first_page:
-                    # Check if text-based (can extract text directly)
-                    text = first_page.extract_text()
-                    analysis["is_text_based"] = bool(text and len(text.strip()) > 50)
+                # Sample up to 3 pages for content type detection
+                sampled_pages = pdf.pages[: min(3, len(pdf.pages))]
+                text_pages = 0
 
-                    # Check for tables
-                    tables = first_page.extract_tables()
-                    analysis["has_tables"] = bool(tables)
+                for page in sampled_pages:
+                    text = (page.extract_text() or "").strip()
+                    if len(text) > 50:
+                        text_pages += 1
 
-                # Check for images in first few pages
-                for page in pdf.pages[:min(3, len(pdf.pages))]:
+                    if page.extract_tables():
+                        analysis["has_tables"] = True
+
                     if page.images:
                         analysis["has_images"] = True
-                        break
 
-                # Complex if: multi-page with images OR text-based but lots of tables
+                # Text-based if majority of sampled pages have text
+                if sampled_pages:
+                    analysis["is_text_based"] = text_pages >= max(1, (len(sampled_pages) + 1) // 2)
+
+                # Complex if: multi-page with images OR text-less with tables/images
                 analysis["is_complex"] = (
-                    (analysis["page_count"] > 5 and analysis["has_images"]) or
-                    (analysis["has_tables"] and not analysis["is_text_based"])
+                    (analysis["page_count"] > 5 and analysis["has_images"])
+                    or (analysis["has_tables"] and not analysis["is_text_based"])
+                    or (analysis["has_images"] and not analysis["is_text_based"])
                 )
 
         except Exception as e:
-            logger.debug(f"Error analyzing PDF: {e}")
+            logger.debug("Error analyzing PDF: %s", e)
 
     # Image files
     elif analysis["file_type"] in config.IMAGE_EXTENSIONS:
