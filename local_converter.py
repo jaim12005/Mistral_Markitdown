@@ -668,41 +668,42 @@ def save_tables_to_files(pdf_path: Path, tables: List[List[List[str]]]) -> List[
     created_files = []
     base_name = utils.safe_output_stem(pdf_path)
 
-    # Save all tables as markdown
-    md_path = config.OUTPUT_MD_DIR / f"{base_name}_tables_all.md"
+    # Save all tables as markdown (only when "markdown" is in TABLE_OUTPUT_FORMATS)
+    if "markdown" in config.TABLE_OUTPUT_FORMATS:
+        md_path = config.OUTPUT_MD_DIR / f"{base_name}_tables_all.md"
 
-    frontmatter = utils.generate_yaml_frontmatter(
-        title=f"Tables from {pdf_path.name}",
-        file_name=pdf_path.name,
-        conversion_method="Table Extraction (Enhanced)",
-        additional_fields={"table_count": len(tables)},
-    )
+        frontmatter = utils.generate_yaml_frontmatter(
+            title=f"Tables from {pdf_path.name}",
+            file_name=pdf_path.name,
+            conversion_method="Table Extraction (Enhanced)",
+            additional_fields={"table_count": len(tables)},
+        )
 
-    md_content = frontmatter + f"\n# Tables Extracted from {pdf_path.name}\n\n"
-    md_content += f"**Total tables found:** {len(tables)}\n\n"
+        md_content = frontmatter + f"\n# Tables Extracted from {pdf_path.name}\n\n"
+        md_content += f"**Total tables found:** {len(tables)}\n\n"
 
-    for i, table in enumerate(tables, 1):
-        md_content += f"## Table {i}\n\n"
+        for i, table in enumerate(tables, 1):
+            md_content += f"## Table {i}\n\n"
 
-        # Normalize headers and clean the table
-        headers, data_rows = utils.normalize_table_headers(table)
+            # Normalize headers and clean the table
+            headers, data_rows = utils.normalize_table_headers(table)
 
-        if headers and data_rows:
-            md_content += utils.format_table_to_markdown(data_rows, headers=headers)
-        else:
-            # Fallback if normalization fails
-            md_content += utils.format_table_to_markdown(table)
+            if headers and data_rows:
+                md_content += utils.format_table_to_markdown(data_rows, headers=headers)
+            else:
+                # Fallback if normalization fails
+                md_content += utils.format_table_to_markdown(table)
 
-        md_content += "\n\n---\n\n"
+            md_content += "\n\n---\n\n"
 
-    with open(md_path, "w", encoding="utf-8") as f:
-        f.write(md_content)
+        with open(md_path, "w", encoding="utf-8") as f:
+            f.write(md_content)
 
-    created_files.append(md_path)
-    logger.info("Saved: %s", md_path.name)
+        created_files.append(md_path)
+        logger.info("Saved: %s", md_path.name)
 
-    # Save text version
-    utils.save_text_output(md_path, md_content)
+        # Save text version
+        utils.save_text_output(md_path, md_content)
 
     # Save as CSV if requested
     if "csv" in config.TABLE_OUTPUT_FORMATS:

@@ -714,12 +714,16 @@ def print_progress(current: int, total: int, prefix: str = "Progress") -> None:
 # ============================================================================
 
 
-def validate_file(file_path: Path) -> Tuple[bool, Optional[str]]:
+def validate_file(file_path: Path, mode: Optional[str] = None) -> Tuple[bool, Optional[str]]:
     """
     Validate if a file can be processed.
 
     Args:
         file_path: Path to file
+        mode: Conversion mode to validate against. When ``"markitdown"``,
+              only MarkItDown-supported extensions are accepted. When
+              ``"mistral_ocr"``, only Mistral OCR-supported extensions are
+              accepted. ``None`` or ``"smart"`` accepts the union of both.
 
     Returns:
         Tuple of (is_valid, error_message)
@@ -733,12 +737,19 @@ def validate_file(file_path: Path) -> Tuple[bool, Optional[str]]:
     if file_path.stat().st_size == 0:
         return False, f"File is empty: {file_path.name}"
 
-    # Check file extension
+    # Check file extension against the correct set for the requested mode
     ext = file_path.suffix.lower().lstrip(".")
-    supported = config.MARKITDOWN_SUPPORTED | config.MISTRAL_OCR_SUPPORTED
+
+    if mode == "markitdown":
+        supported = config.MARKITDOWN_SUPPORTED
+    elif mode == "mistral_ocr":
+        supported = config.MISTRAL_OCR_SUPPORTED
+    else:
+        # smart / None / pdf_to_images / qna / batch_ocr — accept all
+        supported = config.MARKITDOWN_SUPPORTED | config.MISTRAL_OCR_SUPPORTED
 
     if ext not in supported:
-        return False, f"Unsupported file type: .{ext}"
+        return False, f"Unsupported file type for {mode or 'this'} mode: .{ext}"
 
     return True, None
 

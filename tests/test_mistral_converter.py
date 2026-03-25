@@ -5025,6 +5025,15 @@ class TestImproveWeakPagesUrlRefreshFail:
             upload_calls[0] += 1
             return f"https://url/{upload_calls[0]}"
 
+        # Simulate advancing clock so that the elapsed-time check
+        # (time.time() - upload_time) > 0  always returns True after
+        # the initial upload.
+        _time_counter = [1000.0]
+
+        def advancing_time():
+            _time_counter[0] += 1.0
+            return _time_counter[0]
+
         with patch.object(
             mistral_converter,
             "upload_file_for_ocr",
@@ -5049,12 +5058,13 @@ class TestImproveWeakPagesUrlRefreshFail:
                     None,
                 ),
             ):
-                result = mistral_converter.improve_weak_pages(
-                    MagicMock(),
-                    Path("test.pdf"),
-                    ocr_result,
-                    "model",
-                )
+                with patch("time.time", side_effect=advancing_time):
+                    result = mistral_converter.improve_weak_pages(
+                        MagicMock(),
+                        Path("test.pdf"),
+                        ocr_result,
+                        "model",
+                    )
 
         # Should have called upload at least twice (initial + refresh)
         assert upload_calls[0] >= 2

@@ -55,11 +55,17 @@ def _list_input_files() -> List[Path]:
     )
 
 
-def _filter_valid_files(files: List[Path]) -> List[Path]:
-    """Return only valid files, logging warnings for invalid ones."""
+def _filter_valid_files(files: List[Path], mode: Optional[str] = None) -> List[Path]:
+    """Return only valid files, logging warnings for invalid ones.
+
+    Args:
+        files: List of file paths to validate.
+        mode: Conversion mode (``"markitdown"``, ``"mistral_ocr"``, etc.).
+              Passed through to ``utils.validate_file`` for per-mode extension checks.
+    """
     valid_files = []
     for file_path in files:
-        is_valid, error = utils.validate_file(file_path)
+        is_valid, error = utils.validate_file(file_path, mode=mode)
         if is_valid:
             valid_files.append(file_path)
         else:
@@ -277,6 +283,9 @@ def mode_markitdown_only(file_paths: List[Path]) -> Tuple[bool, str]:
 
 def mode_mistral_ocr_only(file_paths: List[Path]) -> Tuple[bool, str]:
     """Force all files through Mistral OCR (cloud processing)."""
+    if not config.MISTRAL_API_KEY:
+        return False, "Mistral OCR requires MISTRAL_API_KEY to be set"
+
     logger.info("MISTRAL OCR MODE: Processing %d file(s)", len(file_paths))
 
     successful, failed = _process_files_concurrently(
@@ -515,7 +524,7 @@ def mode_batch_ocr(file_paths: List[Path]) -> Tuple[bool, str]:
 
 
 def mode_system_status() -> Tuple[bool, str]:
-    """Display cache statistics and system info."""
+    """Display cache statistics and system info (read-only, no side effects)."""
     logger.info("SYSTEM STATUS MODE")
 
     print("\n" + "=" * 60)
@@ -530,7 +539,7 @@ def mode_system_status() -> Tuple[bool, str]:
     print(f"  * Cache Duration: {config.CACHE_DURATION_HOURS} hours")
     print(f"  * Max Concurrent Files: {config.MAX_CONCURRENT_FILES}")
     print(f"  * Mistral OCR Model: {config.get_ocr_model()}")
-    print(f"  * Table Format: {config.MISTRAL_TABLE_FORMAT or 'markdown (default)'}")
+    print(f"  * Table Format: {config.MISTRAL_TABLE_FORMAT or 'API default (unset)'}")
     print(f"  * Extract Headers/Footers: {config.MISTRAL_EXTRACT_HEADER}/{config.MISTRAL_EXTRACT_FOOTER}")
     print(f"  * ExifTool: {'Set' if config.MARKITDOWN_EXIFTOOL_PATH else 'Not configured'}")
     print(f"  * Style Map: {'Set' if config.MARKITDOWN_STYLE_MAP else 'Not configured'}")
@@ -573,22 +582,7 @@ def mode_system_status() -> Tuple[bool, str]:
         recommendations.append("! Set MISTRAL_API_KEY to enable OCR features")
 
     if cache_stats["total_entries"] > 100:
-        recommendations.append("* Consider clearing old cache entries")
-
-    if config.AUTO_CLEAR_CACHE:
-        cleared = utils.cache.clear_old_entries()
-        if cleared > 0:
-            recommendations.append(f"  Cleared {cleared} expired cache entries")
-
-    if config.CLEANUP_OLD_UPLOADS and config.MISTRAL_API_KEY:
-        try:
-            client = mistral_converter.get_mistral_client()
-            if client:
-                deleted = mistral_converter.cleanup_uploaded_files(client)
-                if deleted > 0:
-                    recommendations.append(f"  Cleaned up {deleted} old uploaded files from Mistral")
-        except Exception as e:
-            logger.debug("Could not clean up uploads: %s", e)
+        recommendations.append("* Consider running Maintenance (option 8) to clear old cache entries")
 
     if not recommendations:
         recommendations.append("  All systems operational")
@@ -599,6 +593,59 @@ def mode_system_status() -> Tuple[bool, str]:
     print("\n" + "=" * 60 + "\n")
 
     return True, "System status displayed"
+
+
+def mode_maintenance() -> Tuple[bool, str]:
+    """Run maintenance tasks: clear expired cache entries and old uploaded files."""
+    logger.info("MAINTENANCE MODE")
+
+    print("\n" + "=" * 60)
+    print("  MAINTENANCE")
+    print("=" * 60 + "\n")
+
+    actions_taken = []
+
+    # 1. Clear expired cache entries
+    if config.AUTO_CLEAR_CACHE:
+        cleared = utils.cache.clear_old_entries()
+        if cleared > 0:
+            msg = f"Cleared {cleared} expired cache entries"
+            print(f"  ✓ {msg}")
+            actions_taken.append(msg)
+        else:
+            print("  - No expired cache entries to clear")
+    else:
+        print("  - Cache auto-clear is disabled (AUTO_CLEAR_CACHE=false)")
+
+    # 2. Clean up old uploaded files from Mistral
+    if config.CLEANUP_OLD_UPLOADS and config.MISTRAL_API_KEY:
+        try:
+            client = mistral_converter.get_mistral_client()
+            if client:
+                deleted = mistral_converter.cleanup_uploaded_files(client)
+                if deleted > 0:
+                    msg = f"Cleaned up {deleted} old uploaded files from Mistral (>{config.UPLOAD_RETENTION_DAYS} days)"
+                    print(f"  ✓ {msg}")
+                    actions_taken.append(msg)
+                else:
+                    print("  - No old uploaded files to clean up")
+            else:
+                print("  - Mistral client not available")
+        except Exception as e:
+            logger.debug("Could not clean up uploads: %s", e)
+            print(f"  ! Upload cleanup failed: {e}")
+    elif not config.MISTRAL_API_KEY:
+        print("  - Skipping upload cleanup (no API key)")
+    else:
+        print("  - Upload cleanup is disabled (CLEANUP_OLD_UPLOADS=false)")
+
+    if not actions_taken:
+        print("\n  No maintenance actions were needed.")
+
+    print("\n" + "=" * 60 + "\n")
+
+    summary = "; ".join(actions_taken) if actions_taken else "No actions needed"
+    return True, f"Maintenance complete: {summary}"
 
 
 # ============================================================================
@@ -687,6 +734,9 @@ def show_menu():
     print("  7. System Status")
     print("     Cache stats, config info, and diagnostics")
     print()
+    print("  8. Maintenance")
+    print("     Clear cache, clean up old uploads")
+    print()
     print("  0. Exit")
     print("\n" + "=" * 60 + "\n")
 
@@ -711,7 +761,7 @@ def interactive_menu():
         show_menu()
 
         try:
-            choice = input("Enter your choice (0-7): ").strip()
+            choice = input("Enter your choice (0-8): ").strip()
 
             if choice == "0":
                 print("\nExiting. Goodbye!\n")
@@ -722,15 +772,21 @@ def interactive_menu():
                 input("\nPress Enter to continue...")
                 continue
 
+            if choice == "8":
+                mode_maintenance()
+                input("\nPress Enter to continue...")
+                continue
+
             if choice not in MODE_DISPATCH:
-                print("\nInvalid choice. Please enter a number between 0 and 7.\n")
+                print("\nInvalid choice. Please enter a number between 0 and 8.\n")
                 continue
 
             files = select_files()
             if not files:
                 continue
 
-            valid_files = _filter_valid_files(files)
+            _, (cli_mode, handler) = choice, MODE_DISPATCH[choice]
+            valid_files = _filter_valid_files(files, mode=cli_mode)
 
             if not valid_files:
                 print("\nNo valid files to process.\n")
@@ -738,7 +794,6 @@ def interactive_menu():
                 continue
 
             start_time = time.time()
-            _, handler = MODE_DISPATCH[choice]
             success, message = handler(valid_files)
             print(f"\n{message}")
 
@@ -784,6 +839,7 @@ Examples:
             "markitdown",
             "mistral_ocr",
             "pdf_to_images",
+            "maintenance",
             "status",
             "qna",
             "batch_ocr",
@@ -813,6 +869,10 @@ Examples:
     if issues:
         for issue in issues:
             print(issue)
+
+    # Wire up file-based processing log if enabled
+    if config.SAVE_PROCESSING_LOGS:
+        utils.setup_logging(log_file=str(config.LOGS_DIR / "processing.log"))
         print()
 
     # Test mode
@@ -824,6 +884,10 @@ Examples:
     # Status mode doesn't need file selection
     if args.mode == "status":
         mode_system_status()
+        return
+
+    if args.mode == "maintenance":
+        mode_maintenance()
         return
 
     # Direct mode execution
@@ -839,7 +903,7 @@ Examples:
             if not files:
                 return
 
-        files = _filter_valid_files(files)
+        files = _filter_valid_files(files, mode=args.mode)
         if not files:
             print("No valid files to process.")
             sys.exit(1)

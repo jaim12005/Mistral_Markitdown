@@ -398,7 +398,7 @@ def get_bbox_pydantic_model(annotation_type: str = "structured") -> Type:
     Returns:
         Pydantic model class
     """
-    return _BBOX_MODEL_MAP.get(annotation_type, ImageAnnotation)
+    return _BBOX_MODEL_MAP.get(annotation_type, BBoxStructuredAnnotation)
 
 
 def get_document_pydantic_model(doc_type: str = "generic") -> Type:

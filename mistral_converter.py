@@ -53,10 +53,8 @@ try:
     from mistralai import Mistral, models
     from mistralai.utils import retries
 except ImportError:
-    import logging as _logging
-
-    _logging.getLogger("document_converter").warning(
-        "mistralai package not available. Install with: pip install mistralai"
+    print(
+        "WARNING: mistralai package not available. Install with: pip install mistralai"
     )
     Mistral = None
     models = None

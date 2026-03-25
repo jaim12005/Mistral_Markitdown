@@ -76,6 +76,14 @@ if errorlevel 1 (
     echo All packages installed successfully.
 )
 
+REM Verify critical dependency
+env\Scripts\python.exe -c "import mistralai" >nul 2>&1
+if errorlevel 1 (
+    echo WARNING: mistralai package failed to install.
+    echo          Check logs\pip_install.log for errors.
+    echo          Try: env\Scripts\python.exe -m pip install --no-cache-dir mistralai
+)
+
 REM Save installed versions
 env\Scripts\python.exe -m pip list > logs\installed_versions.txt 2>&1
 echo Installed package versions saved to logs\installed_versions.txt

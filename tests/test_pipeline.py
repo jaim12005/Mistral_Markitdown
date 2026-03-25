@@ -231,6 +231,7 @@ class TestModeConcurrency:
     @patch("main.mistral_converter")
     def test_mistral_ocr_processes_all(self, mock_mistral, tmp_path, monkeypatch):
         monkeypatch.setattr(config, "MAX_CONCURRENT_FILES", 2)
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
 
         files = []
         for i in range(2):
