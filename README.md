@@ -17,6 +17,12 @@ source env/bin/activate   # Windows: env\Scripts\activate
 pip install -r requirements.txt
 ```
 
+Or install as a package:
+
+```bash
+pip install .
+```
+
 Or use the platform scripts:
 
 ```bash
@@ -168,7 +174,28 @@ python main.py --mode qna
 # Select a file, then ask questions interactively
 ```
 
-Uses Mistral chat completion with `document_url` content type. Configurable model, system prompt, and page/image limits. A streaming variant (`query_document_stream()`) is also available for real-time token-by-token output.
+Uses Mistral chat completion with `document_url` content type. Configurable model, system prompt, and page/image limits.
+
+#### Streaming QnA
+
+For real-time token-by-token output, use the streaming variant:
+
+```python
+from mistral_converter import query_document_stream
+
+success, stream, error = query_document_stream(
+    "https://arxiv.org/pdf/1805.04770",
+    "What is the main contribution of this paper?"
+)
+
+if success:
+    for chunk in stream:
+        if chunk.data.choices and chunk.data.choices[0].delta.content:
+            print(chunk.data.choices[0].delta.content, end="", flush=True)
+    print()
+```
+
+The interactive QnA mode (mode 5) uses streaming by default.
 
 ### MarkItDown LLM Descriptions
 
@@ -227,6 +254,8 @@ For the full configuration guide: **[CONFIGURATION.md](CONFIGURATION.md)**
 | **[CONFIGURATION.md](CONFIGURATION.md)** | Complete configuration reference |
 | **[KNOWN_ISSUES.md](KNOWN_ISSUES.md)** | Known issues, limitations, troubleshooting |
 | **[CONTRIBUTING.md](CONTRIBUTING.md)** | Development setup and contribution guidelines |
+| **[CHANGELOG.md](CHANGELOG.md)** | Release history and version changes |
+| **[SECURITY.md](SECURITY.md)** | Security policy and vulnerability reporting |
 
 ## Upstream Alignment
 

@@ -8,8 +8,9 @@ version = "3.0.0"
 description = "Enhanced Document Converter with MarkItDown and Mistral AI OCR"
 readme = "README.md"
 requires-python = ">=3.10"
+license = {text = "MIT"}
 authors = [
-    {name = "Enhanced Document Converter Team"}
+    {name = "Enhanced Document Converter Contributors"}
 ]
 keywords = ["document", "conversion", "ocr", "pdf", "markdown", "mistral", "markitdown"]
 classifiers = [
@@ -20,7 +21,39 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Topic :: Text Processing :: Markup :: Markdown",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
+dependencies = [
+    "markitdown[all]>=0.1.5",
+    "mistralai>=2.1.3",
+    "python-dotenv>=1.0.0",
+    "pdfplumber>=0.11.0",
+    "camelot-py>=1.0.0",
+    "pdf2image>=1.17.0",
+    "aiofiles>=24.0.0",
+    "psutil>=5.9.0",
+    "tabulate>=0.9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "flake8>=6.0",
+    "black>=23.0",
+    "isort>=5.12",
+    "mypy>=1.0",
+]
+
+[project.scripts]
+mistral-markitdown = "main:main"
+
+[project.urls]
+Homepage = "https://github.com/jaim12005/Mistral_Markitdown"
+Repository = "https://github.com/jaim12005/Mistral_Markitdown"
+Issues = "https://github.com/jaim12005/Mistral_Markitdown/issues"
+Documentation = "https://github.com/jaim12005/Mistral_Markitdown/blob/main/CONFIGURATION.md"
 
 [tool.black]
 line-length = 120

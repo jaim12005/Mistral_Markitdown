@@ -321,14 +321,24 @@ pre-commit run --all-files
 - **Discussions**: Use GitHub Discussions for questions
 - **Documentation**: Check README.md and docstrings
 
+## Code Standards
+
+- **Docstrings:** Google format (see `mistral_converter.py` for examples)
+- **Commit messages:** Follow [Conventional Commits](https://www.conventionalcommits.org/) — `feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`
+- **Test coverage:** Maintain 75%+ overall coverage; add tests for all new features
+- **PR requirements:** All PRs must pass `make check` (lint + type-check + tests) before merge
+- **Type hints:** Required for all function signatures; run `mypy` to validate
+- **Logging:** Use lazy `%`-formatting (`logger.info("Processing %s", name)`) instead of f-strings
+
 ## Code Review Guidelines
 
 ### For Contributors
 
 - Keep PRs focused and reasonably sized
-- Write clear commit messages
+- Write clear commit messages following Conventional Commits
 - Respond to review comments promptly
 - Ensure CI passes before requesting review
+- Link PRs to related issues when applicable
 
 ### For Reviewers
 
@@ -343,7 +353,7 @@ By contributing, you agree that your contributions will be licensed under the sa
 
 ---
 
-Thank you for contributing to Enhanced Document Converter! 🎉
+Thank you for contributing to Enhanced Document Converter!
 
 **Version:** 3.0.0
 
@@ -351,3 +361,5 @@ Thank you for contributing to Enhanced Document Converter! 🎉
 - **[README.md](README.md)** - Complete feature documentation
 - **[CONFIGURATION.md](CONFIGURATION.md)** - Configuration reference
 - **[KNOWN_ISSUES.md](KNOWN_ISSUES.md)** - Known issues
+- **[CHANGELOG.md](CHANGELOG.md)** - Release history
+- **[SECURITY.md](SECURITY.md)** - Security policy
