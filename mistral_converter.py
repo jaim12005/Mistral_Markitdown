@@ -21,7 +21,7 @@ import re
 import time
 import traceback
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any, Callable
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 # The mistralai SDK moved its import paths between v1.x and v2.x:
 #   v1.x: from mistralai import Mistral
@@ -29,15 +29,14 @@ from typing import Dict, List, Optional, Tuple, Any, Callable
 # Try v2 first (pinned in requirements.txt), fall back to v1 for dev environments.
 try:
     try:
-        from mistralai.client import Mistral
-        from mistralai.client import models
+        from mistralai.client import Mistral, models
         from mistralai.client.utils import retries
     except ImportError:
-        from mistralai import Mistral
-        from mistralai import models
+        from mistralai import Mistral, models
         from mistralai.utils import retries
 except ImportError as _e:
     import logging as _logging
+
     _logging.getLogger("document_converter").warning(
         "mistralai package not available: %s. Install with: pip install mistralai", _e
     )
@@ -47,9 +46,9 @@ except ImportError as _e:
 
 try:
     try:
-        from mistralai.client.models import DocumentURLChunk, ImageURLChunk, FileChunk
+        from mistralai.client.models import DocumentURLChunk, FileChunk, ImageURLChunk
     except ImportError:
-        from mistralai import DocumentURLChunk, ImageURLChunk, FileChunk
+        from mistralai import DocumentURLChunk, FileChunk, ImageURLChunk
 except ImportError:
     DocumentURLChunk = None
     ImageURLChunk = None
@@ -66,9 +65,8 @@ except ImportError:
     Image = None
 
 import config
-import utils
-import local_converter
 import schemas  # New: JSON schemas for structured extraction
+import utils
 
 logger = utils.logger
 
@@ -145,9 +143,7 @@ def get_mistral_client() -> Optional[Mistral]:
             return None
 
         if not config.MISTRAL_API_KEY:
-            logger.error(
-                "MISTRAL_API_KEY not set. Add it to your .env file in the project root."
-            )
+            logger.error("MISTRAL_API_KEY not set. Add it to your .env file in the project root.")
             return None
 
         try:
@@ -403,9 +399,7 @@ def optimize_image(image_path: Path) -> Optional[Path]:
             img = src.resize((new_width, new_height), resample)
 
         # Save optimized image with format-appropriate parameters
-        optimized_path = (
-            image_path.parent / f"{image_path.stem}_optimized{image_path.suffix}"
-        )
+        optimized_path = image_path.parent / f"{image_path.stem}_optimized{image_path.suffix}"
 
         # Use different save parameters based on format
         suffix = image_path.suffix.lower()
@@ -455,9 +449,7 @@ def preprocess_image(image_path: Path) -> Optional[Path]:
         img = ImageEnhance.Sharpness(img).enhance(1.3)
 
         # Save preprocessed image with format-appropriate parameters
-        preprocessed_path = (
-            image_path.parent / f"{image_path.stem}_preprocessed{image_path.suffix}"
-        )
+        preprocessed_path = image_path.parent / f"{image_path.stem}_preprocessed{image_path.suffix}"
         if image_path.suffix.lower() in {".jpg", ".jpeg"}:
             img.save(preprocessed_path, format="JPEG", quality=95, optimize=True)
         elif image_path.suffix.lower() == ".png":
@@ -506,7 +498,7 @@ def cleanup_uploaded_files(client: Mistral, days_old: Optional[int] = None) -> i
             while True:
                 try:
                     files_response = client.files.list(purpose=purpose, page=page, page_size=page_size)
-                    files_list = files_response.data if hasattr(files_response, 'data') else files_response
+                    files_list = files_response.data if hasattr(files_response, "data") else files_response
                 except Exception as e:
                     logger.debug("Error listing %s files for cleanup (page %s): %s", purpose, page, e)
                     break
@@ -516,12 +508,12 @@ def cleanup_uploaded_files(client: Mistral, days_old: Optional[int] = None) -> i
 
                 for file in files_list:
                     try:
-                        if not hasattr(file, 'created_at'):
+                        if not hasattr(file, "created_at"):
                             continue
 
                         if isinstance(file.created_at, str):
-                            file_created = datetime.fromisoformat(file.created_at.replace('Z', '+00:00'))
-                        elif hasattr(file.created_at, 'replace'):
+                            file_created = datetime.fromisoformat(file.created_at.replace("Z", "+00:00"))
+                        elif hasattr(file.created_at, "replace"):
                             file_created = file.created_at
                             if file_created.tzinfo is None:
                                 file_created = file_created.replace(tzinfo=timezone.utc)
@@ -537,7 +529,7 @@ def cleanup_uploaded_files(client: Mistral, days_old: Optional[int] = None) -> i
                         logger.debug("Error processing %s file %s: %s", purpose, file.id, e)
                         continue
 
-                total = getattr(files_response, 'total', None)
+                total = getattr(files_response, "total", None)
                 if isinstance(total, int) and total >= 0 and (page + 1) * page_size >= total:
                     break
                 if len(files_list) < page_size:
@@ -686,13 +678,13 @@ def upload_file_for_ocr_chunk(client: Mistral, file_path: Path) -> Optional[Any]
 def _cleanup_temp_files(temp_files: List[Path]) -> None:
     """
     Clean up temporary files created during image preprocessing.
-    
+
     Args:
         temp_files: List of temporary file paths to delete
     """
     if not temp_files:
         return
-    
+
     for temp_file in temp_files:
         try:
             if temp_file and temp_file.exists():
@@ -815,13 +807,13 @@ def process_with_ocr(
             "include_image_base64": config.MISTRAL_INCLUDE_IMAGES,
             "retries": retry_config,
         }
-        
+
         # Add optional parameters (only those supported by OCR API)
         if ocr_id is not None:
             ocr_params["id"] = ocr_id
         if pages is not None:
             ocr_params["pages"] = pages
-        
+
         # Add structured output formats if they were successfully created
         if bbox_format is not None:
             ocr_params["bbox_annotation_format"] = bbox_format
@@ -920,17 +912,21 @@ def _parse_page_object(page: Any, idx: int) -> Dict[str, Any]:
     # Images
     if hasattr(page, "images") and page.images:
         for img in page.images:
-            page_data["images"].append({
-                "id": getattr(img, "id", None),
-                "top_left_x": getattr(img, "top_left_x", None),
-                "top_left_y": getattr(img, "top_left_y", None),
-                "bottom_right_x": getattr(img, "bottom_right_x", None),
-                "bottom_right_y": getattr(img, "bottom_right_y", None),
-                "bbox": getattr(img, "bbox", None),
-                "base64": (
-                    getattr(img, "image_base64", None) or getattr(img, "base64", None)
-                ) if config.MISTRAL_INCLUDE_IMAGES else None,
-            })
+            page_data["images"].append(
+                {
+                    "id": getattr(img, "id", None),
+                    "top_left_x": getattr(img, "top_left_x", None),
+                    "top_left_y": getattr(img, "top_left_y", None),
+                    "bottom_right_x": getattr(img, "bottom_right_x", None),
+                    "bottom_right_y": getattr(img, "bottom_right_y", None),
+                    "bbox": getattr(img, "bbox", None),
+                    "base64": (
+                        (getattr(img, "image_base64", None) or getattr(img, "base64", None))
+                        if config.MISTRAL_INCLUDE_IMAGES
+                        else None
+                    ),
+                }
+            )
 
     # Dimensions
     if hasattr(page, "dimensions") and page.dimensions:
@@ -943,15 +939,11 @@ def _parse_page_object(page: Any, idx: int) -> Dict[str, Any]:
 
     # Tables
     if hasattr(page, "tables") and page.tables:
-        page_data["tables"] = [
-            t.model_dump() if hasattr(t, "model_dump") else t for t in page.tables
-        ]
+        page_data["tables"] = [t.model_dump() if hasattr(t, "model_dump") else t for t in page.tables]
 
     # Hyperlinks
     if hasattr(page, "hyperlinks") and page.hyperlinks:
-        page_data["hyperlinks"] = [
-            h.model_dump() if hasattr(h, "model_dump") else h for h in page.hyperlinks
-        ]
+        page_data["hyperlinks"] = [h.model_dump() if hasattr(h, "model_dump") else h for h in page.hyperlinks]
 
     # Header / footer
     if hasattr(page, "header") and page.header:
@@ -984,11 +976,13 @@ def _parse_dict_response(response: dict, result: Dict[str, Any]) -> None:
         for idx, page in enumerate(response["pages"]):
             page_text = page.get("markdown", page.get("text", page.get("content", "")))
             page_text = utils.clean_consecutive_duplicates(page_text)
-            result["pages"].append({
-                "page_number": page.get("index", idx + 1),
-                "text": page_text,
-                "images": page.get("images", []),
-            })
+            result["pages"].append(
+                {
+                    "page_number": page.get("index", idx + 1),
+                    "text": page_text,
+                    "images": page.get("images", []),
+                }
+            )
             if page_text:
                 result["full_text"] += page_text + "\n\n"
     else:
@@ -1001,8 +995,7 @@ def _extract_structured_outputs(response: Any, result: Dict[str, Any]) -> None:
     """Extract bbox_annotations and document_annotation from the response."""
     if hasattr(response, "bbox_annotations") and response.bbox_annotations:
         result["bbox_annotations"] = [
-            bbox.model_dump() if hasattr(bbox, "model_dump") else bbox
-            for bbox in response.bbox_annotations
+            bbox.model_dump() if hasattr(bbox, "model_dump") else bbox for bbox in response.bbox_annotations
         ]
 
     if hasattr(response, "document_annotation") and response.document_annotation:
@@ -1082,9 +1075,7 @@ def _parse_ocr_response(response: Any, file_path: Path) -> Dict[str, Any]:
 
         _extract_response_metadata(response, result)
 
-        logger.debug(
-            "Extracted %d pages, %d chars", len(result["pages"]), len(result["full_text"])
-        )
+        logger.debug("Extracted %d pages, %d chars", len(result["pages"]), len(result["full_text"]))
 
     except Exception as e:
         logger.error("Error parsing OCR response: %s", e)
@@ -1221,9 +1212,7 @@ def assess_ocr_quality(ocr_result: Dict[str, Any]) -> Dict[str, Any]:
 
     # Deduct points for issues
     if assessment["weak_page_count"] > 0:
-        weak_ratio = assessment["weak_page_count"] / max(
-            1, assessment["total_page_count"]
-        )
+        weak_ratio = assessment["weak_page_count"] / max(1, assessment["total_page_count"])
         points_lost = weak_ratio * 50  # Up to 50 points for all weak pages
         assessment["quality_score"] -= points_lost
         assessment["issues"].append(
@@ -1232,15 +1221,11 @@ def assess_ocr_quality(ocr_result: Dict[str, Any]) -> Dict[str, Any]:
 
     if assessment["digit_count"] < config.OCR_MIN_DIGIT_COUNT * 5:  # Aggregate threshold (page threshold * 5)
         assessment["quality_score"] -= 20
-        assessment["issues"].append(
-            f"Low numerical content ({assessment['digit_count']} digits)"
-        )
+        assessment["issues"].append(f"Low numerical content ({assessment['digit_count']} digits)")
 
     if assessment["uniqueness_ratio"] < config.OCR_MIN_UNIQUENESS_RATIO:  # Configurable threshold
         assessment["quality_score"] -= 30
-        assessment["issues"].append(
-            f"High repetition (uniqueness: {assessment['uniqueness_ratio']:.1%})"
-        )
+        assessment["issues"].append(f"High repetition (uniqueness: {assessment['uniqueness_ratio']:.1%})")
 
     # Clamp score to [0, 100]
     assessment["quality_score"] = max(0.0, min(100.0, assessment["quality_score"]))
@@ -1258,9 +1243,7 @@ def assess_ocr_quality(ocr_result: Dict[str, Any]) -> Dict[str, Any]:
     return assessment
 
 
-def improve_weak_pages(
-    client: Mistral, file_path: Path, ocr_result: Dict[str, Any], model: str
-) -> Dict[str, Any]:
+def improve_weak_pages(client: Mistral, file_path: Path, ocr_result: Dict[str, Any], model: str) -> Dict[str, Any]:
     """
     Re-OCR weak pages with low confidence or short text.
 
@@ -1332,9 +1315,7 @@ def improve_weak_pages(
         """Re-OCR a single page; returns (page_idx, improved_page_data) or (page_idx, None)."""
         try:
             url = _refresh_url_if_needed()
-            ok, improved_result, _ = process_with_ocr(
-                client, file_path, model=model, pages=[page_idx], signed_url=url
-            )
+            ok, improved_result, _ = process_with_ocr(client, file_path, model=model, pages=[page_idx], signed_url=url)
             if ok and improved_result and improved_result.get("pages"):
                 return page_idx, improved_result["pages"][0]
         except Exception as e:
@@ -1355,9 +1336,7 @@ def improve_weak_pages(
                 ocr_result["pages"][page_idx] = improved_page
 
     # Rebuild full text
-    ocr_result["full_text"] = "\n\n".join(
-        page.get("text", "") for page in ocr_result["pages"]
-    )
+    ocr_result["full_text"] = "\n\n".join(page.get("text", "") for page in ocr_result["pages"])
 
     return ocr_result
 
@@ -1472,9 +1451,7 @@ def _process_ocr_result_pipeline(
         and quality_assessment
         and quality_assessment.get("weak_page_count", 0) > 0
     ):
-        logger.info(
-            f"Attempting to improve {quality_assessment['weak_page_count']} weak pages..."
-        )
+        logger.info(f"Attempting to improve {quality_assessment['weak_page_count']} weak pages...")
         model = config.get_ocr_model()
         # Note: improve_weak_pages is synchronous
         ocr_result = improve_weak_pages(client, file_path, ocr_result, model)
@@ -1482,9 +1459,7 @@ def _process_ocr_result_pipeline(
         # Re-assess quality after improvement
         quality_assessment = assess_ocr_quality(ocr_result)
         ocr_result["quality_assessment"] = quality_assessment
-        logger.info(
-            f"Quality after improvement: {quality_assessment['quality_score']:.1f}/100"
-        )
+        logger.info(f"Quality after improvement: {quality_assessment['quality_score']:.1f}/100")
 
     # Cache result (only for fresh results)
     if use_cache and not from_cache:
@@ -1536,9 +1511,7 @@ def convert_with_mistral_ocr(
     """
     client = get_mistral_client()
     if client is None:
-        error_msg = (
-            "Mistral client not available (see errors above for details)"
-        )
+        error_msg = "Mistral client not available (see errors above for details)"
         logger.warning(error_msg)
         return False, None, error_msg
 
@@ -1562,9 +1535,7 @@ def convert_with_mistral_ocr(
 
     # Process result using common pipeline
     # Pass from_cache flag to skip redundant API calls and IO for cached results
-    return _process_ocr_result_pipeline(
-        client, file_path, ocr_result, use_cache, improve_weak, from_cache
-    )
+    return _process_ocr_result_pipeline(client, file_path, ocr_result, use_cache, improve_weak, from_cache)
 
 
 def _save_structured_outputs(file_path: Path, ocr_result: Dict[str, Any]) -> None:
@@ -1586,9 +1557,7 @@ def _save_structured_outputs(file_path: Path, ocr_result: Dict[str, Any]) -> Non
     if "document_annotation" in ocr_result and ocr_result["document_annotation"]:
         doc_path = config.OUTPUT_MD_DIR / f"{utils.safe_output_stem(file_path)}_document_annotation.json"
         with open(doc_path, "w", encoding="utf-8") as f:
-            json.dump(
-                ocr_result["document_annotation"], f, indent=2, ensure_ascii=False
-            )
+            json.dump(ocr_result["document_annotation"], f, indent=2, ensure_ascii=False)
         logger.info("Saved document annotation: %s", doc_path.name)
 
 
@@ -1604,10 +1573,7 @@ def _create_markdown_output(file_path: Path, ocr_result: Dict[str, Any]) -> Path
         Path to created markdown file
     """
     # Calculate total image count from all pages (images are stored per-page)
-    total_image_count = sum(
-        len(page.get("images", []))
-        for page in ocr_result.get("pages", [])
-    )
+    total_image_count = sum(len(page.get("images", [])) for page in ocr_result.get("pages", []))
 
     # Generate frontmatter
     frontmatter = utils.generate_yaml_frontmatter(
@@ -1626,9 +1592,7 @@ def _create_markdown_output(file_path: Path, ocr_result: Dict[str, Any]) -> Path
     # Add page-by-page breakdown (no "Full Text" section to avoid duplication)
     if ocr_result.get("pages"):
         total_pages = len(ocr_result["pages"])
-        md_content += (
-            f"## OCR Content ({total_pages} page{'s' if total_pages != 1 else ''})\n\n"
-        )
+        md_content += f"## OCR Content ({total_pages} page{'s' if total_pages != 1 else ''})\n\n"
 
         # page_number is now preserved as the API's 1-based index
         for page in ocr_result["pages"]:
@@ -1759,19 +1723,19 @@ def query_document(
 ) -> Tuple[bool, Optional[str], Optional[str]]:
     """
     Query a document using Mistral's Document QnA capability.
-    
+
     This combines OCR with chat completion to enable natural language
     interaction with document content. The document is processed and
     you can ask questions about it in natural language.
-    
+
     Args:
         document_url: Public HTTPS URL to the document (PDF, image, etc.)
         question: Natural language question about the document
         model: Optional model override (default: mistral-small-latest)
-    
+
     Returns:
         Tuple of (success, answer, error_message)
-    
+
     Example:
         >>> success, answer, error = query_document(
         ...     "https://arxiv.org/pdf/1805.04770",
@@ -1779,7 +1743,7 @@ def query_document(
         ... )
         >>> if success:
         ...     print(answer)
-    
+
     Documentation:
         https://docs.mistral.ai/capabilities/document_ai/document_qna
     """
@@ -1794,10 +1758,10 @@ def query_document(
 
     if model is None:
         model = config.MISTRAL_DOCUMENT_QNA_MODEL
-    
+
     try:
         logger.info("Querying document with question: %s...", question[:50])
-        
+
         # Build message with document_url content type
         messages = []
         if config.MISTRAL_QNA_SYSTEM_PROMPT:
@@ -1805,28 +1769,19 @@ def query_document(
         messages.append(
             {
                 "role": "user",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": question
-                    },
-                    {
-                        "type": "document_url",
-                        "document_url": document_url
-                    }
-                ]
+                "content": [{"type": "text", "text": question}, {"type": "document_url", "document_url": document_url}],
             }
         )
-        
+
         # Get retry config
         retry_config = get_retry_config()
-        
+
         # Call chat.complete with document
         chat_params = {
             "model": model,
             "messages": messages,
         }
-        
+
         if retry_config:
             chat_params["retries"] = retry_config
 
@@ -1836,14 +1791,14 @@ def query_document(
             chat_params["document_page_limit"] = config.MISTRAL_QNA_DOCUMENT_PAGE_LIMIT
 
         response = client.chat.complete(**chat_params)
-        
+
         if response and response.choices and len(response.choices) > 0:
             answer = response.choices[0].message.content
             logger.info("Document query successful")
             return True, answer, None
         else:
             return False, None, "Empty response from chat completion"
-    
+
     except Exception as e:
         error_msg = f"Error querying document: {e}"
         logger.error(error_msg)
@@ -1926,14 +1881,14 @@ def query_document_file(
 ) -> Tuple[bool, Optional[str], Optional[str]]:
     """
     Query a local document file using Mistral's Document QnA capability.
-    
+
     Uploads the file to Mistral, gets a signed URL, and then queries it.
-    
+
     Args:
         file_path: Path to local document file
         question: Natural language question about the document
         model: Optional model override (default: mistral-small-latest)
-    
+
     Returns:
         Tuple of (success, answer, error_message)
     """
@@ -1945,9 +1900,13 @@ def query_document_file(
     try:
         file_size_mb = file_path.stat().st_size / (1024 * 1024)
         if file_size_mb > 50:
-            return False, None, (
-                f"File too large for Document QnA ({file_size_mb:.1f} MB). "
-                "Mistral limits documents to 50 MB. Consider splitting the document."
+            return (
+                False,
+                None,
+                (
+                    f"File too large for Document QnA ({file_size_mb:.1f} MB). "
+                    "Mistral limits documents to 50 MB. Consider splitting the document."
+                ),
             )
     except OSError as e:
         return False, None, f"Cannot read file: {e}"
@@ -1981,79 +1940,69 @@ def create_batch_ocr_file(
 ) -> Tuple[bool, Optional[Path], Optional[str]]:
     """
     Create a JSONL batch file for OCR processing.
-    
+
     This creates a file in the format required by Mistral's Batch API
     for processing multiple documents at 50% reduced cost.
-    
+
     Args:
         file_paths: List of file paths to process
         output_file: Path where to save the JSONL batch file
         model: OCR model to use (default: mistral-ocr-latest)
         include_image_base64: Whether to include image base64 in results
-    
+
     Returns:
         Tuple of (success, batch_file_path, error_message)
-    
+
     Example:
         >>> success, batch_file, error = create_batch_ocr_file(
         ...     [Path("doc1.pdf"), Path("doc2.pdf")],
         ...     Path("batch_input.jsonl")
         ... )
-    
+
     Documentation:
         https://docs.mistral.ai/capabilities/batch/
     """
     client = get_mistral_client()
     if client is None:
         return False, None, "Mistral client not available"
-    
+
     if model is None:
         model = config.get_ocr_model()
-    
+
     if include_image_base64 is None:
         include_image_base64 = config.MISTRAL_INCLUDE_IMAGES
-    
+
     # Use a signed-URL expiry that outlasts the batch timeout
     batch_signed_url_expiry = max(
         config.MISTRAL_SIGNED_URL_EXPIRY,
         config.MISTRAL_BATCH_TIMEOUT_HOURS + 1,
     )
-    
+
     try:
         logger.info("Creating batch OCR file for %s documents...", len(file_paths))
-        
+
         entries = []
-        
+
         for idx, file_path in enumerate(file_paths):
             # Upload file and get signed URL
             signed_url = upload_file_for_ocr(client, file_path, expiry_hours=batch_signed_url_expiry)
             if not signed_url:
                 logger.warning("Failed to upload %s, skipping...", file_path.name)
                 continue
-            
+
             # Determine document type
             ext = file_path.suffix.lower().lstrip(".")
             is_image = ext in config.IMAGE_EXTENSIONS
-            
+
             # Create batch entry
             if is_image:
-                document = {
-                    "type": "image_url",
-                    "image_url": signed_url
-                }
+                document = {"type": "image_url", "image_url": signed_url}
             else:
-                document = {
-                    "type": "document_url",
-                    "document_url": signed_url
-                }
-            
+                document = {"type": "document_url", "document_url": signed_url}
+
             entry = {
                 "custom_id": f"{idx}_{utils.safe_output_stem(file_path)}",
-                "body": {
-                    "model": model,
-                    "document": document,
-                    "include_image_base64": include_image_base64
-                }
+                "body": {"model": model, "document": document, "include_image_base64": include_image_base64},
             }
 
             # Include structured annotation formats if enabled
@@ -2067,19 +2016,19 @@ def create_batch_ocr_file(
                 entry["body"]["document_annotation_prompt"] = config.MISTRAL_DOCUMENT_ANNOTATION_PROMPT
 
             entries.append(entry)
-            logger.debug("Added %s to batch (id: %s)", file_path.name, entry['custom_id'])
-        
+            logger.debug("Added %s to batch (id: %s)", file_path.name, entry["custom_id"])
+
         if not entries:
             return False, None, "No files could be prepared for batch processing"
-        
+
         # Write JSONL file
-        with open(output_file, 'w', encoding='utf-8') as f:
+        with open(output_file, "w", encoding="utf-8") as f:
             for entry in entries:
-                f.write(json.dumps(entry) + '\n')
-        
+                f.write(json.dumps(entry) + "\n")
+
         logger.info("Created batch file with %s entries: %s", len(entries), output_file)
         return True, output_file, None
-    
+
     except Exception as e:
         error_msg = f"Error creating batch OCR file: {e}"
         logger.error(error_msg)
@@ -2093,18 +2042,18 @@ def submit_batch_ocr_job(
 ) -> Tuple[bool, Optional[str], Optional[str]]:
     """
     Submit a batch OCR job to Mistral's Batch API.
-    
+
     This submits the batch file for processing and returns a job ID
     that can be used to monitor progress and retrieve results.
-    
+
     Args:
         batch_file_path: Path to the JSONL batch file
         model: OCR model to use (default: mistral-ocr-latest)
         metadata: Optional metadata dictionary for the job
-    
+
     Returns:
         Tuple of (success, job_id, error_message)
-    
+
     Example:
         >>> success, job_id, error = submit_batch_ocr_job(
         ...     Path("batch_input.jsonl"),
@@ -2116,13 +2065,13 @@ def submit_batch_ocr_job(
     client = get_mistral_client()
     if client is None:
         return False, None, "Mistral client not available"
-    
+
     if model is None:
         model = config.get_ocr_model()
-    
+
     try:
         logger.info("Uploading batch file: %s", batch_file_path.name)
-        
+
         # Upload the batch file (read content as bytes, consistent with OCR upload)
         with open(batch_file_path, "rb") as f:
             file_content = f.read()
@@ -2132,18 +2081,18 @@ def submit_batch_ocr_job(
                 "file_name": batch_file_path.name,
                 "content": file_content,
             },
-            purpose="batch"
+            purpose="batch",
         )
-        
+
         logger.info("Batch file uploaded: %s", batch_data.id)
-        
+
         # Create the batch job
         job_params = {
             "input_files": [batch_data.id],
             "model": model,
             "endpoint": "/v1/ocr",
         }
-        
+
         if metadata:
             job_params["metadata"] = metadata
 
@@ -2151,10 +2100,10 @@ def submit_batch_ocr_job(
             job_params["timeout_hours"] = config.MISTRAL_BATCH_TIMEOUT_HOURS
 
         created_job = client.batch.jobs.create(**job_params)
-        
+
         logger.info("Batch job created: %s", created_job.id)
         return True, created_job.id, None
-    
+
     except Exception as e:
         error_msg = f"Error submitting batch OCR job: {e}"
         logger.error(error_msg)
@@ -2164,13 +2113,13 @@ def submit_batch_ocr_job(
 def get_batch_job_status(job_id: str) -> Tuple[bool, Optional[Dict[str, Any]], Optional[str]]:
     """
     Get the status of a batch OCR job.
-    
+
     Args:
         job_id: The batch job ID
-    
+
     Returns:
         Tuple of (success, status_dict, error_message)
-        
+
         status_dict contains:
         - status: Job status (QUEUED, RUNNING, SUCCESS, FAILED, etc.)
         - total_requests: Total number of requests in batch
@@ -2181,10 +2130,10 @@ def get_batch_job_status(job_id: str) -> Tuple[bool, Optional[Dict[str, Any]], O
     client = get_mistral_client()
     if client is None:
         return False, None, "Mistral client not available"
-    
+
     try:
         job = client.batch.jobs.get(job_id=job_id)
-        
+
         total_req = getattr(job, "total_requests", None) or 0
         succeeded_req = getattr(job, "succeeded_requests", None) or 0
         failed_req = getattr(job, "failed_requests", None) or 0
@@ -2194,24 +2143,19 @@ def get_batch_job_status(job_id: str) -> Tuple[bool, Optional[Dict[str, Any]], O
             "total_requests": total_req,
             "succeeded_requests": succeeded_req,
             "failed_requests": failed_req,
-            "output_file": getattr(job, 'output_file', None),
-            "error_file": getattr(job, 'error_file', None),
+            "output_file": getattr(job, "output_file", None),
+            "error_file": getattr(job, "error_file", None),
         }
 
         if total_req > 0:
-            status["progress_percent"] = round(
-                ((succeeded_req + failed_req) / total_req) * 100, 2
-            )
+            status["progress_percent"] = round(((succeeded_req + failed_req) / total_req) * 100, 2)
         else:
             status["progress_percent"] = 0
-        
-        logger.info(
-            f"Batch job {job_id}: {status['status']} - "
-            f"{status['progress_percent']}% complete"
-        )
-        
+
+        logger.info(f"Batch job {job_id}: {status['status']} - " f"{status['progress_percent']}% complete")
+
         return True, status, None
-    
+
     except Exception as e:
         error_msg = f"Error getting batch job status: {e}"
         logger.error(error_msg)
@@ -2224,45 +2168,45 @@ def download_batch_results(
 ) -> Tuple[bool, Optional[Path], Optional[str]]:
     """
     Download results from a completed batch OCR job.
-    
+
     Args:
         job_id: The batch job ID
         output_dir: Directory to save results (default: output_md/)
-    
+
     Returns:
         Tuple of (success, results_file_path, error_message)
     """
     client = get_mistral_client()
     if client is None:
         return False, None, "Mistral client not available"
-    
+
     if output_dir is None:
         output_dir = config.OUTPUT_MD_DIR
-    
+
     try:
         # Get job status to get output file ID
         job = client.batch.jobs.get(job_id=job_id)
-        
+
         if job.status not in ["SUCCESS", "FAILED", "TIMEOUT_EXCEEDED", "CANCELLED"]:
             return False, None, f"Job not complete. Status: {job.status}"
-        
+
         if not job.output_file:
             return False, None, "No output file available"
-        
+
         # Download the output file
         logger.info("Downloading batch results for job %s...", job_id)
-        
+
         output_path = output_dir / f"batch_ocr_results_{job_id}.jsonl"
-        
+
         # Download file content
         file_content = client.files.download(file_id=job.output_file)
-        
-        with open(output_path, 'wb') as f:
+
+        with open(output_path, "wb") as f:
             f.write(file_content)
-        
+
         logger.info("Batch results saved to: %s", output_path)
         return True, output_path, None
-    
+
     except Exception as e:
         error_msg = f"Error downloading batch results: {e}"
         logger.error(error_msg)
@@ -2297,18 +2241,18 @@ def list_batch_jobs(
             list_kwargs["page_size"] = page_size
 
         jobs_response = client.batch.jobs.list(**list_kwargs)
-        jobs_data = (jobs_response.data or []) if hasattr(jobs_response, 'data') else jobs_response
+        jobs_data = (jobs_response.data or []) if hasattr(jobs_response, "data") else jobs_response
 
         jobs_list = []
         for job in jobs_data:
             job_info = {
                 "id": job.id,
                 "status": job.status,
-                "model": getattr(job, 'model', None),
-                "total_requests": getattr(job, 'total_requests', 0),
-                "succeeded_requests": getattr(job, 'succeeded_requests', 0),
-                "failed_requests": getattr(job, 'failed_requests', 0),
-                "created_at": str(getattr(job, 'created_at', '')),
+                "model": getattr(job, "model", None),
+                "total_requests": getattr(job, "total_requests", 0),
+                "succeeded_requests": getattr(job, "succeeded_requests", 0),
+                "failed_requests": getattr(job, "failed_requests", 0),
+                "created_at": str(getattr(job, "created_at", "")),
             }
 
             if status is None or job_info["status"] == status:
@@ -2372,7 +2316,7 @@ def download_batch_errors(
     try:
         job = client.batch.jobs.get(job_id=job_id)
 
-        if not getattr(job, 'error_file', None):
+        if not getattr(job, "error_file", None):
             return False, None, "No error file available for this job"
 
         logger.info("Downloading batch errors for job %s...", job_id)
@@ -2380,7 +2324,7 @@ def download_batch_errors(
         output_path = output_dir / f"batch_ocr_errors_{job_id}.jsonl"
         file_content = client.files.download(file_id=job.error_file)
 
-        with open(output_path, 'wb') as f:
+        with open(output_path, "wb") as f:
             f.write(file_content)
 
         logger.info("Batch errors saved to: %s", output_path)

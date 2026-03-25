@@ -15,14 +15,15 @@ import re
 import sys
 import threading
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Any, Dict, List, Optional, Tuple
 
 try:
-    from markitdown import MarkItDown, StreamInfo
     from markitdown import (
-        UnsupportedFormatException,
-        MissingDependencyException,
         FileConversionException,
+        MarkItDown,
+        MissingDependencyException,
+        StreamInfo,
+        UnsupportedFormatException,
     )
 except ImportError:
     MarkItDown = None
@@ -96,10 +97,8 @@ def get_markitdown_instance() -> Optional[MarkItDown]:
             if config.MARKITDOWN_ENABLE_LLM_DESCRIPTIONS and config.MISTRAL_API_KEY:
                 try:
                     from openai import OpenAI
-                    llm_client = OpenAI(
-                        api_key=config.MISTRAL_API_KEY,
-                        base_url="https://api.mistral.ai/v1"
-                    )
+
+                    llm_client = OpenAI(api_key=config.MISTRAL_API_KEY, base_url="https://api.mistral.ai/v1")
                     md_kwargs["llm_client"] = llm_client
                     md_kwargs["llm_model"] = config.MARKITDOWN_LLM_MODEL
                 except ImportError:
@@ -129,6 +128,7 @@ def reset_markitdown_instance():
     with _markitdown_lock:
         _markitdown_instance = _MARKITDOWN_UNSET
 
+
 def convert_with_markitdown(file_path: Path) -> Tuple[bool, Optional[str], Optional[str]]:
     """
     Convert a file using MarkItDown.
@@ -142,9 +142,10 @@ def convert_with_markitdown(file_path: Path) -> Tuple[bool, Optional[str], Optio
     # Enforce file size limit
     file_size_mb = file_path.stat().st_size / (1024 * 1024)
     if file_size_mb > config.MARKITDOWN_MAX_FILE_SIZE_MB:
-        return False, None, (
-            f"File too large ({file_size_mb:.1f} MB). "
-            f"Maximum allowed: {config.MARKITDOWN_MAX_FILE_SIZE_MB} MB"
+        return (
+            False,
+            None,
+            (f"File too large ({file_size_mb:.1f} MB). " f"Maximum allowed: {config.MARKITDOWN_MAX_FILE_SIZE_MB} MB"),
         )
 
     md = get_markitdown_instance()
@@ -157,7 +158,7 @@ def convert_with_markitdown(file_path: Path) -> Tuple[bool, Optional[str], Optio
         # Convert the file
         result = md.convert(str(file_path))
 
-        if result and hasattr(result, 'markdown'):
+        if result and hasattr(result, "markdown"):
             markdown_content = result.markdown
 
             # Extract document metadata if available
@@ -167,22 +168,22 @@ def convert_with_markitdown(file_path: Path) -> Tuple[bool, Optional[str], Optio
             }
 
             # Extract title from MarkItDown result (DocumentConverterResult.title)
-            doc_title = getattr(result, 'title', None) or file_path.stem
-            doc_metadata['doc_title'] = doc_title
+            doc_title = getattr(result, "title", None) or file_path.stem
+            doc_metadata["doc_title"] = doc_title
 
             # Add YAML frontmatter with enriched metadata
             frontmatter = utils.generate_yaml_frontmatter(
-                title=doc_metadata.get('doc_title', file_path.stem),
+                title=doc_metadata.get("doc_title", file_path.stem),
                 file_name=file_path.name,
                 conversion_method="MarkItDown",
-                additional_fields=doc_metadata
+                additional_fields=doc_metadata,
             )
 
             full_content = frontmatter + markdown_content
 
             # Save output
             output_path = config.OUTPUT_MD_DIR / f"{utils.safe_output_stem(file_path)}.md"
-            with open(output_path, 'w', encoding='utf-8') as f:
+            with open(output_path, "w", encoding="utf-8") as f:
                 f.write(full_content)
 
             # Save text version
@@ -265,6 +266,7 @@ def convert_stream_with_markitdown(
 # PDF Table Extraction
 # ============================================================================
 
+
 def extract_tables_pdfplumber(pdf_path: Path) -> List[List[List[str]]]:
     """
     Extract tables from PDF using pdfplumber.
@@ -297,10 +299,8 @@ def extract_tables_pdfplumber(pdf_path: Path) -> List[List[List[str]]]:
 
     return tables
 
-def extract_tables_camelot(
-    pdf_path: Path,
-    flavor: str = "lattice"
-) -> List[List[List[str]]]:
+
+def extract_tables_camelot(pdf_path: Path, flavor: str = "lattice") -> List[List[List[str]]]:
     """
     Extract tables from PDF using camelot with tuned parameters for financial documents.
 
@@ -324,12 +324,12 @@ def extract_tables_camelot(
             # Tuned for wide financial tables (e.g., trial balances with many columns)
             table_list = camelot.read_pdf(
                 str(pdf_path),
-                pages='all',
-                flavor='lattice',
+                pages="all",
+                flavor="lattice",
                 suppress_stdout=True,
                 line_scale=40,  # Increase to detect more subtle grid lines
-                shift_text=['l', 't'],  # Shift text left and top for better alignment
-                strip_text=' \n',  # Strip whitespace and newlines from cells
+                shift_text=["l", "t"],  # Shift text left and top for better alignment
+                strip_text=" \n",  # Strip whitespace and newlines from cells
             )
         else:
             # Stream mode: better for tables without clear grid lines
@@ -339,8 +339,8 @@ def extract_tables_camelot(
             # column pairs to merge on tight-spaced tables.
             table_list = camelot.read_pdf(
                 str(pdf_path),
-                pages='all',
-                flavor='stream',
+                pages="all",
+                flavor="stream",
                 suppress_stdout=True,
                 split_text=config.CAMELOT_STREAM_SPLIT_TEXT,
                 edge_tol=config.CAMELOT_STREAM_EDGE_TOL,
@@ -351,7 +351,7 @@ def extract_tables_camelot(
         for table in table_list:
             # Quality filtering - skip low-accuracy tables
             # Guard against None values to prevent TypeError
-            table_accuracy = getattr(table, 'accuracy', None)
+            table_accuracy = getattr(table, "accuracy", None)
             if table_accuracy is not None and table_accuracy < config.CAMELOT_MIN_ACCURACY:
                 logger.debug(
                     f"Skipping low-accuracy table: {table_accuracy:.1f}% "
@@ -361,14 +361,14 @@ def extract_tables_camelot(
 
             # Whitespace filtering - skip tables with too much empty space
             # Guard against None values to prevent TypeError
-            table_whitespace = getattr(table, 'whitespace', None)
+            table_whitespace = getattr(table, "whitespace", None)
             if table_whitespace is not None and table_whitespace > config.CAMELOT_MAX_WHITESPACE:
                 logger.debug(
                     f"Skipping high-whitespace table: {table_whitespace:.1f}% "
                     f"(threshold: {config.CAMELOT_MAX_WHITESPACE}%)"
                 )
                 continue
-            
+
             # Convert DataFrame to list of lists
             table_data = table.df.values.tolist()
 
@@ -394,6 +394,7 @@ def extract_tables_camelot(
 
     return tables
 
+
 def _fix_split_headers(table: List[List[str]], max_header_rows: int = 3) -> List[List[str]]:
     """
     Rejoin header text that split_text=True split across column boundaries.
@@ -418,27 +419,27 @@ def _fix_split_headers(table: List[List[str]], max_header_rows: int = 3) -> List
             # Skip if next cell looks like a real column name (>= 3 chars and
             # the current cell doesn't end mid-word).  This prevents merging
             # legitimate lowercase column names like "pH", "eBay", "units".
-            if len(next_cell) >= 3 and cell and cell[-1] == ' ':
+            if len(next_cell) >= 3 and cell and cell[-1] == " ":
                 col += 1
                 continue
 
             # Check if current cell ends with a fragment (partial word)
             if cell and cell[-1].isalpha():
-                trailing_fragment = cell.rsplit(' ', 1)[-1] if ' ' in cell else cell
+                trailing_fragment = cell.rsplit(" ", 1)[-1] if " " in cell else cell
                 # Only merge when the trailing fragment is very short (1-2 chars),
                 # strongly suggesting a word was split across columns.
                 if len(trailing_fragment) > 2:
                     col += 1
                     continue
                 # Find the trailing fragment in current cell
-                parts = cell.rsplit(' ', 1)
+                parts = cell.rsplit(" ", 1)
                 if len(parts) == 2:
                     # "Acct Account Title B" + "alance" → "Acct Account Title" + "Balance"
                     row[col] = parts[0]
                     row[col + 1] = parts[1] + next_cell
                 else:
                     # "Be" + "ginning" → "" + "Beginning"
-                    row[col] = ''
+                    row[col] = ""
                     row[col + 1] = cell + next_cell
             col += 1
         table[row_idx] = row
@@ -467,9 +468,7 @@ def _fix_merged_currency_cells(table: List[List[str]]) -> List[List[str]]:
     """
     # Pattern 1: Two dollar-sign values in one cell
     # Matches: "$ 1,234.56 $ 5,678.90" or "$ (1,234.56) $ (5,678.90)"
-    double_currency_pattern = re.compile(
-        r'(\$\s*[\(\-]?[\d,]+\.?\d*[\)]?)\s+(\$\s*[\(\-]?[\d,]+\.?\d*[\)]?)'
-    )
+    double_currency_pattern = re.compile(r"(\$\s*[\(\-]?[\d,]+\.?\d*[\)]?)\s+(\$\s*[\(\-]?[\d,]+\.?\d*[\)]?)")
 
     # Pattern 2: Two bare numbers in one cell (no $ sign)
     # Matches pairs like:
@@ -480,10 +479,8 @@ def _fix_merged_currency_cells(table: List[List[str]]) -> List[List[str]]:
     #   ".00 .00"                 — two zero shorthands
     # Each number: optional leading paren/minus, digits with optional commas,
     # optional decimal portion, optional closing paren.
-    _NUM = r'[\(\-]?\.?\d[\d,]*\.?\d*\)?'
-    double_bare_number_pattern = re.compile(
-        rf'({_NUM})\s+({_NUM})'
-    )
+    _NUM = r"[\(\-]?\.?\d[\d,]*\.?\d*\)?"
+    double_bare_number_pattern = re.compile(rf"({_NUM})\s+({_NUM})")
 
     fixed_table = []
 
@@ -497,10 +494,10 @@ def _fix_merged_currency_cells(table: List[List[str]]) -> List[List[str]]:
             # Strategy 1: Check for dollar-sign pairs (unambiguous)
             match = double_currency_pattern.search(cell)
             if match:
-                parts = cell.split('$')
+                parts = cell.split("$")
                 if len(parts) >= 3:
-                    first_value = '$' + parts[1].strip()
-                    second_value = '$' + parts[2].strip()
+                    first_value = "$" + parts[1].strip()
+                    second_value = "$" + parts[2].strip()
                     fixed_row.append(first_value)
                     fixed_row.append(second_value)
                     logger.debug(f"Split merged currency cell: '{cell}' → '{first_value}' + '{second_value}'")
@@ -510,17 +507,20 @@ def _fix_merged_currency_cells(table: List[List[str]]) -> List[List[str]]:
             # Safety: skip cells containing letters to avoid splitting things like
             # "10201 Cash - Operating 1" or "Fund 5151 E Broadway"
             cell_stripped = cell.strip()
-            if cell_stripped and not re.search(r'[a-zA-Z]', cell_stripped):
+            if cell_stripped and not re.search(r"[a-zA-Z]", cell_stripped):
                 bare_match = double_bare_number_pattern.search(cell_stripped)
                 if bare_match:
                     first_value = bare_match.group(1).strip()
                     second_value = bare_match.group(2).strip()
                     # Validate both parts look like real numbers (not just a stray digit)
-                    if (len(first_value) >= 2 or first_value == '.00') and \
-                       (len(second_value) >= 2 or second_value == '.00'):
+                    if (len(first_value) >= 2 or first_value == ".00") and (
+                        len(second_value) >= 2 or second_value == ".00"
+                    ):
                         fixed_row.append(first_value)
                         fixed_row.append(second_value)
-                        logger.debug(f"Split merged bare number cell: '{cell_stripped}' → '{first_value}' + '{second_value}'")
+                        logger.debug(
+                            f"Split merged bare number cell: '{cell_stripped}' → '{first_value}' + '{second_value}'"
+                        )
                         continue
 
             fixed_row.append(cell)
@@ -528,6 +528,7 @@ def _fix_merged_currency_cells(table: List[List[str]]) -> List[List[str]]:
         fixed_table.append(fixed_row)
 
     return fixed_table
+
 
 def extract_all_tables(pdf_path: Path) -> Dict[str, Any]:
     """
@@ -591,6 +592,7 @@ def extract_all_tables(pdf_path: Path) -> Dict[str, Any]:
 
     return result
 
+
 def _deduplicate_tables(tables: List[List[List[str]]]) -> List[List[List[str]]]:
     """
     Remove duplicate tables based on content hash.
@@ -624,10 +626,8 @@ def _deduplicate_tables(tables: List[List[List[str]]]) -> List[List[List[str]]]:
 
     return unique_tables
 
-def save_tables_to_files(
-    pdf_path: Path,
-    tables: List[List[List[str]]]
-) -> List[Path]:
+
+def save_tables_to_files(pdf_path: Path, tables: List[List[List[str]]]) -> List[Path]:
     """
     Save extracted tables to multiple output formats.
 
@@ -655,7 +655,7 @@ def save_tables_to_files(
         title=f"Tables from {pdf_path.name}",
         file_name=pdf_path.name,
         conversion_method="Table Extraction (Enhanced)",
-        additional_fields={"table_count": len(tables)}
+        additional_fields={"table_count": len(tables)},
     )
 
     md_content = frontmatter + f"\n# Tables Extracted from {pdf_path.name}\n\n"
@@ -675,7 +675,7 @@ def save_tables_to_files(
 
         md_content += "\n\n---\n\n"
 
-    with open(md_path, 'w', encoding='utf-8') as f:
+    with open(md_path, "w", encoding="utf-8") as f:
         f.write(md_content)
 
     created_files.append(md_path)
@@ -693,7 +693,7 @@ def save_tables_to_files(
                 # Normalize headers for CSV as well
                 headers, data_rows = utils.normalize_table_headers(table)
 
-                with open(csv_path, 'w', newline='', encoding='utf-8') as f:
+                with open(csv_path, "w", newline="", encoding="utf-8") as f:
                     writer = csv.writer(f)
 
                     # Write header row
@@ -712,14 +712,14 @@ def save_tables_to_files(
 
     return created_files
 
+
 # ============================================================================
 # PDF to Images
 # ============================================================================
 
+
 def convert_pdf_to_images(
-    pdf_path: Path,
-    output_dir: Optional[Path] = None,
-    dpi: Optional[int] = None
+    pdf_path: Path, output_dir: Optional[Path] = None, dpi: Optional[int] = None
 ) -> Tuple[bool, List[Path], Optional[str]]:
     """
     Convert PDF pages to PNG/JPEG images using pdf2image.
@@ -753,13 +753,13 @@ def convert_pdf_to_images(
 
         # Build conversion parameters
         convert_params = {
-            'pdf_path': str(pdf_path),
-            'dpi': dpi,
-            'output_folder': str(output_dir),
-            'fmt': config.PDF_IMAGE_FORMAT,
-            'poppler_path': poppler_path,
-            'thread_count': config.PDF_IMAGE_THREAD_COUNT,
-            'use_pdftocairo': config.PDF_IMAGE_USE_PDFTOCAIRO,
+            "pdf_path": str(pdf_path),
+            "dpi": dpi,
+            "output_folder": str(output_dir),
+            "fmt": config.PDF_IMAGE_FORMAT,
+            "poppler_path": poppler_path,
+            "thread_count": config.PDF_IMAGE_THREAD_COUNT,
+            "use_pdftocairo": config.PDF_IMAGE_USE_PDFTOCAIRO,
         }
 
         # Convert PDF to images
@@ -767,19 +767,19 @@ def convert_pdf_to_images(
 
         # Save images
         image_paths = []
-        file_extension = 'jpg' if config.PDF_IMAGE_FORMAT == 'jpeg' else config.PDF_IMAGE_FORMAT
-        
+        file_extension = "jpg" if config.PDF_IMAGE_FORMAT == "jpeg" else config.PDF_IMAGE_FORMAT
+
         for i, image in enumerate(images, 1):
             image_path = output_dir / f"page_{i:03d}.{file_extension}"
-            
+
             # Save with format-specific options
-            if config.PDF_IMAGE_FORMAT == 'jpeg':
-                image.save(str(image_path), 'JPEG', quality=85, optimize=True, progressive=True)
-            elif config.PDF_IMAGE_FORMAT == 'png':
-                image.save(str(image_path), 'PNG', optimize=True)
+            if config.PDF_IMAGE_FORMAT == "jpeg":
+                image.save(str(image_path), "JPEG", quality=85, optimize=True, progressive=True)
+            elif config.PDF_IMAGE_FORMAT == "png":
+                image.save(str(image_path), "PNG", optimize=True)
             else:
                 image.save(str(image_path), config.PDF_IMAGE_FORMAT.upper())
-            
+
             image_paths.append(image_path)
             logger.debug(f"Saved page {i} to {image_path.name}")
 
@@ -791,9 +791,11 @@ def convert_pdf_to_images(
         logger.error(error_msg)
         return False, [], error_msg
 
+
 # ============================================================================
 # Table Coalescing (Merge tables across pages)
 # ============================================================================
+
 
 def coalesce_tables(tables: List[List[List[str]]]) -> List[List[List[str]]]:
     """
@@ -839,9 +841,11 @@ def coalesce_tables(tables: List[List[List[str]]]) -> List[List[List[str]]]:
 
     return coalesced
 
+
 # ============================================================================
 # File Type Detection
 # ============================================================================
+
 
 def analyze_file_content(file_path: Path) -> Dict[str, Any]:
     """
@@ -854,14 +858,14 @@ def analyze_file_content(file_path: Path) -> Dict[str, Any]:
         Dictionary with content analysis
     """
     analysis = {
-        "file_type": file_path.suffix.lower().lstrip('.'),
+        "file_type": file_path.suffix.lower().lstrip("."),
         "file_size_mb": file_path.stat().st_size / (1024 * 1024),
         "has_images": False,
         "has_code": False,
         "is_complex": False,
         "page_count": 0,
         "is_text_based": False,  # NEW: Can we extract text directly?
-        "has_tables": False,      # NEW: Contains tables
+        "has_tables": False,  # NEW: Contains tables
     }
 
     # PDF-specific analysis

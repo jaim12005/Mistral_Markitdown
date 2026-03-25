@@ -13,9 +13,11 @@ Documentation references:
 import logging
 import os
 import sys
-from importlib.metadata import version as _pkg_version, PackageNotFoundError
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
 from pathlib import Path
-from typing import List, Optional
+from typing import List
+
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -69,9 +71,7 @@ def _safe_float(env_var: str, default: float, min_val: float = 0.0) -> float:
             return default
         return value
     except (ValueError, TypeError):
-        logging.getLogger("document_converter").warning(
-            f"Invalid float for {env_var}={raw!r}, using default {default}"
-        )
+        logging.getLogger("document_converter").warning(f"Invalid float for {env_var}={raw!r}, using default {default}")
         return default
 
 
@@ -108,6 +108,7 @@ def _safe_csv(env_var: str, default: str) -> List[str]:
     if values:
         return values
     return [item.strip() for item in default.split(",") if item.strip()]
+
 
 # ============================================================================
 # Version (single source of truth)
@@ -451,12 +452,12 @@ MARKITDOWN_SUPPORTED = {
     "wav",
     "m4a",
     "flac",  # Audio (requires plugins)
-    "zip",   # ZIP archive (recursive extraction)
-    "ipynb", # Jupyter notebooks
-    "msg",   # Outlook MSG (requires extract-msg)
-    "txt",   # Plain text
-    "rtf",   # Rich Text Format (via plugins)
-    "rss",   # RSS feeds
+    "zip",  # ZIP archive (recursive extraction)
+    "ipynb",  # Jupyter notebooks
+    "msg",  # Outlook MSG (requires extract-msg)
+    "txt",  # Plain text
+    "rtf",  # Rich Text Format (via plugins)
+    "rss",  # RSS feeds
 }
 
 MISTRAL_OCR_SUPPORTED = {
@@ -493,9 +494,7 @@ def validate_configuration() -> List[str]:
 
     # Check required API key
     if not MISTRAL_API_KEY:
-        issues.append(
-            "WARNING: MISTRAL_API_KEY not set. Mistral OCR features will not work."
-        )
+        issues.append("WARNING: MISTRAL_API_KEY not set. Mistral OCR features will not work.")
 
     # Check LLM configuration (uses Mistral's OpenAI-compatible endpoint)
     if MARKITDOWN_ENABLE_LLM_DESCRIPTIONS and not MISTRAL_API_KEY:
@@ -503,9 +502,7 @@ def validate_configuration() -> List[str]:
 
     # Check Poppler on Windows
     if sys.platform == "win32" and not POPPLER_PATH:
-        issues.append(
-            "INFO: POPPLER_PATH not set. PDF to image conversion may not work on Windows."
-        )
+        issues.append("INFO: POPPLER_PATH not set. PDF to image conversion may not work on Windows.")
 
     # Check for structured output flag conflicts
     if not MISTRAL_ENABLE_STRUCTURED_OUTPUT:
@@ -545,8 +542,7 @@ def validate_configuration() -> List[str]:
     valid_mistral_table_formats = {"", "markdown", "html"}
     if MISTRAL_TABLE_FORMAT not in valid_mistral_table_formats:
         issues.append(
-            f"WARNING: MISTRAL_TABLE_FORMAT={MISTRAL_TABLE_FORMAT!r} is invalid. "
-            "Use '', 'markdown', or 'html'."
+            f"WARNING: MISTRAL_TABLE_FORMAT={MISTRAL_TABLE_FORMAT!r} is invalid. " "Use '', 'markdown', or 'html'."
         )
 
     # Validate TABLE_OUTPUT_FORMATS

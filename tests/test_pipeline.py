@@ -5,9 +5,16 @@ Tests cover:
 - mode_convert_smart (smart routing by content analysis)
 - mode_markitdown_only / mode_mistral_ocr_only (concurrency)
 - Dispatch table integrity
+- _list_input_files, _filter_valid_files
+- _process_files_concurrently
+- _should_use_ocr, _route_label
+- mode_pdf_to_images, mode_document_qna, mode_batch_ocr
+- mode_system_status
+- select_files, main (CLI)
 """
 
 from unittest.mock import patch, MagicMock
+from pathlib import Path
 
 import pytest
 
@@ -16,6 +23,7 @@ import config
 config.ensure_directories()
 
 import main
+import mistral_converter
 
 
 # ============================================================================
@@ -279,6 +287,581 @@ class TestValidateJobId:
     ])
     def test_invalid_job_ids(self, job_id):
         assert main._validate_job_id(job_id) is False
+
+
+# ============================================================================
+# _list_input_files Tests
+# ============================================================================
+
+
+class TestListInputFiles:
+    """Test input file listing."""
+
+    def test_lists_files_sorted(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "INPUT_DIR", tmp_path)
+        (tmp_path / "beta.pdf").touch()
+        (tmp_path / "alpha.txt").touch()
+        (tmp_path / "gamma.docx").touch()
+        result = main._list_input_files()
+        names = [f.name for f in result]
+        assert names == ["alpha.txt", "beta.pdf", "gamma.docx"]
+
+    def test_empty_dir(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "INPUT_DIR", tmp_path)
+        result = main._list_input_files()
+        assert result == []
+
+    def test_ignores_directories(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "INPUT_DIR", tmp_path)
+        (tmp_path / "subdir").mkdir()
+        (tmp_path / "file.pdf").touch()
+        result = main._list_input_files()
+        assert len(result) == 1
+        assert result[0].name == "file.pdf"
+
+
+# ============================================================================
+# _filter_valid_files Tests
+# ============================================================================
+
+
+class TestFilterValidFiles:
+    """Test file validation filtering."""
+
+    def test_filters_invalid_files(self, tmp_path):
+        valid = tmp_path / "good.pdf"
+        valid.write_text("content")
+        invalid = tmp_path / "bad.xyz"
+        invalid.write_text("content")
+        result = main._filter_valid_files([valid, invalid])
+        assert len(result) == 1
+        assert result[0].name == "good.pdf"
+
+    def test_filters_empty_files(self, tmp_path):
+        empty = tmp_path / "empty.pdf"
+        empty.touch()
+        result = main._filter_valid_files([empty])
+        assert result == []
+
+
+# ============================================================================
+# _process_files_concurrently Tests
+# ============================================================================
+
+
+class TestProcessFilesConcurrently:
+    """Test concurrent file processing."""
+
+    def test_single_file_success(self, tmp_path):
+        f = tmp_path / "test.txt"
+        f.write_text("data")
+        success, failed = main._process_files_concurrently(
+            [f], lambda p: (True, "content", None)
+        )
+        assert success == 1
+        assert failed == 0
+
+    def test_single_file_failure(self, tmp_path):
+        f = tmp_path / "test.txt"
+        f.write_text("data")
+        success, failed = main._process_files_concurrently(
+            [f], lambda p: (False, None, "error")
+        )
+        assert success == 0
+        assert failed == 1
+
+    def test_single_file_exception(self, tmp_path):
+        f = tmp_path / "test.txt"
+        f.write_text("data")
+
+        def raise_fn(p):
+            raise RuntimeError("boom")
+
+        success, failed = main._process_files_concurrently([f], raise_fn)
+        assert success == 0
+        assert failed == 1
+
+    def test_multiple_files_concurrent(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "MAX_CONCURRENT_FILES", 2)
+        files = []
+        for i in range(3):
+            f = tmp_path / f"doc{i}.txt"
+            f.write_text(f"content {i}")
+            files.append(f)
+
+        success, failed = main._process_files_concurrently(
+            files, lambda p: (True, "ok", None)
+        )
+        assert success == 3
+        assert failed == 0
+
+
+# ============================================================================
+# _should_use_ocr / _route_label Tests
+# ============================================================================
+
+
+class TestShouldUseOcr:
+    """Test OCR routing decisions."""
+
+    def test_no_api_key_returns_false(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "")
+        pdf = tmp_path / "test.pdf"
+        pdf.write_bytes(b"%PDF-1.4")
+        assert main._should_use_ocr(pdf) is False
+
+    def test_image_always_ocr(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        img = tmp_path / "test.png"
+        img.write_bytes(b"\x89PNG")
+        assert main._should_use_ocr(img) is True
+
+    def test_office_doc_uses_markitdown(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        doc = tmp_path / "test.docx"
+        doc.write_bytes(b"PK\x03\x04")
+        assert main._should_use_ocr(doc) is False
+
+
+class TestRouteLabel:
+    """Test route label generation."""
+
+    def test_image_label(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        img = tmp_path / "test.png"
+        img.write_bytes(b"\x89PNG")
+        label = main._route_label(img)
+        assert "Mistral OCR" in label
+
+    def test_office_doc_label(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        doc = tmp_path / "test.docx"
+        doc.write_bytes(b"PK\x03\x04")
+        label = main._route_label(doc)
+        assert "MarkItDown" in label
+
+
+# ============================================================================
+# mode_pdf_to_images Tests
+# ============================================================================
+
+
+class TestModePdfToImages:
+    """Test PDF to images mode."""
+
+    @patch("main.local_converter")
+    def test_converts_pdfs(self, mock_local, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "VERBOSE_PROGRESS", False)
+        pdf = tmp_path / "test.pdf"
+        pdf.write_bytes(b"%PDF-1.4")
+
+        mock_local.convert_pdf_to_images.return_value = (
+            True, [tmp_path / "page1.png", tmp_path / "page2.png"], None
+        )
+
+        success, msg = main.mode_pdf_to_images([pdf])
+        assert success is True
+        assert "2 total pages" in msg
+
+    @patch("main.local_converter")
+    def test_skips_non_pdfs(self, mock_local, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "VERBOSE_PROGRESS", False)
+        txt = tmp_path / "test.txt"
+        txt.write_text("hello")
+
+        success, msg = main.mode_pdf_to_images([txt])
+        assert success is True
+        mock_local.convert_pdf_to_images.assert_not_called()
+
+    @patch("main.local_converter")
+    def test_handles_failure(self, mock_local, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "VERBOSE_PROGRESS", False)
+        pdf = tmp_path / "bad.pdf"
+        pdf.write_bytes(b"%PDF-1.4")
+
+        mock_local.convert_pdf_to_images.return_value = (False, [], "corrupt file")
+        success, msg = main.mode_pdf_to_images([pdf])
+        assert success is False
+
+
+# ============================================================================
+# mode_document_qna Tests
+# ============================================================================
+
+
+class TestModeDocumentQna:
+    """Test document QnA mode."""
+
+    def test_requires_api_key(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "")
+        success, msg = main.mode_document_qna([tmp_path / "doc.pdf"])
+        assert success is False
+        assert "MISTRAL_API_KEY" in msg
+
+    def test_requires_single_file(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        files = [tmp_path / "a.pdf", tmp_path / "b.pdf"]
+        success, msg = main.mode_document_qna(files)
+        assert success is False
+        assert "one file" in msg.lower()
+
+    def test_rejects_large_file(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        huge = tmp_path / "huge.pdf"
+        huge.write_bytes(b"\x00" * (51 * 1024 * 1024))  # 51 MB
+
+        with patch.object(main, "mistral_converter") as mock_mc:
+            mock_mc.get_mistral_client.return_value = MagicMock()
+            success, msg = main.mode_document_qna([huge])
+
+        assert success is False
+        assert "too large" in msg.lower()
+
+
+# ============================================================================
+# mode_batch_ocr Tests
+# ============================================================================
+
+
+class TestModeBatchOcr:
+    """Test batch OCR mode."""
+
+    def test_requires_api_key(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "")
+        success, msg = main.mode_batch_ocr([tmp_path / "doc.pdf"])
+        assert success is False
+        assert "MISTRAL_API_KEY" in msg
+
+    def test_requires_batch_enabled(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        monkeypatch.setattr(config, "MISTRAL_BATCH_ENABLED", False)
+        success, msg = main.mode_batch_ocr([tmp_path / "doc.pdf"])
+        assert success is False
+        assert "disabled" in msg.lower()
+
+    def test_cancel_option(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        monkeypatch.setattr(config, "MISTRAL_BATCH_ENABLED", True)
+        monkeypatch.setattr(config, "MISTRAL_BATCH_MIN_FILES", 1)
+        with patch("builtins.input", return_value="0"):
+            success, msg = main.mode_batch_ocr([tmp_path / "doc.pdf"])
+        assert success is False
+
+    def test_submit_job_flow(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        monkeypatch.setattr(config, "MISTRAL_BATCH_ENABLED", True)
+        monkeypatch.setattr(config, "MISTRAL_BATCH_MIN_FILES", 1)
+        monkeypatch.setattr(config, "OUTPUT_MD_DIR", tmp_path)
+
+        pdf = tmp_path / "doc.pdf"
+        pdf.write_bytes(b"%PDF")
+
+        with patch("builtins.input", return_value="1"):
+            with patch.object(main, "mistral_converter") as mock_mc:
+                mock_mc.create_batch_ocr_file.return_value = (True, tmp_path / "batch.jsonl", None)
+                mock_mc.submit_batch_ocr_job.return_value = (True, "job-123", None)
+                success, msg = main.mode_batch_ocr([pdf])
+
+        assert success is True
+        assert "job-123" in msg
+
+    def test_check_status_flow(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        monkeypatch.setattr(config, "MISTRAL_BATCH_ENABLED", True)
+        monkeypatch.setattr(config, "MISTRAL_BATCH_MIN_FILES", 1)
+
+        inputs = iter(["2", "job-abc-123"])
+        with patch("builtins.input", side_effect=inputs):
+            with patch.object(main, "mistral_converter") as mock_mc:
+                mock_mc.get_batch_job_status.return_value = (
+                    True,
+                    {"status": "completed", "progress_percent": 100, "succeeded_requests": 5, "failed_requests": 0},
+                    None,
+                )
+                success, msg = main.mode_batch_ocr([tmp_path / "doc.pdf"])
+
+        assert success is True
+        assert "completed" in msg
+
+    def test_list_jobs_flow(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        monkeypatch.setattr(config, "MISTRAL_BATCH_ENABLED", True)
+        monkeypatch.setattr(config, "MISTRAL_BATCH_MIN_FILES", 1)
+
+        with patch("builtins.input", return_value="3"):
+            with patch.object(main, "mistral_converter") as mock_mc:
+                mock_mc.list_batch_jobs.return_value = (
+                    True,
+                    [{"id": "job-1", "status": "completed", "total_requests": 3, "created_at": "2025-01-01"}],
+                    None,
+                )
+                success, msg = main.mode_batch_ocr([tmp_path / "doc.pdf"])
+
+        assert success is True
+        assert "1 batch" in msg
+
+    def test_download_results_flow(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        monkeypatch.setattr(config, "MISTRAL_BATCH_ENABLED", True)
+        monkeypatch.setattr(config, "MISTRAL_BATCH_MIN_FILES", 1)
+
+        inputs = iter(["4", "job-xyz"])
+        with patch("builtins.input", side_effect=inputs):
+            with patch.object(main, "mistral_converter") as mock_mc:
+                mock_mc.download_batch_results.return_value = (True, "/output/results.md", None)
+                success, msg = main.mode_batch_ocr([tmp_path / "doc.pdf"])
+
+        assert success is True
+        assert "downloaded" in msg.lower()
+
+
+# ============================================================================
+# mode_system_status Tests
+# ============================================================================
+
+
+class TestModeSystemStatus:
+    """Test system status mode."""
+
+    def test_displays_status(self, monkeypatch):
+        monkeypatch.setattr(config, "CLEANUP_OLD_UPLOADS", False)
+        monkeypatch.setattr(config, "AUTO_CLEAR_CACHE", False)
+        success, msg = main.mode_system_status()
+        assert success is True
+        assert "status" in msg.lower()
+
+
+# ============================================================================
+# select_files Tests
+# ============================================================================
+
+
+class TestSelectFiles:
+    """Test file selection."""
+
+    def test_empty_dir_returns_empty(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "INPUT_DIR", tmp_path)
+        result = main.select_files()
+        assert result == []
+
+    def test_cancel_returns_empty(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "INPUT_DIR", tmp_path)
+        (tmp_path / "test.pdf").write_text("content")
+        with patch("builtins.input", return_value="0"):
+            result = main.select_files()
+        assert result == []
+
+    def test_select_all(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "INPUT_DIR", tmp_path)
+        (tmp_path / "a.pdf").write_text("content")
+        (tmp_path / "b.txt").write_text("content")
+        # "3" is len(files)+1 for "Process ALL"
+        with patch("builtins.input", return_value="3"):
+            result = main.select_files()
+        assert len(result) == 2
+
+    def test_select_single(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "INPUT_DIR", tmp_path)
+        (tmp_path / "a.pdf").write_text("content")
+        (tmp_path / "b.txt").write_text("content")
+        with patch("builtins.input", return_value="1"):
+            result = main.select_files()
+        assert len(result) == 1
+
+
+# ============================================================================
+# main() CLI Tests
+# ============================================================================
+
+
+class TestMainCli:
+    """Test main() entry point."""
+
+    def test_test_mode(self, monkeypatch):
+        monkeypatch.setattr("sys.argv", ["main.py", "--test"])
+        monkeypatch.setattr(config, "CLEANUP_OLD_UPLOADS", False)
+        monkeypatch.setattr(config, "AUTO_CLEAR_CACHE", False)
+        # Should not raise
+        main.main()
+
+    def test_status_mode(self, monkeypatch):
+        monkeypatch.setattr("sys.argv", ["main.py", "--mode", "status"])
+        monkeypatch.setattr(config, "CLEANUP_OLD_UPLOADS", False)
+        monkeypatch.setattr(config, "AUTO_CLEAR_CACHE", False)
+        main.main()
+
+    def test_no_files_non_interactive(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("sys.argv", ["main.py", "--mode", "markitdown", "--no-interactive"])
+        monkeypatch.setattr(config, "INPUT_DIR", tmp_path)
+        # Empty dir → should print message and return
+        main.main()
+
+    def test_direct_mode_markitdown(self, tmp_path, monkeypatch):
+        """Test direct mode execution with --mode and files."""
+        monkeypatch.setattr("sys.argv", ["main.py", "--mode", "markitdown", "--no-interactive"])
+        monkeypatch.setattr(config, "INPUT_DIR", tmp_path)
+        monkeypatch.setattr(config, "OUTPUT_MD_DIR", tmp_path / "out")
+        monkeypatch.setattr(config, "OUTPUT_TXT_DIR", tmp_path / "out_txt")
+        monkeypatch.setattr(config, "CLEANUP_OLD_UPLOADS", False)
+        monkeypatch.setattr(config, "AUTO_CLEAR_CACHE", False)
+
+        (tmp_path / "out").mkdir()
+        (tmp_path / "out_txt").mkdir()
+
+        test_file = tmp_path / "test.txt"
+        test_file.write_text("Hello world")
+
+        with pytest.raises(SystemExit) as exc_info:
+            main.main()
+        # Could be 0 (success) or 1 (failure), depending on markitdown availability
+        assert exc_info.value.code in (0, 1)
+
+    def test_direct_mode_with_select_files(self, tmp_path, monkeypatch):
+        """Test direct mode that calls select_files (no --no-interactive)."""
+        monkeypatch.setattr("sys.argv", ["main.py", "--mode", "markitdown"])
+        monkeypatch.setattr(config, "INPUT_DIR", tmp_path)
+        monkeypatch.setattr(config, "OUTPUT_MD_DIR", tmp_path / "out")
+        monkeypatch.setattr(config, "OUTPUT_TXT_DIR", tmp_path / "out_txt")
+        monkeypatch.setattr(config, "CLEANUP_OLD_UPLOADS", False)
+        monkeypatch.setattr(config, "AUTO_CLEAR_CACHE", False)
+
+        (tmp_path / "out").mkdir()
+        (tmp_path / "out_txt").mkdir()
+
+        # select_files returns empty → main returns without processing
+        with patch.object(main, "select_files", return_value=[]):
+            main.main()
+
+    def test_no_mode_runs_interactive(self, monkeypatch):
+        """Test that no --mode arg runs interactive menu."""
+        monkeypatch.setattr("sys.argv", ["main.py"])
+        monkeypatch.setattr(config, "CLEANUP_OLD_UPLOADS", False)
+        monkeypatch.setattr(config, "AUTO_CLEAR_CACHE", False)
+
+        with patch.object(main, "interactive_menu") as mock_menu:
+            main.main()
+        mock_menu.assert_called_once()
+
+
+# ============================================================================
+# interactive_menu Tests
+# ============================================================================
+
+
+class TestInteractiveMenu:
+    """Test the interactive menu loop."""
+
+    def test_exit_immediately(self, monkeypatch):
+        """Test user choosing 0 to exit."""
+        monkeypatch.setattr("builtins.input", lambda _: "0")
+        main.interactive_menu()
+
+    def test_invalid_then_exit(self, monkeypatch):
+        """Test invalid choice followed by exit."""
+        inputs = iter(["9", "0"])
+        monkeypatch.setattr("builtins.input", lambda _: next(inputs))
+        main.interactive_menu()
+
+    def test_status_then_exit(self, monkeypatch):
+        """Test showing system status then exit."""
+        inputs = iter(["7", "", "0"])
+        monkeypatch.setattr("builtins.input", lambda _: next(inputs))
+        main.interactive_menu()
+
+    def test_keyboard_interrupt(self, monkeypatch):
+        """Test KeyboardInterrupt exits gracefully."""
+        monkeypatch.setattr("builtins.input", MagicMock(side_effect=KeyboardInterrupt))
+        main.interactive_menu()
+
+
+# ============================================================================
+# select_files Tests (expanded)
+# ============================================================================
+
+
+class TestSelectFilesExpanded:
+    """Test file selection menu."""
+
+    def test_select_specific_file(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "INPUT_DIR", tmp_path)
+        f1 = tmp_path / "doc1.txt"
+        f1.write_text("hello")
+
+        monkeypatch.setattr("builtins.input", lambda _: "1")
+        result = main.select_files()
+        assert len(result) == 1
+
+    def test_select_all_files(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "INPUT_DIR", tmp_path)
+        f1 = tmp_path / "doc1.txt"
+        f1.write_text("hello")
+        f2 = tmp_path / "doc2.txt"
+        f2.write_text("world")
+
+        # 3 = "Process ALL files" when there are 2 files
+        monkeypatch.setattr("builtins.input", lambda _: "3")
+        result = main.select_files()
+        assert len(result) == 2
+
+    def test_cancel_selection(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "INPUT_DIR", tmp_path)
+        f1 = tmp_path / "doc1.txt"
+        f1.write_text("hello")
+
+        monkeypatch.setattr("builtins.input", lambda _: "0")
+        result = main.select_files()
+        assert result == []
+
+    def test_eof_error(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "INPUT_DIR", tmp_path)
+        f1 = tmp_path / "doc1.txt"
+        f1.write_text("hello")
+
+        monkeypatch.setattr("builtins.input", MagicMock(side_effect=EOFError))
+        result = main.select_files()
+        assert result == []
+
+
+# ============================================================================
+# show_menu Tests
+# ============================================================================
+
+
+class TestShowMenu:
+    """Test menu display."""
+
+    def test_show_menu_runs(self, capsys):
+        main.show_menu()
+        captured = capsys.readouterr()
+        assert "ENHANCED DOCUMENT CONVERTER" in captured.out
+        assert "Exit" in captured.out
+
+
+# ============================================================================
+# mode_document_qna expanded
+# ============================================================================
+
+
+class TestModeDocumentQnaExpanded:
+    """Test Document QnA mode with mocked interactions."""
+
+    def test_no_client_available(self, tmp_path):
+        pdf = tmp_path / "test.pdf"
+        pdf.write_bytes(b"%PDF-1.4")
+
+        with patch.object(mistral_converter, "get_mistral_client", return_value=None):
+            ok, msg = main.mode_document_qna([pdf])
+        assert ok is False
+
+    def test_file_too_large(self, tmp_path, monkeypatch):
+        pdf = tmp_path / "test.pdf"
+        pdf.write_bytes(b"x" * (51 * 1024 * 1024))
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+
+        with patch.object(mistral_converter, "get_mistral_client", return_value=MagicMock()):
+            ok, msg = main.mode_document_qna([pdf])
+        assert ok is False
+        assert "too large" in msg.lower() or "50 MB" in msg
 
 
 if __name__ == "__main__":

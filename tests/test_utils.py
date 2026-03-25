@@ -4,13 +4,40 @@ Tests for utils.py module
 
 import concurrent.futures
 import json
+import logging
 import os
+import re
 import tempfile
 import unittest.mock
+from datetime import datetime, timedelta
+from pathlib import Path
+
 import pytest
 
 import utils
 import config
+
+
+class TestSetupLogging:
+    """Test logging configuration."""
+
+    def test_returns_logger(self):
+        logger = utils.setup_logging()
+        assert isinstance(logger, logging.Logger)
+        assert logger.name == "document_converter"
+
+    def test_log_file_created(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "SAVE_PROCESSING_LOGS", True)
+        log_file = str(tmp_path / "test.log")
+        logger = utils.setup_logging(log_file=log_file)
+        logger.info("test message")
+        assert Path(log_file).exists()
+
+    def test_no_file_handler_when_disabled(self, monkeypatch):
+        monkeypatch.setattr(config, "SAVE_PROCESSING_LOGS", False)
+        logger = utils.setup_logging(log_file="/tmp/nope.log")
+        file_handlers = [h for h in logger.handlers if isinstance(h, logging.FileHandler)]
+        assert len(file_handlers) == 0
 
 class TestIntelligentCache:
     """Test the IntelligentCache class."""
@@ -328,6 +355,149 @@ class TestPrintProgress:
         utils.print_progress(0, 0)
         captured = capsys.readouterr().out
         assert "0.0%" in captured
+
+
+class TestClearOldEntries:
+    """Test cache expiry cleanup."""
+
+    def test_removes_expired_entries(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "CACHE_DURATION_HOURS", 1)
+        cache = utils.IntelligentCache(cache_dir=tmp_path)
+        # Write a cache file with an old timestamp
+        cache_file = tmp_path / "old_entry.json"
+        old_time = (datetime.now() - timedelta(hours=5)).isoformat()
+        cache_file.write_text(json.dumps({"timestamp": old_time, "type": "ocr", "data": {}}))
+        removed = cache.clear_old_entries()
+        assert removed == 1
+        assert not cache_file.exists()
+
+    def test_keeps_fresh_entries(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "CACHE_DURATION_HOURS", 24)
+        cache = utils.IntelligentCache(cache_dir=tmp_path)
+        cache_file = tmp_path / "fresh_entry.json"
+        cache_file.write_text(json.dumps({"timestamp": datetime.now().isoformat(), "type": "ocr", "data": {}}))
+        removed = cache.clear_old_entries()
+        assert removed == 0
+        assert cache_file.exists()
+
+
+class TestDetectMonthHeaderRow:
+    """Test month header detection in financial tables."""
+
+    def test_detects_month_headers(self):
+        table = [
+            ["Account", "Description"],
+            ["", "January", "February", "March", "April"],
+            ["10201", "100", "200", "300", "400"],
+        ]
+        assert utils.detect_month_header_row(table) == 1
+
+    def test_no_months_returns_none(self):
+        table = [["Name", "Value"], ["A", "1"]]
+        assert utils.detect_month_header_row(table) is None
+
+    def test_empty_table_returns_none(self):
+        assert utils.detect_month_header_row([]) is None
+
+
+class TestCleanTableCell:
+    """Test cell cleaning."""
+
+    def test_removes_newlines(self):
+        assert utils.clean_table_cell("Hello\nWorld") == "Hello World"
+
+    def test_collapses_whitespace(self):
+        assert utils.clean_table_cell("  too   many   spaces  ") == "too many spaces"
+
+    def test_empty_string(self):
+        assert utils.clean_table_cell("") == ""
+
+    def test_none_returns_empty(self):
+        assert utils.clean_table_cell(None) == ""
+
+
+class TestIsPageArtifactRow:
+    """Test page artifact row detection."""
+
+    def test_page_number_is_artifact(self):
+        assert utils.is_page_artifact_row(["Page 1"]) is True
+
+    def test_page_number_multi_digit(self):
+        assert utils.is_page_artifact_row(["Page 42"]) is True
+
+    def test_date_is_artifact(self):
+        assert utils.is_page_artifact_row(["December 31, 2010"]) is True
+
+    def test_empty_row_is_artifact(self):
+        assert utils.is_page_artifact_row(["", ""]) is True
+
+    def test_data_row_is_not_artifact(self):
+        assert utils.is_page_artifact_row(["10201", "Cash Operating", "1234.56"]) is False
+
+    def test_none_input(self):
+        assert utils.is_page_artifact_row([]) is False
+
+
+class TestCleanTable:
+    """Test full table cleaning."""
+
+    def test_removes_artifacts_and_cleans(self):
+        table = [
+            ["Name\nValue", "Amount"],
+            ["Page 1"],
+            ["Item A", "100"],
+        ]
+        result = utils.clean_table(table)
+        assert len(result) == 2
+        assert result[0] == ["Name Value", "Amount"]
+        assert result[1] == ["Item A", "100"]
+
+    def test_empty_table(self):
+        assert utils.clean_table([]) == []
+
+
+class TestNormalizeTableHeaders:
+    """Test table header normalization."""
+
+    def test_with_month_headers(self):
+        table = [
+            ["Account", "Description"],
+            ["", "January", "February", "March", "April"],
+            ["10201", "100", "200", "300", "400"],
+        ]
+        headers, data = utils.normalize_table_headers(table)
+        assert "January" in headers
+
+    def test_without_month_headers(self):
+        table = [["Name", "Age"], ["Alice", "30"]]
+        headers, data = utils.normalize_table_headers(table)
+        assert headers == ["Name", "Age"]
+        assert data == [["Alice", "30"]]
+
+    def test_empty_table(self):
+        headers, data = utils.normalize_table_headers([])
+        assert headers == []
+        assert data == []
+
+
+class TestSaveTextOutput:
+    """Test text output saving."""
+
+    def test_saves_text_file(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "GENERATE_TXT_OUTPUT", True)
+        monkeypatch.setattr(config, "OUTPUT_TXT_DIR", tmp_path)
+        md_path = tmp_path / "test.md"
+        result = utils.save_text_output(md_path, "# Hello\n\n**Bold** text")
+        assert result is not None
+        assert result.exists()
+        content = result.read_text()
+        assert "Hello" in content
+        assert "**" not in content
+
+    def test_disabled_returns_none(self, monkeypatch):
+        monkeypatch.setattr(config, "GENERATE_TXT_OUTPUT", False)
+        result = utils.save_text_output(Path("test.md"), "content")
+        assert result is None
 
 
 if __name__ == "__main__":

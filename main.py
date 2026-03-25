@@ -22,7 +22,6 @@ Documentation references:
 """
 
 import argparse
-import json
 import re
 import sys
 import time
@@ -36,9 +35,9 @@ from typing import Any, Dict, List, Optional, Tuple
 warnings.filterwarnings("ignore", message=".*urllib3.*chardet.*charset_normalizer.*")
 
 import config
-import utils
 import local_converter
 import mistral_converter
+import utils
 
 logger = utils.logger
 
@@ -189,9 +188,7 @@ def _process_single_smart(file_path: Path) -> Tuple[bool, Optional[Path], Option
             table_result = local_converter.extract_all_tables(file_path)
             if table_result["table_count"] > 0:
                 local_converter.save_tables_to_files(file_path, table_result["tables"])
-                logger.info(
-                    "Extracted %d tables from %s", table_result["table_count"], file_path.name
-                )
+                logger.info("Extracted %d tables from %s", table_result["table_count"], file_path.name)
         except Exception as e:
             logger.warning("Table extraction failed for %s: %s", file_path.name, e)
 
@@ -233,9 +230,7 @@ def mode_convert_smart(file_paths: List[Path]) -> Tuple[bool, str]:
         print(f"  {fp.name:<40} -> {label}")
     print()
 
-    successful, failed = _process_files_concurrently(
-        file_paths, _process_single_smart, "Converting files"
-    )
+    successful, failed = _process_files_concurrently(file_paths, _process_single_smart, "Converting files")
 
     total = len(file_paths)
     return failed == 0, f"Processed {successful}/{total} files successfully"
@@ -369,13 +364,20 @@ def mode_document_qna(file_paths: List[Path]) -> Tuple[bool, str]:
                 print(f"\nError: Failed to refresh document URL for {file_path.name}\n")
                 continue
 
-            success, answer, error = mistral_converter.query_document(
+            success, stream, error = mistral_converter.query_document_stream(
                 document_url,
                 question,
             )
 
-            if success:
-                print(f"\nAnswer: {answer}\n")
+            if success and stream is not None:
+                print("\nAnswer: ", end="", flush=True)
+                try:
+                    for chunk in stream:
+                        if chunk.data.choices and chunk.data.choices[0].delta.content:
+                            print(chunk.data.choices[0].delta.content, end="", flush=True)
+                except Exception as e:
+                    print(f"\n\nStream error: {e}")
+                print("\n")
                 questions_asked += 1
             else:
                 print(f"\nError: {error}\n")
@@ -411,9 +413,7 @@ def mode_batch_ocr(file_paths: List[Path]) -> Tuple[bool, str]:
         return False, "Batch processing is disabled (set MISTRAL_BATCH_ENABLED=true)"
 
     if len(file_paths) < config.MISTRAL_BATCH_MIN_FILES:
-        print(
-            f"\nNote: Batch processing is most cost-effective with {config.MISTRAL_BATCH_MIN_FILES}+ files."
-        )
+        print(f"\nNote: Batch processing is most cost-effective with {config.MISTRAL_BATCH_MIN_FILES}+ files.")
         print(f"You selected {len(file_paths)} file(s). Proceeding anyway.\n")
 
     print("\nBatch OCR Options:")
@@ -432,10 +432,8 @@ def mode_batch_ocr(file_paths: List[Path]) -> Tuple[bool, str]:
         batch_file = config.OUTPUT_MD_DIR / "batch_input.jsonl"
         print(f"\nCreating batch file for {len(file_paths)} document(s)...")
 
-        success, batch_path, error = mistral_converter.create_batch_ocr_file(
-            file_paths, batch_file
-        )
-        if not success:
+        success, batch_path, error = mistral_converter.create_batch_ocr_file(file_paths, batch_file)
+        if not success or batch_path is None:
             return False, f"Failed to create batch file: {error}"
 
         print("Submitting batch job...")
@@ -454,7 +452,7 @@ def mode_batch_ocr(file_paths: List[Path]) -> Tuple[bool, str]:
         if not _validate_job_id(job_id):
             return False, "Invalid job ID format"
         success, status, error = mistral_converter.get_batch_job_status(job_id)
-        if success:
+        if success and status is not None:
             print(f"\nJob: {job_id}")
             print(f"  Status: {status['status']}")
             print(f"  Progress: {status['progress_percent']}%")
@@ -508,7 +506,9 @@ def mode_system_status() -> Tuple[bool, str]:
 
     print("Configuration:")
     print(f"  * Mistral API Key: {'Set' if config.MISTRAL_API_KEY else 'NOT SET'}")
-    print(f"  * LLM Descriptions: {'Enabled (' + config.MARKITDOWN_LLM_MODEL + ')' if config.MARKITDOWN_ENABLE_LLM_DESCRIPTIONS else 'Disabled'}")
+    print(
+        f"  * LLM Descriptions: {'Enabled (' + config.MARKITDOWN_LLM_MODEL + ')' if config.MARKITDOWN_ENABLE_LLM_DESCRIPTIONS else 'Disabled'}"
+    )
     print(f"  * Cache Duration: {config.CACHE_DURATION_HOURS} hours")
     print(f"  * Max Concurrent Files: {config.MAX_CONCURRENT_FILES}")
     print(f"  * Mistral OCR Model: {config.get_ocr_model()}")
@@ -609,9 +609,7 @@ def select_files() -> List[Path]:
 
     while True:
         try:
-            choice = input(
-                "Select file(s) to process (comma-separated or single number): "
-            ).strip()
+            choice = input("Select file(s) to process (comma-separated or single number): ").strip()
 
             if choice == "0":
                 return []
@@ -677,12 +675,12 @@ def show_menu():
 
 # Dispatch table: menu_choice -> (cli_mode_name, handler)
 MODE_DISPATCH: Dict[str, Tuple[str, Any]] = {
-    "1": ("smart",        mode_convert_smart),
-    "2": ("markitdown",   mode_markitdown_only),
-    "3": ("mistral_ocr",  mode_mistral_ocr_only),
+    "1": ("smart", mode_convert_smart),
+    "2": ("markitdown", mode_markitdown_only),
+    "3": ("mistral_ocr", mode_mistral_ocr_only),
     "4": ("pdf_to_images", mode_pdf_to_images),
-    "5": ("qna",          mode_document_qna),
-    "6": ("batch_ocr",    mode_batch_ocr),
+    "5": ("qna", mode_document_qna),
+    "6": ("batch_ocr", mode_batch_ocr),
 }
 
 # Reverse lookup: cli mode name -> handler
@@ -776,7 +774,8 @@ Examples:
     )
 
     parser.add_argument(
-        "--no-interactive", action="store_true",
+        "--no-interactive",
+        action="store_true",
         help="Disable interactive prompts and process all files in input directory",
     )
 

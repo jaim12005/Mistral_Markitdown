@@ -17,7 +17,6 @@ import re
 import sys
 import tempfile
 import threading
-import time
 from collections import OrderedDict
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -28,6 +27,7 @@ import config
 # ============================================================================
 # Logging Setup
 # ============================================================================
+
 
 def setup_logging(log_file: Optional[str] = None) -> logging.Logger:
     """
@@ -48,23 +48,20 @@ def setup_logging(log_file: Optional[str] = None) -> logging.Logger:
     # Console handler with formatting
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(getattr(logging, config.LOG_LEVEL, logging.INFO))
-    console_format = logging.Formatter(
-        '%(levelname)s: %(message)s'
-    )
+    console_format = logging.Formatter("%(levelname)s: %(message)s")
     console_handler.setFormatter(console_format)
     logger.addHandler(console_handler)
 
     # File handler if requested
     if log_file and config.SAVE_PROCESSING_LOGS:
-        file_handler = logging.FileHandler(log_file, encoding='utf-8')
+        file_handler = logging.FileHandler(log_file, encoding="utf-8")
         file_handler.setLevel(logging.DEBUG)
-        file_format = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-        )
+        file_format = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
         file_handler.setFormatter(file_format)
         logger.addHandler(file_handler)
 
     return logger
+
 
 # Default logger
 logger = setup_logging()
@@ -75,6 +72,7 @@ _FRONTMATTER_RE = re.compile(r"\A---\s*\r?\n.*?\r?\n---\s*(?:\r?\n)?", re.DOTALL
 # Intelligent Caching System
 # ============================================================================
 
+
 class IntelligentCache:
     """
     Hash-based caching system for OCR results to avoid reprocessing.
@@ -82,6 +80,7 @@ class IntelligentCache:
     Uses file content hashing to detect changes and cache invalidation.
     Statistics are tracked per instance.
     """
+
     def __init__(self, cache_dir: Path = config.CACHE_DIR):
         """
         Initialize the cache system.
@@ -124,9 +123,9 @@ class IntelligentCache:
                 return cached_hash
 
         hasher = hashlib.sha256()
-        with open(file_path, 'rb') as f:
+        with open(file_path, "rb") as f:
             # Read in larger chunks for better throughput on modern disks (64KB)
-            for chunk in iter(lambda: f.read(65536), b''):
+            for chunk in iter(lambda: f.read(65536), b""):
                 hasher.update(chunk)
         file_hash = hasher.hexdigest()
 
@@ -178,7 +177,7 @@ class IntelligentCache:
                     self.misses += 1
                 return None
 
-            with open(cache_path, 'r', encoding='utf-8') as f:
+            with open(cache_path, "r", encoding="utf-8") as f:
                 cache_data = json.load(f)
 
             cached_time = datetime.fromisoformat(cache_data.get("timestamp", ""))
@@ -202,7 +201,7 @@ class IntelligentCache:
             with self._lock:
                 self.hits += 1
             logger.info(f"Cache hit for {file_path.name}")
-            return cache_data.get("data")
+            return cache_data.get("data")  # type: ignore[no-any-return]
 
         except FileNotFoundError:
             logger.debug(f"Cache lookup failed (file not found): {file_path}")
@@ -225,11 +224,7 @@ class IntelligentCache:
             return None
 
     def set(
-        self,
-        file_path: Path,
-        data: Dict[str, Any],
-        cache_type: str = "ocr",
-        metadata: Optional[Dict[str, Any]] = None
+        self, file_path: Path, data: Dict[str, Any], cache_type: str = "ocr", metadata: Optional[Dict[str, Any]] = None
     ) -> None:
         """
         Store data in cache.
@@ -261,10 +256,10 @@ class IntelligentCache:
             # Atomic write to avoid partial/corrupt cache files under concurrency.
             # os.replace/Path.replace is atomic on the same filesystem.
             with tempfile.NamedTemporaryFile(
-                mode='w',
-                encoding='utf-8',
+                mode="w",
+                encoding="utf-8",
                 dir=str(self.cache_dir),
-                suffix='.tmp',
+                suffix=".tmp",
                 delete=False,
             ) as tmp_file:
                 json.dump(cache_entry, tmp_file, indent=2, ensure_ascii=False)
@@ -291,7 +286,7 @@ class IntelligentCache:
 
         for cache_file in self.cache_dir.glob("*.json"):
             try:
-                with open(cache_file, 'r', encoding='utf-8') as f:
+                with open(cache_file, "r", encoding="utf-8") as f:
                     cache_data = json.load(f)
 
                 cached_time = datetime.fromisoformat(cache_data.get("timestamp", ""))
@@ -329,6 +324,7 @@ class IntelligentCache:
             "hit_rate": (hits / total_requests * 100) if total_requests > 0 else 0,
         }
 
+
 # Global cache instance
 cache = IntelligentCache()
 
@@ -336,10 +332,8 @@ cache = IntelligentCache()
 # Markdown Table Formatting
 # ============================================================================
 
-def format_table_to_markdown(
-    data: List[List[str]],
-    headers: Optional[List[str]] = None
-) -> str:
+
+def format_table_to_markdown(data: List[List[str]], headers: Optional[List[str]] = None) -> str:
     """
     Convert table data to Markdown format.
 
@@ -374,9 +368,10 @@ def format_table_to_markdown(
     for row in data:
         # Pad row to match header length
         padded_row = list(row) + [""] * (len(headers) - len(row))
-        lines.append("| " + " | ".join(str(cell) for cell in padded_row[:len(headers)]) + " |")
+        lines.append("| " + " | ".join(str(cell) for cell in padded_row[: len(headers)]) + " |")
 
     return "\n".join(lines)
+
 
 # ============================================================================
 # Table Header Normalization & Cleanup
@@ -384,9 +379,22 @@ def format_table_to_markdown(
 
 # Common month headers found in financial documents
 MONTH_HEADERS = [
-    "Beginning", "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December", "Current"
+    "Beginning",
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+    "Current",
 ]
+
 
 def detect_month_header_row(table: List[List[str]]) -> Optional[int]:
     """
@@ -414,6 +422,7 @@ def detect_month_header_row(table: List[List[str]]) -> Optional[int]:
 
     return None
 
+
 def clean_table_cell(cell: str) -> str:
     """
     Clean individual table cell.
@@ -432,12 +441,13 @@ def clean_table_cell(cell: str) -> str:
         return ""
 
     # Replace newlines with spaces
-    cell = cell.replace('\n', ' ').replace('\r', ' ')
+    cell = cell.replace("\n", " ").replace("\r", " ")
 
     # Collapse multiple spaces
-    cell = ' '.join(cell.split())
+    cell = " ".join(cell.split())
 
     return cell.strip()
+
 
 def is_page_artifact_row(row: List[str]) -> bool:
     """
@@ -461,15 +471,15 @@ def is_page_artifact_row(row: List[str]) -> bool:
     row_text = " ".join(str(cell or "") for cell in row).strip()
 
     # Check for page number artifacts (e.g., "Page 1", "Page 42", etc.)
-    if re.match(r'^Page\s+\d+$', row_text):
+    if re.match(r"^Page\s+\d+$", row_text):
         return True
 
     # Check if the row is just a date (e.g., "December 31, 2010")
     # Pattern: single cell or cells that form a date
     if len(row_text) < 30 and any(month in row_text for month in MONTH_HEADERS):
         # Check if it looks like "Month DD, YYYY"
-        date_pattern = r'^[A-Za-z]+\s+\d{1,2},?\s+\d{4}$'
-        if re.match(date_pattern, row_text.replace(',', '')):
+        date_pattern = r"^[A-Za-z]+\s+\d{1,2},?\s+\d{4}$"
+        if re.match(date_pattern, row_text.replace(",", "")):
             return True
 
     # Empty or near-empty rows
@@ -477,6 +487,7 @@ def is_page_artifact_row(row: List[str]) -> bool:
         return True
 
     return False
+
 
 def clean_table(table: List[List[str]]) -> List[List[str]]:
     """
@@ -510,6 +521,7 @@ def clean_table(table: List[List[str]]) -> List[List[str]]:
 
     return cleaned
 
+
 def normalize_table_headers(table: List[List[str]]) -> Tuple[List[str], List[List[str]]]:
     """
     Normalize table headers by detecting month headers and cleaning cells.
@@ -535,7 +547,7 @@ def normalize_table_headers(table: List[List[str]]) -> Tuple[List[str], List[Lis
     if header_idx is not None:
         # Use detected month header
         headers = table[header_idx]
-        data_rows = table[:header_idx] + table[header_idx + 1:]
+        data_rows = table[:header_idx] + table[header_idx + 1 :]
     else:
         # Fall back to first row as header
         headers = table[0]
@@ -543,9 +555,11 @@ def normalize_table_headers(table: List[List[str]]) -> Tuple[List[str], List[Lis
 
     return headers, data_rows
 
+
 # ============================================================================
 # Text Export Functions
 # ============================================================================
+
 
 def clean_consecutive_duplicates(text: str) -> str:
     """
@@ -574,6 +588,7 @@ def clean_consecutive_duplicates(text: str) -> str:
     # Rejoin the lines
     return "\n".join(cleaned_lines)
 
+
 def markdown_to_text(markdown_content: str) -> str:
     """
     Convert Markdown to plain text by removing formatting.
@@ -587,28 +602,29 @@ def markdown_to_text(markdown_content: str) -> str:
     text = strip_yaml_frontmatter(markdown_content)
 
     # Remove images
-    text = re.sub(r'!\[.*?\]\(.*?\)', '', text)
+    text = re.sub(r"!\[.*?\]\(.*?\)", "", text)
 
     # Remove links but keep text
-    text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
+    text = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", text)
 
     # Remove headers #
-    text = re.sub(r'^#+\s+', '', text, flags=re.MULTILINE)
+    text = re.sub(r"^#+\s+", "", text, flags=re.MULTILINE)
 
     # Remove bold/italic
-    text = re.sub(r'\*\*([^\*]+)\*\*', r'\1', text)
-    text = re.sub(r'\*([^\*]+)\*', r'\1', text)
-    text = re.sub(r'__([^_]+)__', r'\1', text)
-    text = re.sub(r'_([^_]+)_', r'\1', text)
+    text = re.sub(r"\*\*([^\*]+)\*\*", r"\1", text)
+    text = re.sub(r"\*([^\*]+)\*", r"\1", text)
+    text = re.sub(r"__([^_]+)__", r"\1", text)
+    text = re.sub(r"_([^_]+)_", r"\1", text)
 
     # Remove code blocks
-    text = re.sub(r'```[^\n]*\n.*?```', '', text, flags=re.DOTALL)
-    text = re.sub(r'`([^`]+)`', r'\1', text)
+    text = re.sub(r"```[^\n]*\n.*?```", "", text, flags=re.DOTALL)
+    text = re.sub(r"`([^`]+)`", r"\1", text)
 
     # Clean up multiple blank lines
-    text = re.sub(r'\n{3,}', '\n\n', text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
 
     return text.strip()
+
 
 def save_text_output(markdown_path: Path, markdown_content: str) -> Optional[Path]:
     """
@@ -628,7 +644,7 @@ def save_text_output(markdown_path: Path, markdown_content: str) -> Optional[Pat
         text_path = config.OUTPUT_TXT_DIR / f"{markdown_path.stem}.txt"
         text_content = markdown_to_text(markdown_content)
 
-        with open(text_path, 'w', encoding='utf-8') as f:
+        with open(text_path, "w", encoding="utf-8") as f:
             f.write(text_content)
 
         logger.debug(f"Saved text output: {text_path.name}")
@@ -642,6 +658,7 @@ def save_text_output(markdown_path: Path, markdown_content: str) -> Optional[Pat
 # ============================================================================
 # Progress Indicators
 # ============================================================================
+
 
 def print_progress(current: int, total: int, prefix: str = "Progress") -> None:
     """
@@ -663,16 +680,18 @@ def print_progress(current: int, total: int, prefix: str = "Progress") -> None:
     percent = (current / total) * 100
     bar_length = 40
     filled = int(bar_length * current / total)
-    bar = '=' * filled + '-' * (bar_length - filled)
+    bar = "=" * filled + "-" * (bar_length - filled)
 
-    print(f'\r{prefix}: [{bar}] {percent:.1f}% ({current}/{total})', end='', flush=True)
+    print(f"\r{prefix}: [{bar}] {percent:.1f}% ({current}/{total})", end="", flush=True)
 
     if current == total:
         print()  # New line when complete
 
+
 # ============================================================================
 # File Validation
 # ============================================================================
+
 
 def validate_file(file_path: Path) -> Tuple[bool, Optional[str]]:
     """
@@ -694,13 +713,14 @@ def validate_file(file_path: Path) -> Tuple[bool, Optional[str]]:
         return False, f"File is empty: {file_path.name}"
 
     # Check file extension
-    ext = file_path.suffix.lower().lstrip('.')
+    ext = file_path.suffix.lower().lstrip(".")
     supported = config.MARKITDOWN_SUPPORTED | config.MISTRAL_OCR_SUPPORTED
 
     if ext not in supported:
         return False, f"Unsupported file type: .{ext}"
 
     return True, None
+
 
 def safe_output_stem(file_path: Path) -> str:
     """Return a unique output stem for a file, adding a short hash if needed to
@@ -718,8 +738,7 @@ def safe_output_stem(file_path: Path) -> str:
         input_dir = config.INPUT_DIR.resolve()
         if resolved.parent == input_dir:
             collisions = [
-                p for p in input_dir.glob(f"{stem}.*")
-                if p.is_file() and p.suffix.lower() != file_path.suffix.lower()
+                p for p in input_dir.glob(f"{stem}.*") if p.is_file() and p.suffix.lower() != file_path.suffix.lower()
             ]
             if collisions:
                 return f"{stem}_{ext}"
@@ -735,11 +754,9 @@ def safe_output_stem(file_path: Path) -> str:
 # YAML Frontmatter Generation
 # ============================================================================
 
+
 def generate_yaml_frontmatter(
-    title: str,
-    file_name: str,
-    conversion_method: str,
-    additional_fields: Optional[Dict[str, Any]] = None
+    title: str, file_name: str, conversion_method: str, additional_fields: Optional[Dict[str, Any]] = None
 ) -> str:
     """
     Generate YAML frontmatter for markdown files.
@@ -756,7 +773,7 @@ def generate_yaml_frontmatter(
     if not config.INCLUDE_METADATA:
         return ""
 
-    metadata = {
+    metadata: Dict[str, Any] = {
         "title": title,
         "source_file": file_name,
         "conversion_method": conversion_method,
@@ -774,10 +791,11 @@ def generate_yaml_frontmatter(
         if isinstance(value, str):
             lines.append(f"{key}: {json.dumps(value, ensure_ascii=False)}")
         else:
-            lines.append(f'{key}: {value}')
+            lines.append(f"{key}: {value}")
     lines.append("---\n")
 
     return "\n".join(lines)
+
 
 def strip_yaml_frontmatter(content: str) -> str:
     """
