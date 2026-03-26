@@ -29,7 +29,6 @@ import config
 config.ensure_directories()
 
 import local_converter
-import utils
 
 
 # ============================================================================
@@ -680,7 +679,7 @@ class TestGetMarkItDownInstanceBranches:
 
         with patch.object(local_converter, "MarkItDown", mock_md_class):
             with patch.dict("sys.modules", {"openai": MagicMock(OpenAI=mock_openai)}):
-                result = local_converter.get_markitdown_instance()
+                local_converter.get_markitdown_instance()
 
         assert mock_md_class.called
         local_converter.reset_markitdown_instance()
@@ -704,7 +703,7 @@ class TestGetMarkItDownInstanceBranches:
 
         with patch.object(local_converter, "MarkItDown", mock_md_class):
             with patch("builtins.__import__", side_effect=fake_import):
-                result = local_converter.get_markitdown_instance()
+                local_converter.get_markitdown_instance()
 
         local_converter.reset_markitdown_instance()
 
@@ -717,7 +716,7 @@ class TestGetMarkItDownInstanceBranches:
         mock_md_class = MagicMock()
 
         with patch.object(local_converter, "MarkItDown", mock_md_class):
-            result = local_converter.get_markitdown_instance()
+            local_converter.get_markitdown_instance()
 
         call_kwargs = mock_md_class.call_args[1]
         assert call_kwargs.get("style_map") == "p.custom => custom"
@@ -733,7 +732,7 @@ class TestGetMarkItDownInstanceBranches:
         mock_md_class = MagicMock()
 
         with patch.object(local_converter, "MarkItDown", mock_md_class):
-            result = local_converter.get_markitdown_instance()
+            local_converter.get_markitdown_instance()
 
         call_kwargs = mock_md_class.call_args[1]
         assert call_kwargs.get("exiftool_path") == "/usr/bin/exiftool"
@@ -750,7 +749,7 @@ class TestGetMarkItDownInstanceBranches:
         mock_md_class = MagicMock()
 
         with patch.object(local_converter, "MarkItDown", mock_md_class):
-            result = local_converter.get_markitdown_instance()
+            local_converter.get_markitdown_instance()
 
         call_kwargs = mock_md_class.call_args[1]
         assert call_kwargs.get("llm_prompt") == "Describe this image"
@@ -768,7 +767,7 @@ class TestGetMarkItDownInstanceBranches:
         mock_md_class = MagicMock()
 
         with patch.object(local_converter, "MarkItDown", mock_md_class):
-            result = local_converter.get_markitdown_instance()
+            local_converter.get_markitdown_instance()
 
         call_kwargs = mock_md_class.call_args[1]
         assert call_kwargs.get("keep_data_uris") is True
@@ -799,13 +798,11 @@ class TestGetMarkItDownInstanceBranches:
         results = [None, None]
 
         mock_md = MagicMock()
-        mock_md_class = MagicMock(return_value=mock_md)
+        MagicMock(return_value=mock_md)
 
         # Both threads will see _MARKITDOWN_UNSET on fast-path, both enter lock.
         # Thread 1 gets lock first, does init. Thread 2 gets lock second, hits line 95.
         barrier = threading.Barrier(2, timeout=5)
-
-        original_init = local_converter.MarkItDown
 
         def slow_markitdown(**kwargs):
             """Simulate slow init to ensure both threads queue up."""
@@ -978,8 +975,6 @@ class TestExtractTablesCamelotStreamFlavor:
         monkeypatch.setattr(config, "CAMELOT_MIN_ACCURACY", 50.0)
         monkeypatch.setattr(config, "CAMELOT_MAX_WHITESPACE", 80.0)
 
-        import pandas as pd
-
         mock_table = MagicMock()
         mock_table.accuracy = 90.0
         mock_table.whitespace = 20.0
@@ -1098,7 +1093,7 @@ class TestSaveTablesToCsv:
         pdf_file.touch()
 
         tables = [[["Name", "Value"], ["A", "1"]]]
-        result = local_converter.save_tables_to_files(pdf_file, tables)
+        local_converter.save_tables_to_files(pdf_file, tables)
 
         csv_files = list(tmp_path.glob("*.csv"))
         assert len(csv_files) == 1
@@ -1118,7 +1113,7 @@ class TestSaveTablesToCsv:
 
         with patch("builtins.open", side_effect=[MagicMock(), PermissionError("denied")]):
             # First open for markdown, second for CSV raises
-            result = local_converter.save_tables_to_files(pdf_file, tables)
+            local_converter.save_tables_to_files(pdf_file, tables)
         # Should not crash
 
 

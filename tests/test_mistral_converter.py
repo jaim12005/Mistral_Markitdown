@@ -991,7 +991,7 @@ class TestOptimizeImage:
         with patch.object(mistral_converter, "Image") as mock_pil:
             mock_pil.Resampling.LANCZOS = 1
             mock_pil.open.return_value = mock_img
-            result = mistral_converter.optimize_image(img_path)
+            mistral_converter.optimize_image(img_path)
 
         save_call = resized.save.call_args
         assert save_call[1].get("format") == "JPEG"
@@ -1631,7 +1631,6 @@ class TestSubmitBatchOcrJob:
         assert ok is False
 
 
-
 # ============================================================================
 # _process_ocr_result_pipeline Tests
 # ============================================================================
@@ -2046,7 +2045,7 @@ class TestOptimizeImageFull:
         mock_image_mod.Resampling.LANCZOS = 1
 
         with patch.object(mistral_converter, "Image", mock_image_mod):
-            result = mistral_converter.optimize_image(img)
+            mistral_converter.optimize_image(img)
 
         save_kwargs = mock_resized.save.call_args
         assert save_kwargs[1]["format"] == "JPEG"
@@ -2072,7 +2071,7 @@ class TestOptimizeImageFull:
         mock_image_mod.Resampling.LANCZOS = 1
 
         with patch.object(mistral_converter, "Image", mock_image_mod):
-            result = mistral_converter.optimize_image(img)
+            mistral_converter.optimize_image(img)
 
         save_kwargs = mock_resized.save.call_args
         assert save_kwargs[1].get("optimize") is True
@@ -2394,7 +2393,6 @@ class TestUploadFileForOcrFull:
 
         result = mistral_converter.upload_file_for_ocr(mock_client, pdf)
         assert result is None
-
 
 
 # ============================================================================
@@ -3364,7 +3362,6 @@ class TestBatchOperationsAdditional:
             )
         assert ok is False
 
-
     def test_list_batch_jobs_with_pagination(self):
         mock_job = MagicMock()
         mock_job.id = "j1"
@@ -3517,7 +3514,6 @@ class TestSaveExtractedImagesDataUri:
 
 class TestModuleImportFallbacks:
     """Test module-level import try/except fallback paths."""
-
 
     def test_mistralai_not_available(self):
         """Test behavior when Mistral SDK is not available at all."""
@@ -4694,9 +4690,6 @@ class TestQueryDocumentDNS:
         assert answer == "Answer"
 
 
-
-
-
 # ============================================================================
 # _extract_response_metadata - dict response paths
 # ============================================================================
@@ -5059,7 +5052,7 @@ class TestImproveWeakPagesUrlRefreshFail:
                 ),
             ):
                 with patch("time.time", side_effect=advancing_time):
-                    result = mistral_converter.improve_weak_pages(
+                    mistral_converter.improve_weak_pages(
                         MagicMock(),
                         Path("test.pdf"),
                         ocr_result,
@@ -5327,7 +5320,6 @@ class TestImportFallbackPaths:
             assert mistral_converter.response_format_from_pydantic_model is None
         finally:
             self._restore_module_state(saved)
-
 
     def test_pil_unavailable(self):
         """Lines 92-93: PIL not installed."""

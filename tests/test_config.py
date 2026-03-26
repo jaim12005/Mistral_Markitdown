@@ -2,7 +2,6 @@
 Tests for config.py module
 """
 
-import os
 import pytest
 
 import config
@@ -274,7 +273,7 @@ class TestInitializeIdempotent:
 
     def test_initialize_returns_empty_on_second_call(self):
         config._initialized = False
-        result1 = config.initialize()
+        config.initialize()
         result2 = config.initialize()
         assert result2 == []
         config._initialized = False

@@ -7,8 +7,6 @@ Tests cover:
 - Schema structure validation (required keys, types)
 """
 
-from typing import Dict, Any
-
 import pytest
 
 import schemas

@@ -197,8 +197,7 @@ def convert_with_markitdown(file_path: Path) -> Tuple[bool, Optional[str], Optio
 
             # Save output
             output_path = config.OUTPUT_MD_DIR / f"{utils.safe_output_stem(file_path)}.md"
-            with open(output_path, "w", encoding="utf-8") as f:
-                f.write(full_content)
+            utils.atomic_write_text(output_path, full_content)
 
             # Save text version
             utils.save_text_output(output_path, full_content)
@@ -419,7 +418,10 @@ def _fix_split_headers(table: List[List[str]], max_header_rows: int = 3) -> List
     Example: ['Acct Account Title B', 'alance'] → ['Acct Account Title', 'Balance']
 
     Only applies to the first few rows (headers), never touches data rows.
+    Returns a new table; the original is not modified.
     """
+    table = [list(row) for row in table]
+
     for row_idx in range(min(max_header_rows, len(table))):
         row = table[row_idx]
         col = 0
@@ -459,7 +461,6 @@ def _fix_split_headers(table: List[List[str]], max_header_rows: int = 3) -> List
                     row[col] = ""
                     row[col + 1] = cell + next_cell
             col += 1
-        table[row_idx] = row
 
     return table
 
@@ -696,9 +697,7 @@ def save_tables_to_files(pdf_path: Path, tables: List[List[List[str]]]) -> List[
 
             md_content += "\n\n---\n\n"
 
-        with open(md_path, "w", encoding="utf-8") as f:
-            f.write(md_content)
-
+        utils.atomic_write_text(md_path, md_content)
         created_files.append(md_path)
         logger.info("Saved: %s", md_path.name)
 
@@ -820,7 +819,11 @@ def convert_pdf_to_images(
 
 def coalesce_tables(tables: List[List[List[str]]]) -> List[List[List[str]]]:
     """
-    Merge tables with identical headers across pages.
+    Merge *consecutive* tables with identical headers across pages.
+
+    Only adjacent tables whose first row (header) matches are merged.
+    Non-adjacent tables with the same header (separated by a different
+    table in between) are **not** merged.
 
     Args:
         tables: List of tables

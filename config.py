@@ -20,7 +20,13 @@ from typing import List
 
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
+# Load environment variables from .env file.
+#
+# IMPORTANT: All configuration values below are evaluated once at import time.
+# Subsequent changes to the .env file or environment variables will NOT take
+# effect until the process is restarted.  Tests that need to override config
+# values should monkeypatch the ``config.<ATTR>`` attributes directly rather
+# than patching environment variables (which are already consumed).
 load_dotenv()
 
 __all__ = [
@@ -112,11 +118,11 @@ def _safe_csv(env_var: str, default: str) -> List[str]:
 
     Returns the *default* list when the variable is empty or only whitespace.
     """
-    raw = os.getenv(env_var, default)
+    raw = os.getenv(env_var, "")
+    if not raw.strip():
+        return [item.strip() for item in default.split(",") if item.strip()]
     values = [item.strip() for item in raw.split(",") if item.strip()]
-    if values:
-        return values
-    return [item.strip() for item in default.split(",") if item.strip()]
+    return values if values else [item.strip() for item in default.split(",") if item.strip()]
 
 
 # ============================================================================
