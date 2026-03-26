@@ -131,7 +131,7 @@ def _process_files_concurrently(
                     failed += 1
                     logger.error("Error processing %s: %s", file_path.name, e)
 
-    print(f"\n{label}: {successful + failed}/{total} complete")
+    utils.ui_print(f"\n{label}: {successful + failed}/{total} complete")
 
     return successful, failed
 
@@ -242,14 +242,14 @@ def mode_convert_smart(file_paths: List[Path]) -> Tuple[bool, str]:
     routing_cache: Dict[Path, bool] = {fp: _should_use_ocr(fp) for fp in file_paths}
 
     # Show routing plan
-    print("\nRouting plan:")
+    utils.ui_print("\nRouting plan:")
     if not config.MISTRAL_API_KEY:
-        print("  NOTE: No MISTRAL_API_KEY set. All files will use MarkItDown (local).\n")
+        utils.ui_print("  NOTE: No MISTRAL_API_KEY set. All files will use MarkItDown (local).\n")
 
     for fp in file_paths:
         label = _route_label_cached(fp, routing_cache[fp])
-        print(f"  {fp.name:<40} -> {label}")
-    print()
+        utils.ui_print(f"  {fp.name:<40} -> {label}")
+    utils.ui_print()
 
     def _process_fn(file_path: Path) -> Tuple[bool, Optional[Path], Optional[str]]:
         return _process_single_smart(file_path, use_ocr=routing_cache[file_path])
@@ -310,28 +310,19 @@ def mode_pdf_to_images(file_paths: List[Path]) -> Tuple[bool, str]:
     """Render each PDF page to PNG images."""
     logger.info("PDF TO IMAGES MODE: Converting %d PDF(s)", len(file_paths))
 
-    successful = 0
-    failed = 0
-    total_pages = 0
+    pdf_files = [fp for fp in file_paths if fp.suffix.lower() == ".pdf"]
+    skipped = len(file_paths) - len(pdf_files)
+    if skipped:
+        logger.warning("Skipping %d non-PDF file(s)", skipped)
 
-    for i, file_path in enumerate(file_paths, 1):
-        utils.print_progress(i, len(file_paths), "Converting PDFs")
+    if not pdf_files:
+        return False, "No PDF files to convert"
 
-        if file_path.suffix.lower() != ".pdf":
-            logger.warning("Skipping non-PDF file: %s", file_path.name)
-            continue
+    successful, failed = _process_files_concurrently(
+        pdf_files, local_converter.convert_pdf_to_images, "Converting PDFs"
+    )
 
-        success, image_paths, error = local_converter.convert_pdf_to_images(file_path)
-
-        if success:
-            successful += 1
-            total_pages += len(image_paths)
-            logger.info("Converted %s to %d images", file_path.name, len(image_paths))
-        else:
-            failed += 1
-            logger.error("Failed: %s - %s", file_path.name, error)
-
-    return failed == 0, f"Converted {successful} PDFs ({total_pages} total pages)"
+    return failed == 0, f"Converted {successful} PDFs"
 
 
 # ============================================================================
@@ -347,7 +338,7 @@ def mode_document_qna(file_paths: List[Path]) -> Tuple[bool, str]:
         return False, "Document QnA requires MISTRAL_API_KEY to be set"
 
     if len(file_paths) != 1:
-        print("\nPlease select exactly 1 file to query.\n")
+        utils.ui_print("\nPlease select exactly 1 file to query.\n")
         return False, "Document QnA works on one file at a time"
 
     file_path = file_paths[0]
@@ -381,9 +372,9 @@ def mode_document_qna(file_paths: List[Path]) -> Tuple[bool, str]:
     if not _get_document_url():
         return False, f"Failed to upload {file_path.name} for QnA"
 
-    print(f"\nQuerying: {file_path.name}")
-    print(f"Model: {config.MISTRAL_DOCUMENT_QNA_MODEL}")
-    print("Type 'exit' or 'quit' to return to menu.\n")
+    utils.ui_print(f"\nQuerying: {file_path.name}")
+    utils.ui_print(f"Model: {config.MISTRAL_DOCUMENT_QNA_MODEL}")
+    utils.ui_print("Type 'exit' or 'quit' to return to menu.\n")
 
     questions_asked = 0
     while True:
@@ -394,7 +385,7 @@ def mode_document_qna(file_paths: List[Path]) -> Tuple[bool, str]:
 
             document_url = _get_document_url()
             if not document_url:
-                print(f"\nError: Failed to refresh document URL for {file_path.name}\n")
+                utils.ui_print(f"\nError: Failed to refresh document URL for {file_path.name}\n")
                 continue
 
             success, stream, error = mistral_converter.query_document_stream(
@@ -403,20 +394,20 @@ def mode_document_qna(file_paths: List[Path]) -> Tuple[bool, str]:
             )
 
             if success and stream is not None:
-                print("\nAnswer: ", end="", flush=True)
+                utils.ui_print("\nAnswer: ", end="", flush=True)
                 try:
                     for chunk in stream:
                         if chunk.data.choices and chunk.data.choices[0].delta.content:
                             safe_text = utils.sanitize_for_terminal(
                                 chunk.data.choices[0].delta.content
                             )
-                            print(safe_text, end="", flush=True)
+                            utils.ui_print(safe_text, end="", flush=True)
                 except Exception as e:
-                    print(f"\n\nStream error: {e}")
-                print("\n")
+                    utils.ui_print(f"\n\nStream error: {e}")
+                utils.ui_print("\n")
                 questions_asked += 1
             else:
-                print(f"\nError: {error}\n")
+                utils.ui_print(f"\nError: {error}\n")
 
         except KeyboardInterrupt:
             break
@@ -455,15 +446,15 @@ def mode_batch_ocr(file_paths: List[Path]) -> Tuple[bool, str]:
         )
 
     if len(file_paths) < config.MISTRAL_BATCH_MIN_FILES:
-        print(f"\nNote: Batch processing is most cost-effective with {config.MISTRAL_BATCH_MIN_FILES}+ files.")
-        print(f"You selected {len(file_paths)} file(s). Proceeding anyway.\n")
+        utils.ui_print(f"\nNote: Batch processing is most cost-effective with {config.MISTRAL_BATCH_MIN_FILES}+ files.")
+        utils.ui_print(f"You selected {len(file_paths)} file(s). Proceeding anyway.\n")
 
-    print("\nBatch OCR Options:")
-    print("  1. Submit new batch job")
-    print("  2. Check job status")
-    print("  3. List all batch jobs")
-    print("  4. Download batch results")
-    print("  0. Cancel\n")
+    utils.ui_print("\nBatch OCR Options:")
+    utils.ui_print("  1. Submit new batch job")
+    utils.ui_print("  2. Check job status")
+    utils.ui_print("  3. List all batch jobs")
+    utils.ui_print("  4. Download batch results")
+    utils.ui_print("  0. Cancel\n")
 
     try:
         choice = input("Select option: ").strip()
@@ -472,17 +463,17 @@ def mode_batch_ocr(file_paths: List[Path]) -> Tuple[bool, str]:
 
     if choice == "1":
         batch_file = config.OUTPUT_MD_DIR / "batch_input.jsonl"
-        print(f"\nCreating batch file for {len(file_paths)} document(s)...")
+        utils.ui_print(f"\nCreating batch file for {len(file_paths)} document(s)...")
 
         success, batch_path, error = mistral_converter.create_batch_ocr_file(file_paths, batch_file)
         if not success or batch_path is None:
             return False, f"Failed to create batch file: {error}"
 
-        print("Submitting batch job...")
+        utils.ui_print("Submitting batch job...")
         success, job_id, error = mistral_converter.submit_batch_ocr_job(batch_path)
         if success:
-            print(f"\nBatch job submitted: {job_id}")
-            print("Use option 2 to check status, option 4 to download results when complete.")
+            utils.ui_print(f"\nBatch job submitted: {job_id}")
+            utils.ui_print("Use option 2 to check status, option 4 to download results when complete.")
             return True, f"Batch job submitted: {job_id}"
         else:
             return False, f"Failed to submit batch job: {error}"
@@ -495,11 +486,11 @@ def mode_batch_ocr(file_paths: List[Path]) -> Tuple[bool, str]:
             return False, "Invalid job ID format"
         success, status, error = mistral_converter.get_batch_job_status(job_id)
         if success and status is not None:
-            print(f"\nJob: {job_id}")
-            print(f"  Status: {status['status']}")
-            print(f"  Progress: {status['progress_percent']}%")
-            print(f"  Succeeded: {status['succeeded_requests']}")
-            print(f"  Failed: {status['failed_requests']}")
+            utils.ui_print(f"\nJob: {job_id}")
+            utils.ui_print(f"  Status: {status['status']}")
+            utils.ui_print(f"  Progress: {status['progress_percent']}%")
+            utils.ui_print(f"  Succeeded: {status['succeeded_requests']}")
+            utils.ui_print(f"  Failed: {status['failed_requests']}")
             return True, f"Job {job_id}: {status['status']}"
         else:
             return False, f"Error: {error}"
@@ -507,12 +498,14 @@ def mode_batch_ocr(file_paths: List[Path]) -> Tuple[bool, str]:
     elif choice == "3":
         success, jobs, error = mistral_converter.list_batch_jobs()
         if success and jobs:
-            print(f"\n{len(jobs)} batch job(s):\n")
+            utils.ui_print(f"\n{len(jobs)} batch job(s):\n")
             for job in jobs:
-                print(f"  {job['id']} | {job['status']} | {job['total_requests']} requests | {job['created_at']}")
+                utils.ui_print(
+                    f"  {job['id']} | {job['status']} | {job['total_requests']} requests | {job['created_at']}"
+                )
             return True, f"Listed {len(jobs)} batch jobs"
         elif success:
-            print("\nNo batch jobs found.")
+            utils.ui_print("\nNo batch jobs found.")
             return True, "No batch jobs"
         else:
             return False, f"Error: {error}"
@@ -525,7 +518,7 @@ def mode_batch_ocr(file_paths: List[Path]) -> Tuple[bool, str]:
             return False, "Invalid job ID format"
         success, path, error = mistral_converter.download_batch_results(job_id)
         if success:
-            print(f"\nResults saved to: {path}")
+            utils.ui_print(f"\nResults saved to: {path}")
             return True, f"Results downloaded: {path}"
         else:
             return False, f"Error: {error}"
@@ -542,55 +535,60 @@ def mode_system_status() -> Tuple[bool, str]:
     """Display cache statistics and system info (read-only, no side effects)."""
     logger.info("SYSTEM STATUS MODE")
 
-    print("\n" + "=" * 60)
-    print(f"  ENHANCED DOCUMENT CONVERTER v{config.VERSION} - SYSTEM STATUS")
-    print("=" * 60 + "\n")
+    out = utils.ui_print
 
-    print("Configuration:")
-    print(f"  * Mistral API Key: {'Set' if config.MISTRAL_API_KEY else 'NOT SET'}")
-    print(
-        f"  * LLM Descriptions: {'Enabled (' + config.MARKITDOWN_LLM_MODEL + ')' if config.MARKITDOWN_ENABLE_LLM_DESCRIPTIONS else 'Disabled'}"
+    out("\n" + "=" * 60)
+    out(f"  ENHANCED DOCUMENT CONVERTER v{config.VERSION} - SYSTEM STATUS")
+    out("=" * 60 + "\n")
+
+    out("Configuration:")
+    out(f"  * Mistral API Key: {'Set' if config.MISTRAL_API_KEY else 'NOT SET'}")
+    llm_status = (
+        f"Enabled ({config.MARKITDOWN_LLM_MODEL})"
+        if config.MARKITDOWN_ENABLE_LLM_DESCRIPTIONS
+        else "Disabled"
     )
-    print(f"  * Cache Duration: {config.CACHE_DURATION_HOURS} hours")
-    print(f"  * Max Concurrent Files: {config.MAX_CONCURRENT_FILES}")
-    print(f"  * Mistral OCR Model: {config.get_ocr_model()}")
-    print(f"  * Table Format: {config.MISTRAL_TABLE_FORMAT or 'API default (unset)'}")
-    print(f"  * Extract Headers/Footers: {config.MISTRAL_EXTRACT_HEADER}/{config.MISTRAL_EXTRACT_FOOTER}")
-    print(f"  * ExifTool: {'Set' if config.MARKITDOWN_EXIFTOOL_PATH else 'Not configured'}")
-    print(f"  * Style Map: {'Set' if config.MARKITDOWN_STYLE_MAP else 'Not configured'}")
-    print()
+    out(f"  * LLM Descriptions: {llm_status}")
+    out(f"  * Cache Duration: {config.CACHE_DURATION_HOURS} hours")
+    out(f"  * Max Concurrent Files: {config.MAX_CONCURRENT_FILES}")
+    out(f"  * Mistral OCR Model: {config.get_ocr_model()}")
+    out(f"  * Table Format: {config.MISTRAL_TABLE_FORMAT or 'API default (unset)'}")
+    out(f"  * Extract Headers/Footers: {config.MISTRAL_EXTRACT_HEADER}/{config.MISTRAL_EXTRACT_FOOTER}")
+    out(f"  * ExifTool: {'Set' if config.MARKITDOWN_EXIFTOOL_PATH else 'Not configured'}")
+    out(f"  * Style Map: {'Set' if config.MARKITDOWN_STYLE_MAP else 'Not configured'}")
+    out()
 
     cache_stats = utils.cache.get_statistics()
-    print("Cache Statistics:")
-    print(f"  Total Entries: {cache_stats['total_entries']}")
-    print(f"  Total Size: {cache_stats['total_size_mb']:.2f} MB")
-    print(f"  Cache Hits: {cache_stats['cache_hits']}")
-    print(f"  Cache Misses: {cache_stats['cache_misses']}")
-    print(f"  Hit Rate: {cache_stats['hit_rate']:.1f}%")
-    print()
+    out("Cache Statistics:")
+    out(f"  Total Entries: {cache_stats['total_entries']}")
+    out(f"  Total Size: {cache_stats['total_size_mb']:.2f} MB")
+    out(f"  Cache Hits: {cache_stats['cache_hits']}")
+    out(f"  Cache Misses: {cache_stats['cache_misses']}")
+    out(f"  Hit Rate: {cache_stats['hit_rate']:.1f}%")
+    out()
 
-    print("Output Statistics:")
+    out("Output Statistics:")
     md_files = list(config.OUTPUT_MD_DIR.glob("*.md"))
     txt_files = list(config.OUTPUT_TXT_DIR.glob("*.txt"))
     image_dirs = list(config.OUTPUT_IMAGES_DIR.glob("*"))
-    print(f"  Markdown Files: {len(md_files)}")
-    print(f"  Text Files: {len(txt_files)}")
-    print(f"  Image Directories: {len(image_dirs)}")
-    print()
+    out(f"  Markdown Files: {len(md_files)}")
+    out(f"  Text Files: {len(txt_files)}")
+    out(f"  Image Directories: {len(image_dirs)}")
+    out()
 
     input_files = list(config.INPUT_DIR.glob("*.*"))
-    print(f"Input Directory: {len([f for f in input_files if f.is_file()])} files ready")
-    print()
+    out(f"Input Directory: {len([f for f in input_files if f.is_file()])} files ready")
+    out()
 
-    print("Configured Mistral Models:")
+    out("Configured Mistral Models:")
     key_models = ["mistral-ocr-latest", "pixtral-large-latest", "ministral-8b-latest"]
     for model_id in key_models:
         if model_id in config.MISTRAL_MODELS:
             model_info = config.MISTRAL_MODELS[model_id]
-            print(f"  * {model_info['name']}: {model_info['description']}")
-    print()
+            out(f"  * {model_info['name']}: {model_info['description']}")
+    out()
 
-    print("System Recommendations:")
+    out("System Recommendations:")
     recommendations = []
 
     if not config.MISTRAL_API_KEY:
@@ -603,9 +601,9 @@ def mode_system_status() -> Tuple[bool, str]:
         recommendations.append("  All systems operational")
 
     for rec in recommendations:
-        print(f"  {rec}")
+        out(f"  {rec}")
 
-    print("\n" + "=" * 60 + "\n")
+    out("\n" + "=" * 60 + "\n")
 
     return True, "System status displayed"
 
@@ -614,9 +612,11 @@ def mode_maintenance() -> Tuple[bool, str]:
     """Run maintenance tasks: clear expired cache entries and old uploaded files."""
     logger.info("MAINTENANCE MODE")
 
-    print("\n" + "=" * 60)
-    print("  MAINTENANCE")
-    print("=" * 60 + "\n")
+    out = utils.ui_print
+
+    out("\n" + "=" * 60)
+    out("  MAINTENANCE")
+    out("=" * 60 + "\n")
 
     actions_taken = []
 
@@ -625,12 +625,12 @@ def mode_maintenance() -> Tuple[bool, str]:
         cleared = utils.cache.clear_old_entries()
         if cleared > 0:
             msg = f"Cleared {cleared} expired cache entries"
-            print(f"  ✓ {msg}")
+            out(f"  ✓ {msg}")
             actions_taken.append(msg)
         else:
-            print("  - No expired cache entries to clear")
+            out("  - No expired cache entries to clear")
     else:
-        print("  - Cache auto-clear is disabled (AUTO_CLEAR_CACHE=false)")
+        out("  - Cache auto-clear is disabled (AUTO_CLEAR_CACHE=false)")
 
     # 2. Clean up old uploaded files from Mistral
     if config.CLEANUP_OLD_UPLOADS and config.MISTRAL_API_KEY:
@@ -640,24 +640,24 @@ def mode_maintenance() -> Tuple[bool, str]:
                 deleted = mistral_converter.cleanup_uploaded_files(client)
                 if deleted > 0:
                     msg = f"Cleaned up {deleted} old uploaded files from Mistral (>{config.UPLOAD_RETENTION_DAYS} days)"
-                    print(f"  ✓ {msg}")
+                    out(f"  ✓ {msg}")
                     actions_taken.append(msg)
                 else:
-                    print("  - No old uploaded files to clean up")
+                    out("  - No old uploaded files to clean up")
             else:
-                print("  - Mistral client not available")
+                out("  - Mistral client not available")
         except Exception as e:
             logger.debug("Could not clean up uploads: %s", e)
-            print(f"  ! Upload cleanup failed: {e}")
+            out(f"  ! Upload cleanup failed: {e}")
     elif not config.MISTRAL_API_KEY:
-        print("  - Skipping upload cleanup (no API key)")
+        out("  - Skipping upload cleanup (no API key)")
     else:
-        print("  - Upload cleanup is disabled (CLEANUP_OLD_UPLOADS=false)")
+        out("  - Upload cleanup is disabled (CLEANUP_OLD_UPLOADS=false)")
 
     if not actions_taken:
-        print("\n  No maintenance actions were needed.")
+        out("\n  No maintenance actions were needed.")
 
-    print("\n" + "=" * 60 + "\n")
+    out("\n" + "=" * 60 + "\n")
 
     summary = "; ".join(actions_taken) if actions_taken else "No actions needed"
     return True, f"Maintenance complete: {summary}"
@@ -672,20 +672,22 @@ def select_files() -> List[Path]:
     """Prompt user to select files from input directory."""
     input_files = _list_input_files()
 
+    out = utils.ui_print
+
     if not input_files:
         logger.warning("No files found in %s", config.INPUT_DIR)
-        print(f"\nNo files found in '{config.INPUT_DIR}'")
-        print("Please add files to the input directory and try again.\n")
+        out(f"\nNo files found in '{config.INPUT_DIR}'")
+        out("Please add files to the input directory and try again.\n")
         return []
 
-    print(f"\nFound {len(input_files)} file(s) in input directory:\n")
+    out(f"\nFound {len(input_files)} file(s) in input directory:\n")
 
     for i, file_path in enumerate(input_files, 1):
         file_size = file_path.stat().st_size / 1024
-        print(f"  {i}. {file_path.name} ({file_size:.1f} KB)")
+        out(f"  {i}. {file_path.name} ({file_size:.1f} KB)")
 
-    print(f"\n  {len(input_files) + 1}. Process ALL files")
-    print("  0. Cancel\n")
+    out(f"\n  {len(input_files) + 1}. Process ALL files")
+    out("  0. Cancel\n")
 
     while True:
         try:
@@ -704,7 +706,7 @@ def select_files() -> List[Path]:
                 if 1 <= idx <= len(input_files):
                     selected.append(input_files[idx - 1])
                 else:
-                    print(f"Invalid selection: {idx}")
+                    utils.ui_print(f"Invalid selection: {idx}")
                     selected = []
                     break
 
@@ -712,7 +714,7 @@ def select_files() -> List[Path]:
                 return selected
 
         except (ValueError, IndexError):
-            print("Invalid input. Please enter numbers separated by commas.\n")
+            utils.ui_print("Invalid input. Please enter numbers separated by commas.\n")
         except (KeyboardInterrupt, EOFError):
             return []
 
@@ -724,36 +726,37 @@ def select_files() -> List[Path]:
 
 def show_menu():
     """Display the interactive menu."""
-    print("\n" + "=" * 60)
-    print(f"  ENHANCED DOCUMENT CONVERTER v{config.VERSION}")
-    print("=" * 60)
-    print("\nSelect conversion mode:\n")
-    print("  1. Convert (Smart)")
-    print("     Auto-picks best engine per file type")
-    print()
-    print("  2. Convert (MarkItDown)")
-    print("     Force local conversion (no API calls)")
-    print()
-    print("  3. Convert (Mistral OCR)")
-    print("     Force cloud OCR for highest accuracy")
-    print()
-    print("  4. PDF to Images")
-    print("     Render each PDF page to PNG images")
-    print()
-    print("  5. Document QnA")
-    print("     Query documents in natural language")
-    print()
-    print("  6. Batch OCR (50% savings)")
-    print("     Submit batch jobs to Mistral Batch API")
-    print()
-    print("  7. System Status")
-    print("     Cache stats, config info, and diagnostics")
-    print()
-    print("  8. Maintenance")
-    print("     Clear cache, clean up old uploads")
-    print()
-    print("  0. Exit")
-    print("\n" + "=" * 60 + "\n")
+    out = utils.ui_print
+    out("\n" + "=" * 60)
+    out(f"  ENHANCED DOCUMENT CONVERTER v{config.VERSION}")
+    out("=" * 60)
+    out("\nSelect conversion mode:\n")
+    out("  1. Convert (Smart)")
+    out("     Auto-picks best engine per file type")
+    out()
+    out("  2. Convert (MarkItDown)")
+    out("     Force local conversion (no API calls)")
+    out()
+    out("  3. Convert (Mistral OCR)")
+    out("     Force cloud OCR for highest accuracy")
+    out()
+    out("  4. PDF to Images")
+    out("     Render each PDF page to PNG images")
+    out()
+    out("  5. Document QnA")
+    out("     Query documents in natural language")
+    out()
+    out("  6. Batch OCR (50% savings)")
+    out("     Submit batch jobs to Mistral Batch API")
+    out()
+    out("  7. System Status")
+    out("     Cache stats, config info, and diagnostics")
+    out()
+    out("  8. Maintenance")
+    out("     Clear cache, clean up old uploads")
+    out()
+    out("  0. Exit")
+    out("\n" + "=" * 60 + "\n")
 
 
 # Dispatch table: menu_choice -> (cli_mode_name, handler)
@@ -779,7 +782,7 @@ def interactive_menu():
             choice = input("Enter your choice (0-8): ").strip()
 
             if choice == "0":
-                print("\nExiting. Goodbye!\n")
+                utils.ui_print("\nExiting. Goodbye!\n")
                 return
 
             if choice == "7":
@@ -793,7 +796,7 @@ def interactive_menu():
                 continue
 
             if choice not in MODE_DISPATCH:
-                print("\nInvalid choice. Please enter a number between 0 and 8.\n")
+                utils.ui_print("\nInvalid choice. Please enter a number between 0 and 8.\n")
                 continue
 
             files = select_files()
@@ -804,26 +807,26 @@ def interactive_menu():
             valid_files = _filter_valid_files(files, mode=cli_mode)
 
             if not valid_files:
-                print("\nNo valid files to process.\n")
+                utils.ui_print("\nNo valid files to process.\n")
                 input("Press Enter to continue...")
                 continue
 
             start_time = time.time()
             success, message = handler(valid_files)
-            print(f"\n{message}")
+            utils.ui_print(f"\n{message}")
 
             elapsed = time.time() - start_time
-            print(f"Total processing time: {elapsed:.2f} seconds")
+            utils.ui_print(f"Total processing time: {elapsed:.2f} seconds")
 
             input("\nPress Enter to continue...")
 
         except KeyboardInterrupt:
-            print("\n\nInterrupted. Exiting...\n")
+            utils.ui_print("\n\nInterrupted. Exiting...\n")
             return
 
         except Exception as e:
             logger.error("Unexpected error: %s", e)
-            print(f"\nError: {e}\n")
+            utils.ui_print(f"\nError: {e}\n")
             input("Press Enter to continue...")
 
 
@@ -873,22 +876,22 @@ Examples:
     args = parser.parse_args()
 
     # Print header
-    print("\n" + "=" * 60)
-    print(f"  Enhanced Document Converter v{config.VERSION}")
-    print("  https://github.com/microsoft/markitdown")
-    print("  https://docs.mistral.ai/capabilities/document_ai/basic_ocr/")
-    print("=" * 60 + "\n")
+    utils.ui_print("\n" + "=" * 60)
+    utils.ui_print(f"  Enhanced Document Converter v{config.VERSION}")
+    utils.ui_print("  https://github.com/microsoft/markitdown")
+    utils.ui_print("  https://docs.mistral.ai/capabilities/document_ai/basic_ocr/")
+    utils.ui_print("=" * 60 + "\n")
 
     # Initialize config (creates directories, validates settings)
     issues = config.initialize()
     if issues:
         for issue in issues:
-            print(issue)
+            utils.ui_print(issue)
 
     # Wire up file-based processing log if enabled
     if config.SAVE_PROCESSING_LOGS:
         utils.setup_logging(log_file=str(config.LOGS_DIR / "processing.log"))
-        print()
+        utils.ui_print()
 
     # Test mode
     if args.test:
@@ -910,9 +913,9 @@ Examples:
         if args.no_interactive:
             files = _list_input_files()
             if not files:
-                print(f"No files found in {config.INPUT_DIR}")
+                utils.ui_print(f"No files found in {config.INPUT_DIR}")
                 return
-            print(f"Non-interactive mode: Processing {len(files)} files from input directory")
+            utils.ui_print(f"Non-interactive mode: Processing {len(files)} files from input directory")
         else:
             files = select_files()
             if not files:
@@ -920,16 +923,16 @@ Examples:
 
         files = _filter_valid_files(files, mode=args.mode)
         if not files:
-            print("No valid files to process.")
+            utils.ui_print("No valid files to process.")
             sys.exit(1)
 
         start_time = time.time()
         handler = _CLI_MODE_DISPATCH[args.mode]
         success, message = handler(files)
-        print(f"\n{message}")
+        utils.ui_print(f"\n{message}")
 
         elapsed = time.time() - start_time
-        print(f"\nTotal processing time: {elapsed:.2f} seconds")
+        utils.ui_print(f"\nTotal processing time: {elapsed:.2f} seconds")
 
         sys.exit(0 if success else 1)
 
