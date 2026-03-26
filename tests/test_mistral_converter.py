@@ -502,7 +502,7 @@ class TestParsePageObject:
         page.markdown = "Page content"
         page.text = None
         page.content = None
-        page.index = 1
+        page.index = 0  # API returns 0-based index
         page.images = []
         page.dimensions = None
         page.tables = None
@@ -511,14 +511,14 @@ class TestParsePageObject:
         page.footer = None
 
         result = mistral_converter._parse_page_object(page, 0)
-        assert result["page_number"] == 1
+        assert result["page_number"] == 1  # converted to 1-based
         assert result["text"] == "Page content"
         assert result["images"] == []
 
     def test_dict_page(self):
-        page = {"markdown": "Dict content", "index": 2}
+        page = {"markdown": "Dict content", "index": 1}  # 0-based
         result = mistral_converter._parse_page_object(page, 1)
-        assert result["page_number"] == 2
+        assert result["page_number"] == 2  # converted to 1-based
         assert result["text"] == "Dict content"
 
 
@@ -3856,9 +3856,9 @@ class TestParsePageObjectDict:
     """Lines 927, 942-943: page as dict indexing paths."""
 
     def test_dict_page_with_index(self):
-        page = {"markdown": "Dict page text", "index": 5}
+        page = {"markdown": "Dict page text", "index": 4}  # 0-based
         result = mistral_converter._parse_page_object(page, 0)
-        assert result["page_number"] == 5
+        assert result["page_number"] == 5  # converted to 1-based
         assert result["text"] == "Dict page text"
 
     def test_dict_page_without_index(self):

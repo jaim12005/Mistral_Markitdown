@@ -16,6 +16,7 @@ Documentation references:
 """
 
 import base64
+import html
 import json
 import re
 import threading
@@ -945,11 +946,16 @@ def _parse_page_object(page: Any, idx: int) -> Dict[str, Any]:
     """Parse a single OCR page object into a standardised dict."""
     raw_text = _extract_page_text(page)
     page_text = utils.clean_consecutive_duplicates(raw_text)
+    # Decode HTML entities (e.g. &amp; -> &) that the OCR API may return
+    page_text = html.unescape(page_text)
 
     api_index = getattr(page, "index", None)
     if api_index is None and isinstance(page, dict):
         api_index = page.get("index")
-    if api_index is None:
+    # Convert 0-based API index to 1-based page number for display
+    if api_index is not None:
+        api_index = api_index + 1
+    else:
         api_index = idx + 1
 
     page_data: Dict[str, Any] = {
@@ -1029,7 +1035,7 @@ def _parse_pages_response(response: Any, result: Dict[str, Any]) -> None:
 
 def _parse_single_text_response(text: str, result: Dict[str, Any]) -> None:
     """Handle responses that carry a single text field (markdown / text / content)."""
-    cleaned = utils.clean_consecutive_duplicates(text)
+    cleaned = html.unescape(utils.clean_consecutive_duplicates(text))
     result["full_text"] = cleaned
     result["pages"].append({"page_number": 1, "text": cleaned, "images": []})
 
@@ -1039,7 +1045,7 @@ def _parse_dict_response(response: dict, result: Dict[str, Any]) -> None:
     if "pages" in response:
         for idx, page in enumerate(response["pages"]):
             page_text = page.get("markdown", page.get("text", page.get("content", "")))
-            page_text = utils.clean_consecutive_duplicates(page_text)
+            page_text = html.unescape(utils.clean_consecutive_duplicates(page_text))
             # Expand table placeholder links with actual content
             tables = page.get("tables", [])
             for tbl in tables:
@@ -1047,9 +1053,12 @@ def _parse_dict_response(response: dict, result: Dict[str, Any]) -> None:
                 tbl_content = tbl.get("content", "") if isinstance(tbl, dict) else ""
                 if tbl_id and tbl_content:
                     page_text = page_text.replace(f"[{tbl_id}]({tbl_id})", tbl_content)
+            # Convert 0-based API index to 1-based page number
+            raw_index = page.get("index")
+            page_num = (raw_index + 1) if raw_index is not None else (idx + 1)
             result["pages"].append(
                 {
-                    "page_number": page.get("index", idx + 1),
+                    "page_number": page_num,
                     "text": page_text,
                     "images": page.get("images", []),
                     "tables": tables,
