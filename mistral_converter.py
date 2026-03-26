@@ -18,6 +18,7 @@ Documentation references:
 import base64
 import json
 import re
+import threading
 import time
 import traceback
 from pathlib import Path
@@ -26,6 +27,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 __all__ = [
     "get_mistral_client",
     "reset_mistral_client",
+    "reset_session_page_counter",
     "get_retry_config",
     "get_bbox_annotation_format",
     "get_document_annotation_format",
@@ -100,7 +102,11 @@ logger = utils.logger
 # This ensures .env settings are honored as documented in README.md
 # See: config.OCR_MIN_TEXT_LENGTH, config.OCR_MIN_DIGIT_COUNT, etc.
 
-import threading
+# Quality scoring point deductions (max total deduction = 100).
+_QUALITY_PENALTY_WEAK_PAGES_MAX = 50  # Maximum points lost when all pages are weak
+_QUALITY_PENALTY_LOW_DIGITS = 20  # Points lost for low numerical content
+_QUALITY_PENALTY_HIGH_REPETITION = 30  # Points lost for high token repetition
+_QUALITY_AGGREGATE_DIGIT_MULTIPLIER = 5  # Multiplier on per-page digit threshold for aggregate check
 
 _session_pages_processed = 0
 _session_pages_warned = False
@@ -138,6 +144,18 @@ def _is_page_limit_reached() -> bool:
             config.MAX_PAGES_PER_SESSION > 0
             and _session_pages_processed >= config.MAX_PAGES_PER_SESSION
         )
+
+
+def reset_session_page_counter() -> None:
+    """Reset the session page counter so a new logical session can start fresh.
+
+    Useful when embedding the converter in a long-lived process (e.g. a web
+    service) where each request should have its own page budget.
+    """
+    global _session_pages_processed, _session_pages_warned
+    with _session_pages_lock:
+        _session_pages_processed = 0
+        _session_pages_warned = False
 
 
 # ============================================================================
@@ -1250,18 +1268,19 @@ def assess_ocr_quality(ocr_result: Dict[str, Any]) -> Dict[str, Any]:
     # Deduct points for issues
     if assessment["weak_page_count"] > 0:
         weak_ratio = assessment["weak_page_count"] / max(1, assessment["total_page_count"])
-        points_lost = weak_ratio * 50  # Up to 50 points for all weak pages
+        points_lost = weak_ratio * _QUALITY_PENALTY_WEAK_PAGES_MAX
         assessment["quality_score"] -= points_lost
         assessment["issues"].append(
             f"{assessment['weak_page_count']}/{assessment['total_page_count']} pages are weak quality"
         )
 
-    if assessment["digit_count"] < config.OCR_MIN_DIGIT_COUNT * 5:  # Aggregate threshold (page threshold * 5)
-        assessment["quality_score"] -= 20
+    aggregate_digit_threshold = config.OCR_MIN_DIGIT_COUNT * _QUALITY_AGGREGATE_DIGIT_MULTIPLIER
+    if assessment["digit_count"] < aggregate_digit_threshold:
+        assessment["quality_score"] -= _QUALITY_PENALTY_LOW_DIGITS
         assessment["issues"].append(f"Low numerical content ({assessment['digit_count']} digits)")
 
-    if assessment["uniqueness_ratio"] < config.OCR_MIN_UNIQUENESS_RATIO:  # Configurable threshold
-        assessment["quality_score"] -= 30
+    if assessment["uniqueness_ratio"] < config.OCR_MIN_UNIQUENESS_RATIO:
+        assessment["quality_score"] -= _QUALITY_PENALTY_HIGH_REPETITION
         assessment["issues"].append(f"High repetition (uniqueness: {assessment['uniqueness_ratio']:.1%})")
 
     # Clamp score to [0, 100]
@@ -1653,9 +1672,7 @@ def _create_markdown_output(file_path: Path, ocr_result: Dict[str, Any]) -> Path
 
     # Save markdown
     output_path = config.OUTPUT_MD_DIR / f"{utils.safe_output_stem(file_path)}_mistral_ocr.md"
-
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write(md_content)
+    utils.atomic_write_text(output_path, md_content)
 
     # Save text version
     utils.save_text_output(output_path, md_content)
