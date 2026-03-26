@@ -279,15 +279,15 @@ class TestClientCacheInvalidation:
 class TestIsWeakPageDigitRatio:
     """Test the configurable digit ratio threshold."""
 
-    def test_ratio_based_detection(self, monkeypatch):
-        """When OCR_WEAK_PAGE_DIGIT_RATIO > 0, ratio is used instead of absolute count."""
+    def test_digit_ratio_no_longer_flags_page(self, monkeypatch):
+        """Digit ratio/count checks were removed — low-digit pages are not weak."""
         monkeypatch.setattr(config, "OCR_WEAK_PAGE_DIGIT_RATIO", 0.1)
         monkeypatch.setattr(config, "OCR_MIN_TEXT_LENGTH", 10)
         monkeypatch.setattr(config, "OCR_MIN_DIGIT_COUNT", 20)
 
-        # Text with ~5% digits — below the 10% ratio threshold
+        # Text with few digits — should NOT be flagged (digit check removed)
         text = "This is text with very few digits 12 and some more unique words here now. " * 3
-        assert mistral_converter._is_weak_page(text) is True
+        assert mistral_converter._is_weak_page(text) is False
 
     def test_ratio_passes_when_enough_digits(self, monkeypatch):
         """Text with sufficient digit ratio should not be weak."""
@@ -4041,8 +4041,8 @@ class TestParseOcrResponseBranches:
 class TestIsWeakPageBranches:
     """Lines 1160, 1174-1175, 1183-1184: additional weak page checks."""
 
-    def test_low_digit_count_no_ratio(self, monkeypatch):
-        """Line 1160: digit_count < OCR_MIN_DIGIT_COUNT when ratio is 0."""
+    def test_low_digit_count_no_longer_flags_page(self, monkeypatch):
+        """Digit count check was removed — low-digit pages are not weak."""
         monkeypatch.setattr(config, "OCR_MIN_TEXT_LENGTH", 5)
         monkeypatch.setattr(config, "OCR_WEAK_PAGE_DIGIT_RATIO", 0)
         monkeypatch.setattr(config, "OCR_MIN_DIGIT_COUNT", 100)
@@ -4050,9 +4050,9 @@ class TestIsWeakPageBranches:
         monkeypatch.setattr(config, "OCR_MAX_PHRASE_REPETITIONS", 100)
         monkeypatch.setattr(config, "OCR_MIN_AVG_LINE_LENGTH", 0)
 
-        # Text with very few digits
+        # Text with very few digits — should NOT be flagged (digit check removed)
         text = "This is a text paragraph without many numbers at all."
-        assert mistral_converter._is_weak_page(text) is True
+        assert mistral_converter._is_weak_page(text) is False
 
     def test_repeated_page_references(self, monkeypatch):
         """Lines 1174-1175: too many Page N references."""

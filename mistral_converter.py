@@ -1173,21 +1173,7 @@ def _is_weak_page(text: str) -> bool:
     if len(text.strip()) < config.OCR_MIN_TEXT_LENGTH:
         return True
 
-    # Check 2: Count digits (financial docs should have many numbers)
-    # Supports both absolute count (OCR_MIN_DIGIT_COUNT) and ratio-based
-    # threshold (OCR_WEAK_PAGE_DIGIT_RATIO).  These are MUTUALLY EXCLUSIVE:
-    # when OCR_WEAK_PAGE_DIGIT_RATIO > 0 the ratio check takes precedence and
-    # OCR_MIN_DIGIT_COUNT is ignored.  Set the ratio to 0 (the default) to
-    # use the absolute count instead.
-    digit_count = sum(1 for char in text if char.isdigit())
-    text_len = len(text.strip())
-    if config.OCR_WEAK_PAGE_DIGIT_RATIO > 0 and text_len > 0:
-        if digit_count / text_len < config.OCR_WEAK_PAGE_DIGIT_RATIO:
-            return True
-    elif digit_count < config.OCR_MIN_DIGIT_COUNT:
-        return True
-
-    # Check 3: Token uniqueness ratio (detect heavy repetition)
+    # Check 2: Token uniqueness ratio (detect heavy repetition)
     # Configurable via OCR_MIN_UNIQUENESS_RATIO
     tokens = text.split()
     if not tokens:  # pragma: no cover – unreachable after len(text.strip()) >= 10
@@ -1200,7 +1186,7 @@ def _is_weak_page(text: str) -> bool:
         logger.debug("Low uniqueness ratio: %.2f", uniqueness_ratio)
         return True
 
-    # Check 4: Detect repeated header patterns
+    # Check 3: Detect repeated header patterns
     # Use regex to catch all "Page N" patterns, not just a hardcoded few
     # Configurable via OCR_MAX_PHRASE_REPETITIONS
     page_refs = re.findall(r"Page\s+\d+", text)
@@ -1208,7 +1194,7 @@ def _is_weak_page(text: str) -> bool:
         logger.debug("Repeated page references found %s times", len(page_refs))
         return True
 
-    # Check 5: Average line length (very short lines suggest parsing issues)
+    # Check 4: Average line length (very short lines suggest parsing issues)
     # Configurable via OCR_MIN_AVG_LINE_LENGTH
     lines = [line.strip() for line in text.split("\n") if line.strip()]
     if lines:
@@ -1280,11 +1266,6 @@ def assess_ocr_quality(ocr_result: Dict[str, Any]) -> Dict[str, Any]:
         assessment["issues"].append(
             f"{assessment['weak_page_count']}/{assessment['total_page_count']} pages are weak quality"
         )
-
-    aggregate_digit_threshold = config.OCR_MIN_DIGIT_COUNT * _QUALITY_AGGREGATE_DIGIT_MULTIPLIER
-    if assessment["digit_count"] < aggregate_digit_threshold:
-        assessment["quality_score"] -= _QUALITY_PENALTY_LOW_DIGITS
-        assessment["issues"].append(f"Low numerical content ({assessment['digit_count']} digits)")
 
     if assessment["uniqueness_ratio"] < config.OCR_MIN_UNIQUENESS_RATIO:
         assessment["quality_score"] -= _QUALITY_PENALTY_HIGH_REPETITION
@@ -1406,7 +1387,9 @@ def improve_weak_pages(client: Mistral, file_path: Path, ocr_result: Dict[str, A
             improved_len = len(improved_page.get("text", ""))
             if improved_len > original_len:
                 logger.info("Improved page %d", page_idx + 1)
-                ocr_result["pages"][page_idx] = improved_page
+                # Merge: update text only, preserve original metadata
+                # (tables, hyperlinks, headers, footers, dimensions)
+                ocr_result["pages"][page_idx]["text"] = improved_page.get("text", "")
 
     # Rebuild full text
     ocr_result["full_text"] = "\n\n".join(page.get("text", "") for page in ocr_result["pages"])
@@ -1672,7 +1655,23 @@ def _create_markdown_output(file_path: Path, ocr_result: Dict[str, Any]) -> Path
             display_page_num = page.get("page_number", 1)
 
             md_content += f"### Page {display_page_num}\n\n"
+
+            # Header (if extracted separately from page content)
+            header = page.get("header")
+            if header:
+                header_text = header if isinstance(header, str) else getattr(header, "text", str(header))
+                if header_text.strip():
+                    md_content += f"> **Header:** {header_text.strip()}\n\n"
+
             md_content += text
+
+            # Footer (if extracted separately from page content)
+            footer = page.get("footer")
+            if footer:
+                footer_text = footer if isinstance(footer, str) else getattr(footer, "text", str(footer))
+                if footer_text.strip():
+                    md_content += f"\n\n> **Footer:** {footer_text.strip()}"
+
             md_content += "\n\n---\n\n"
     else:
         # Fallback if pages aren't available (shouldn't happen, but be defensive)

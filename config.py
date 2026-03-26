@@ -252,7 +252,7 @@ MISTRAL_ENABLE_DOCUMENT_ANNOTATION = _safe_bool("MISTRAL_ENABLE_DOCUMENT_ANNOTAT
 
 # OCR 3 (mistral-ocr-2512) features
 # Table output format: "markdown" (default) or "html" (gives colspan/rowspan for merged cells)
-MISTRAL_TABLE_FORMAT = os.getenv("MISTRAL_TABLE_FORMAT", "").strip().lower()
+MISTRAL_TABLE_FORMAT = os.getenv("MISTRAL_TABLE_FORMAT", "markdown").strip().lower()
 
 # Extract headers/footers separately from page content
 MISTRAL_EXTRACT_HEADER = _safe_bool("MISTRAL_EXTRACT_HEADER", True)
