@@ -27,6 +27,7 @@ import config
 __all__ = [
     "setup_logging",
     "IntelligentCache",
+    "atomic_write_text",
     "format_table_to_markdown",
     "detect_month_header_row",
     "clean_table_cell",
@@ -42,6 +43,7 @@ __all__ = [
     "generate_yaml_frontmatter",
     "strip_yaml_frontmatter",
     "sanitize_for_terminal",
+    "ui_print",
 ]
 
 # ============================================================================
@@ -107,6 +109,47 @@ def sanitize_for_terminal(text: str) -> str:
     manipulation attacks.
     """
     return _ANSI_ESCAPE_RE.sub("", text)
+
+
+def ui_print(*args, **kwargs) -> None:
+    """Print user-facing CLI output.
+
+    A thin wrapper around :func:`print` that marks output as intentional CLI
+    messaging (as opposed to debug/operational logging via :data:`logger`).
+    Future callers can redirect or format this output without grepping for
+    bare ``print()`` calls.
+    """
+    print(*args, **kwargs)
+
+
+def atomic_write_text(path: Path, content: str, encoding: str = "utf-8") -> None:
+    """Write *content* to *path* atomically via a temporary file and rename.
+
+    This prevents partial / corrupt files when the process is interrupted
+    mid-write.  The temporary file is created in the same directory as *path*
+    so that ``Path.replace`` is guaranteed to be an atomic same-filesystem
+    operation.
+    """
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding=encoding,
+            dir=str(path.parent),
+            suffix=".tmp",
+            delete=False,
+        ) as tmp_file:
+            tmp_file.write(content)
+            tmp_path = Path(tmp_file.name)
+        tmp_path.replace(path)
+    except BaseException:
+        if tmp_path is not None:
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise
+
 
 # ============================================================================
 # Intelligent Caching System
@@ -691,10 +734,7 @@ def save_text_output(markdown_path: Path, markdown_content: str) -> Optional[Pat
     try:
         text_path = config.OUTPUT_TXT_DIR / f"{markdown_path.stem}.txt"
         text_content = markdown_to_text(markdown_content)
-
-        with open(text_path, "w", encoding="utf-8") as f:
-            f.write(text_content)
-
+        atomic_write_text(text_path, text_content)
         logger.debug("Saved text output: %s", text_path.name)
         return text_path
 
