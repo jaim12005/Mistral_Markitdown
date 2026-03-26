@@ -5,7 +5,12 @@
       "Bash(python3:*)",
       "Bash(ls env/bin/python*)",
       "Bash(ls .venv/bin/python*)",
-      "Bash(source .venv/bin/activate)"
+      "Bash(source .venv/bin/activate)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(pip show:*)",
+      "Bash(pip index:*)",
+      "Bash(git push:*)"
     ]
   }
 }
