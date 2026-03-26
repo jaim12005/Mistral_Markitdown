@@ -93,8 +93,8 @@ _FRONTMATTER_RE = re.compile(r"\A---\s*\r?\n.*?\r?\n---\s*(?:\r?\n)?", re.DOTALL
 
 # ANSI/C0/C1 escape-sequence pattern for terminal sanitization.
 _ANSI_ESCAPE_RE = re.compile(
-    r"(\x1b"             # ESC
-    r"(?:[@-Z\\-_]"      # Fe sequences (C1 controls)
+    r"(\x1b"  # ESC
+    r"(?:[@-Z\\-_]"  # Fe sequences (C1 controls)
     r"|\[[0-?]*[ -/]*[@-~]"  # CSI sequences
     r"|\][^\x07\x1b]*(?:\x07|\x1b\\)"  # OSC sequences
     r"|[PX^_][^\x1b]*\x1b\\)"  # DCS/SOS/PM/APC sequences

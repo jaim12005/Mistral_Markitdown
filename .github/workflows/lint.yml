@@ -30,9 +30,9 @@ jobs:
     
     - name: Run black (check only)
       run: |
-        black --check --line-length 120 *.py tests/
-    
+        black --check .
+
     - name: Run isort (check only)
       run: |
-        isort --check-only --profile black --line-length 120 *.py tests/
+        isort --check-only .
 

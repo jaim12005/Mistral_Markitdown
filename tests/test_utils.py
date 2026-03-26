@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-import utils
 import config
+import utils
 
 
 class TestSetupLogging:
@@ -808,9 +808,7 @@ class TestYAMLFrontmatterDisabled:
 
     def test_frontmatter_disabled(self, monkeypatch):
         monkeypatch.setattr(config, "INCLUDE_METADATA", False)
-        result = utils.generate_yaml_frontmatter(
-            title="Test", file_name="test.pdf", conversion_method="Method"
-        )
+        result = utils.generate_yaml_frontmatter(title="Test", file_name="test.pdf", conversion_method="Method")
         assert result == ""
 
 

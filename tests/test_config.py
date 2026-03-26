@@ -211,6 +211,7 @@ class TestValidateConfigurationBranches:
         monkeypatch.setattr(config, "MISTRAL_API_KEY", "key")
         monkeypatch.setattr(config, "POPPLER_PATH", "")
         import sys as sys_mod
+
         monkeypatch.setattr(sys_mod, "platform", "win32")
         issues = config.validate_configuration()
         assert any("POPPLER_PATH" in i for i in issues)

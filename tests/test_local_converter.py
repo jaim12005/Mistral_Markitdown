@@ -30,7 +30,6 @@ config.ensure_directories()
 
 import local_converter
 
-
 # ============================================================================
 # _fix_merged_currency_cells Tests
 # ============================================================================
@@ -808,10 +807,12 @@ class TestGetMarkItDownInstanceBranches:
             """Simulate slow init to ensure both threads queue up."""
             barrier.wait()  # Wait for both threads to start
             import time
+
             time.sleep(0.05)
             return mock_md
 
         with patch.object(local_converter, "MarkItDown", side_effect=slow_markitdown):
+
             def worker(idx):
                 results[idx] = local_converter.get_markitdown_instance()
 

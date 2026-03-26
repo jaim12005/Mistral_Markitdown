@@ -126,10 +126,7 @@ def _track_pages(count: int) -> bool:
     global _session_pages_processed, _session_pages_warned
     with _session_pages_lock:
         _session_pages_processed += count
-        if (
-            config.MAX_PAGES_PER_SESSION > 0
-            and _session_pages_processed >= config.MAX_PAGES_PER_SESSION
-        ):
+        if config.MAX_PAGES_PER_SESSION > 0 and _session_pages_processed >= config.MAX_PAGES_PER_SESSION:
             if not _session_pages_warned:
                 _session_pages_warned = True
                 logger.warning(
@@ -144,10 +141,7 @@ def _track_pages(count: int) -> bool:
 def _is_page_limit_reached() -> bool:
     """Return ``True`` if the session page limit has already been reached."""
     with _session_pages_lock:
-        return (
-            config.MAX_PAGES_PER_SESSION > 0
-            and _session_pages_processed >= config.MAX_PAGES_PER_SESSION
-        )
+        return config.MAX_PAGES_PER_SESSION > 0 and _session_pages_processed >= config.MAX_PAGES_PER_SESSION
 
 
 def reset_session_page_counter() -> None:
@@ -1791,7 +1785,8 @@ def _validate_document_url(url: str) -> Tuple[bool, Optional[str]]:
     # Resolve DNS with a per-call timeout.  We avoid socket.setdefaulttimeout()
     # because it mutates process-global state and is not thread-safe (concurrent
     # workers in improve_weak_pages could clobber or inherit the 5-second value).
-    from concurrent.futures import ThreadPoolExecutor as _DnsPool, TimeoutError as _DnsTimeout
+    from concurrent.futures import ThreadPoolExecutor as _DnsPool
+    from concurrent.futures import TimeoutError as _DnsTimeout
 
     try:
         _pool = _DnsPool(max_workers=1)

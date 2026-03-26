@@ -398,9 +398,7 @@ def mode_document_qna(file_paths: List[Path]) -> Tuple[bool, str]:
                 try:
                     for chunk in stream:
                         if chunk.data.choices and chunk.data.choices[0].delta.content:
-                            safe_text = utils.sanitize_for_terminal(
-                                chunk.data.choices[0].delta.content
-                            )
+                            safe_text = utils.sanitize_for_terminal(chunk.data.choices[0].delta.content)
                             utils.ui_print(safe_text, end="", flush=True)
                 except Exception as e:
                     utils.ui_print(f"\n\nStream error: {e}")
@@ -543,11 +541,7 @@ def mode_system_status() -> Tuple[bool, str]:
 
     out("Configuration:")
     out(f"  * Mistral API Key: {'Set' if config.MISTRAL_API_KEY else 'NOT SET'}")
-    llm_status = (
-        f"Enabled ({config.MARKITDOWN_LLM_MODEL})"
-        if config.MARKITDOWN_ENABLE_LLM_DESCRIPTIONS
-        else "Disabled"
-    )
+    llm_status = f"Enabled ({config.MARKITDOWN_LLM_MODEL})" if config.MARKITDOWN_ENABLE_LLM_DESCRIPTIONS else "Disabled"
     out(f"  * LLM Descriptions: {llm_status}")
     out(f"  * Cache Duration: {config.CACHE_DURATION_HOURS} hours")
     out(f"  * Max Concurrent Files: {config.MAX_CONCURRENT_FILES}")
