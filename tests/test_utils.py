@@ -5,9 +5,6 @@ Tests for utils.py module
 import concurrent.futures
 import json
 import logging
-import os
-import re
-import tempfile
 import unittest.mock
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -38,6 +35,7 @@ class TestSetupLogging:
         logger = utils.setup_logging(log_file="/tmp/nope.log")
         file_handlers = [h for h in logger.handlers if isinstance(h, logging.FileHandler)]
         assert len(file_handlers) == 0
+
 
 class TestIntelligentCache:
     """Test the IntelligentCache class."""
@@ -733,10 +731,9 @@ class TestFormatTableNoHeaders:
         """Line 375: return '' when headers end up empty."""
         # Pass data where first row is empty strings (falsy list)
         data = [["", ""], ["Alice", "30"]]
-        result = utils.format_table_to_markdown(data, headers=None)
+        utils.format_table_to_markdown(data, headers=None)
         # headers = ["", ""] which is truthy (non-empty list), so this won't hit 375
         # We need headers=None and data=[[]] to get empty headers
-        pass
 
     def test_single_empty_row_no_headers(self):
         """Line 375: headers = [] (empty first row)."""

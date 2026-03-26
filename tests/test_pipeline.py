@@ -505,7 +505,7 @@ class TestModePdfToImages:
 
         success, msg = main.mode_pdf_to_images([pdf])
         assert success is True
-        assert "2 total pages" in msg
+        assert "Converted 1 PDFs" in msg
 
     @patch("main.local_converter")
     def test_skips_non_pdfs(self, mock_local, tmp_path, monkeypatch):
@@ -514,7 +514,8 @@ class TestModePdfToImages:
         txt.write_text("hello")
 
         success, msg = main.mode_pdf_to_images([txt])
-        assert success is True
+        assert success is False
+        assert "No PDF files" in msg
         mock_local.convert_pdf_to_images.assert_not_called()
 
     @patch("main.local_converter")
