@@ -3,7 +3,7 @@
 ![Tests](https://github.com/jaim12005/Mistral_Markitdown/actions/workflows/test.yml/badge.svg)
 ![Linting](https://github.com/jaim12005/Mistral_Markitdown/actions/workflows/lint.yml/badge.svg)
 ![Security](https://github.com/jaim12005/Mistral_Markitdown/actions/workflows/security.yml/badge.svg)
-![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)
+![Coverage](https://img.shields.io/badge/coverage-98%25-brightgreen)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -14,7 +14,8 @@ A document conversion system combining Microsoft **MarkItDown** (local) with **M
 ### Prerequisites
 
 - Python 3.10+
-- Mistral API key (for OCR/QnA/Batch features): https://console.mistral.ai/api-keys/
+- Mistral API key (optional — only needed for cloud OCR/QnA/Batch features): https://console.mistral.ai/api-keys/
+  - Without a key, local MarkItDown conversion (mode 2) and PDF-to-images (mode 4) work fully.
 
 ### Installation
 
@@ -75,6 +76,7 @@ python main.py --test       # Verify setup
 | 5 | **Document QnA** | Yes | Ask questions about a document in natural language. |
 | 6 | **Batch OCR** | Yes | Submit to Mistral Batch API at 50% cost reduction. |
 | 7 | **System Status** | No | Cache stats, config info, diagnostics. |
+| 8 | **Maintenance** | No | Clear expired cache, clean up old Mistral uploads. |
 
 Smart mode prints its routing decisions before processing:
 
@@ -97,6 +99,7 @@ python main.py --mode pdf_to_images
 python main.py --mode qna
 python main.py --mode batch_ocr
 python main.py --mode status
+python main.py --mode maintenance  # Clear cache and old uploads
 python main.py --no-interactive    # Process all files in input/ without prompts
 ```
 
@@ -268,7 +271,7 @@ For the full configuration guide: **[CONFIGURATION.md](CONFIGURATION.md)**
 ## Upstream Alignment
 
 - MarkItDown: `>=0.1.5` (https://github.com/microsoft/markitdown)
-- Mistral Python SDK: `>=2.0.0` (https://github.com/mistralai/client-python)
+- Mistral Python SDK: `==2.1.3` (https://github.com/mistralai/client-python)
 - Mistral OCR docs: https://docs.mistral.ai/capabilities/document_ai/basic_ocr/
 - Mistral Batch API: https://docs.mistral.ai/capabilities/batch/
 
