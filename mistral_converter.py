@@ -994,6 +994,16 @@ def _parse_page_object(page: Any, idx: int) -> Dict[str, Any]:
     # Tables
     if hasattr(page, "tables") and page.tables:
         page_data["tables"] = [t.model_dump() if hasattr(t, "model_dump") else t for t in page.tables]
+        # Expand table placeholder links in page text with actual table content.
+        # The API returns placeholders like [tbl-0.md](tbl-0.md) and stores the
+        # real table data in the tables array.
+        for tbl in page_data["tables"]:
+            tbl_id = tbl.get("id", "") if isinstance(tbl, dict) else ""
+            tbl_content = tbl.get("content", "") if isinstance(tbl, dict) else ""
+            if tbl_id and tbl_content:
+                page_data["text"] = page_data["text"].replace(
+                    f"[{tbl_id}]({tbl_id})", tbl_content
+                )
 
     # Hyperlinks
     if hasattr(page, "hyperlinks") and page.hyperlinks:
@@ -1030,11 +1040,19 @@ def _parse_dict_response(response: dict, result: Dict[str, Any]) -> None:
         for idx, page in enumerate(response["pages"]):
             page_text = page.get("markdown", page.get("text", page.get("content", "")))
             page_text = utils.clean_consecutive_duplicates(page_text)
+            # Expand table placeholder links with actual content
+            tables = page.get("tables", [])
+            for tbl in tables:
+                tbl_id = tbl.get("id", "") if isinstance(tbl, dict) else ""
+                tbl_content = tbl.get("content", "") if isinstance(tbl, dict) else ""
+                if tbl_id and tbl_content:
+                    page_text = page_text.replace(f"[{tbl_id}]({tbl_id})", tbl_content)
             result["pages"].append(
                 {
                     "page_number": page.get("index", idx + 1),
                     "text": page_text,
                     "images": page.get("images", []),
+                    "tables": tables,
                 }
             )
             if page_text:
