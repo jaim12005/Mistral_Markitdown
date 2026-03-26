@@ -665,6 +665,105 @@ class TestModeBatchOcr:
 # ============================================================================
 
 
+class TestModeMaintenance:
+    """Test maintenance mode."""
+
+    def test_cache_clear_with_expired_entries(self, monkeypatch):
+        """Cache auto-clear runs and reports cleared count."""
+        monkeypatch.setattr(config, "AUTO_CLEAR_CACHE", True)
+        monkeypatch.setattr(config, "CLEANUP_OLD_UPLOADS", False)
+
+        with patch.object(utils.cache, "clear_old_entries", return_value=3):
+            ok, msg = main.mode_maintenance()
+        assert ok is True
+        assert "3 expired cache" in msg
+
+    def test_cache_clear_nothing_to_clear(self, monkeypatch):
+        """Cache auto-clear runs but finds nothing expired."""
+        monkeypatch.setattr(config, "AUTO_CLEAR_CACHE", True)
+        monkeypatch.setattr(config, "CLEANUP_OLD_UPLOADS", False)
+
+        with patch.object(utils.cache, "clear_old_entries", return_value=0):
+            ok, msg = main.mode_maintenance()
+        assert ok is True
+        assert "No actions needed" in msg
+
+    def test_cache_clear_disabled(self, monkeypatch):
+        """Cache auto-clear is disabled."""
+        monkeypatch.setattr(config, "AUTO_CLEAR_CACHE", False)
+        monkeypatch.setattr(config, "CLEANUP_OLD_UPLOADS", False)
+
+        ok, msg = main.mode_maintenance()
+        assert ok is True
+
+    def test_upload_cleanup_success(self, monkeypatch):
+        """Upload cleanup runs and deletes old files."""
+        monkeypatch.setattr(config, "AUTO_CLEAR_CACHE", False)
+        monkeypatch.setattr(config, "CLEANUP_OLD_UPLOADS", True)
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        monkeypatch.setattr(config, "UPLOAD_RETENTION_DAYS", 7)
+
+        mock_client = MagicMock()
+        with patch.object(mistral_converter, "get_mistral_client", return_value=mock_client):
+            with patch.object(mistral_converter, "cleanup_uploaded_files", return_value=5):
+                ok, msg = main.mode_maintenance()
+        assert ok is True
+        assert "5 old uploaded" in msg
+
+    def test_upload_cleanup_no_client(self, monkeypatch):
+        """Upload cleanup when Mistral client is unavailable."""
+        monkeypatch.setattr(config, "AUTO_CLEAR_CACHE", False)
+        monkeypatch.setattr(config, "CLEANUP_OLD_UPLOADS", True)
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+
+        with patch.object(mistral_converter, "get_mistral_client", return_value=None):
+            ok, msg = main.mode_maintenance()
+        assert ok is True
+
+    def test_upload_cleanup_exception(self, monkeypatch):
+        """Upload cleanup when an exception is raised."""
+        monkeypatch.setattr(config, "AUTO_CLEAR_CACHE", False)
+        monkeypatch.setattr(config, "CLEANUP_OLD_UPLOADS", True)
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+
+        with patch.object(mistral_converter, "get_mistral_client", side_effect=Exception("API error")):
+            ok, msg = main.mode_maintenance()
+        assert ok is True
+
+    def test_upload_cleanup_no_api_key(self, monkeypatch):
+        """Upload cleanup is skipped without an API key."""
+        monkeypatch.setattr(config, "AUTO_CLEAR_CACHE", False)
+        monkeypatch.setattr(config, "CLEANUP_OLD_UPLOADS", True)
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "")
+
+        ok, msg = main.mode_maintenance()
+        assert ok is True
+
+    def test_upload_cleanup_disabled(self, monkeypatch):
+        """Upload cleanup is disabled via config."""
+        monkeypatch.setattr(config, "AUTO_CLEAR_CACHE", False)
+        monkeypatch.setattr(config, "CLEANUP_OLD_UPLOADS", False)
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+
+        ok, msg = main.mode_maintenance()
+        assert ok is True
+
+    def test_maintenance_mode_cli(self, monkeypatch):
+        """Test maintenance mode via CLI --mode flag."""
+        monkeypatch.setattr("sys.argv", ["main.py", "--mode", "maintenance"])
+        monkeypatch.setattr(config, "AUTO_CLEAR_CACHE", False)
+        monkeypatch.setattr(config, "CLEANUP_OLD_UPLOADS", False)
+        main.main()
+
+    def test_maintenance_interactive_menu(self, monkeypatch):
+        """Test maintenance via interactive menu choice 8."""
+        inputs = iter(["8", "", "0"])
+        monkeypatch.setattr("builtins.input", lambda _: next(inputs))
+        monkeypatch.setattr(config, "AUTO_CLEAR_CACHE", False)
+        monkeypatch.setattr(config, "CLEANUP_OLD_UPLOADS", False)
+        main.interactive_menu()
+
+
 class TestModeSystemStatus:
     """Test system status mode."""
 

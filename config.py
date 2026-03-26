@@ -13,6 +13,7 @@ Documentation references:
 import logging
 import os
 import sys
+import threading
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 from pathlib import Path
@@ -610,13 +611,15 @@ def validate_configuration() -> List[str]:
 # ============================================================================
 
 _initialized = False
+_init_lock = threading.Lock()
 
 
 def initialize() -> List[str]:
     """
     Initialize the application: create directories and validate config.
 
-    Safe to call multiple times; only runs once.
+    Safe to call multiple times; only runs once.  Thread-safe via
+    double-checked locking.
 
     Returns:
         List of configuration warning/error messages (empty if all OK)
@@ -624,10 +627,13 @@ def initialize() -> List[str]:
     global _initialized
     if _initialized:
         return []
-    ensure_directories()
-    issues = validate_configuration()
-    _initialized = True
-    return issues
+    with _init_lock:
+        if _initialized:
+            return []
+        ensure_directories()
+        issues = validate_configuration()
+        _initialized = True
+        return issues
 
 
 # Run as a standalone config diagnostic: ``python config.py``

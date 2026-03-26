@@ -62,8 +62,10 @@ except ImportError:
         from mistralai import Mistral, models  # type: ignore[no-redef]
         from mistralai.utils import retries  # type: ignore[no-redef]
     except ImportError:
-        print(
-            "WARNING: mistralai package not available. Install with: pip install mistralai"
+        import logging as _logging
+
+        _logging.getLogger("document_converter").warning(
+            "mistralai package not available. Install with: pip install mistralai"
         )
         Mistral = None
         models = None
@@ -1540,8 +1542,7 @@ def _process_ocr_result_pipeline(
     if config.SAVE_MISTRAL_JSON:
         try:
             json_path = config.OUTPUT_MD_DIR / f"{utils.safe_output_stem(file_path)}_ocr_metadata.json"
-            with open(json_path, "w", encoding="utf-8") as f:
-                json.dump(ocr_result, f, indent=2, ensure_ascii=False)
+            utils.atomic_write_text(json_path, json.dumps(ocr_result, indent=2, ensure_ascii=False))
             logger.info("Saved OCR metadata: %s", json_path.name)
         except Exception as e:
             logger.warning("Failed to save OCR metadata JSON: %s", e)
@@ -1611,15 +1612,13 @@ def _save_structured_outputs(file_path: Path, ocr_result: Dict[str, Any]) -> Non
     # Save bounding box annotations if present
     if "bbox_annotations" in ocr_result and ocr_result["bbox_annotations"]:
         bbox_path = config.OUTPUT_MD_DIR / f"{utils.safe_output_stem(file_path)}_bbox_annotations.json"
-        with open(bbox_path, "w", encoding="utf-8") as f:
-            json.dump(ocr_result["bbox_annotations"], f, indent=2, ensure_ascii=False)
+        utils.atomic_write_text(bbox_path, json.dumps(ocr_result["bbox_annotations"], indent=2, ensure_ascii=False))
         logger.info("Saved bbox annotations: %s", bbox_path.name)
 
     # Save document annotations if present
     if "document_annotation" in ocr_result and ocr_result["document_annotation"]:
         doc_path = config.OUTPUT_MD_DIR / f"{utils.safe_output_stem(file_path)}_document_annotation.json"
-        with open(doc_path, "w", encoding="utf-8") as f:
-            json.dump(ocr_result["document_annotation"], f, indent=2, ensure_ascii=False)
+        utils.atomic_write_text(doc_path, json.dumps(ocr_result["document_annotation"], indent=2, ensure_ascii=False))
         logger.info("Saved document annotation: %s", doc_path.name)
 
 
@@ -2183,6 +2182,14 @@ def submit_batch_ocr_job(
         created_job = client.batch.jobs.create(**job_params)
 
         logger.info("Batch job created: %s", created_job.id)
+
+        # Clean up the local JSONL file (contains signed URLs)
+        try:
+            batch_file_path.unlink(missing_ok=True)
+            logger.debug("Cleaned up batch JSONL file: %s", batch_file_path.name)
+        except OSError as cleanup_err:
+            logger.warning("Could not remove batch JSONL file %s: %s", batch_file_path.name, cleanup_err)
+
         return True, created_job.id, None
 
     except Exception as e:

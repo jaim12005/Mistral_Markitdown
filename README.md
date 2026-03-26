@@ -122,7 +122,7 @@ python main.py --no-interactive    # Process all files in input/ without prompts
 
 ### Processing Pipeline (Smart Mode)
 
-1. Route each file to MarkItDown or Mistral OCR based on extension
+1. Route each file to MarkItDown or Mistral OCR based on content analysis (text layer detection for PDFs, extension for other types)
 2. For PDFs: run multi-strategy table extraction (pdfplumber + Camelot) with automatic post-processing
 3. OCR quality assessment (0-100 scoring) with automatic weak page re-processing
 4. Results cached by SHA-256 content hash (24-hour TTL, second run = $0)
@@ -259,6 +259,7 @@ For the full configuration guide: **[CONFIGURATION.md](CONFIGURATION.md)**
 | Guide | Description |
 |-------|-------------|
 | **[CONFIGURATION.md](CONFIGURATION.md)** | Complete configuration reference |
+| **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** | Architecture and design details |
 | **[KNOWN_ISSUES.md](KNOWN_ISSUES.md)** | Known issues, limitations, troubleshooting |
 | **[CONTRIBUTING.md](CONTRIBUTING.md)** | Development setup and contribution guidelines |
 | **[CHANGELOG.md](CHANGELOG.md)** | Release history and version changes |

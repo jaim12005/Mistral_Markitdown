@@ -710,20 +710,23 @@ def save_tables_to_files(pdf_path: Path, tables: List[List[List[str]]]) -> List[
             csv_path = config.OUTPUT_MD_DIR / f"{base_name}_table_{i}.csv"
 
             try:
+                import io
+
                 # Normalize headers for CSV as well
                 headers, data_rows = utils.normalize_table_headers(table)
 
-                with open(csv_path, "w", newline="", encoding="utf-8") as f:
-                    writer = csv.writer(f)
+                buf = io.StringIO()
+                writer = csv.writer(buf)
 
-                    # Write header row
-                    if headers:
-                        writer.writerow(headers)
+                # Write header row
+                if headers:
+                    writer.writerow(headers)
 
-                    # Write data rows
-                    if data_rows:
-                        writer.writerows(data_rows)
+                # Write data rows
+                if data_rows:
+                    writer.writerows(data_rows)
 
+                utils.atomic_write_text(csv_path, buf.getvalue(), newline="")
                 created_files.append(csv_path)
                 logger.debug("Saved: %s", csv_path.name)
 

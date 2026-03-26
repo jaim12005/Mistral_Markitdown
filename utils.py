@@ -122,19 +122,31 @@ def ui_print(*args, **kwargs) -> None:
     print(*args, **kwargs)
 
 
-def atomic_write_text(path: Path, content: str, encoding: str = "utf-8") -> None:
+def atomic_write_text(path: Path, content: str, encoding: str = "utf-8", newline: Optional[str] = None) -> None:
     """Write *content* to *path* atomically via a temporary file and rename.
 
     This prevents partial / corrupt files when the process is interrupted
     mid-write.  The temporary file is created in the same directory as *path*
     so that ``Path.replace`` is guaranteed to be an atomic same-filesystem
     operation.
+
+    Args:
+        path: Destination file path.
+        content: Text to write.
+        encoding: File encoding (default ``"utf-8"``).
+        newline: Newline translation mode passed to the underlying
+            ``open()`` call.  Pass ``""`` when writing content that
+            already contains correct line terminators (e.g. CSV output
+            from ``csv.writer``, which emits ``\\r\\n`` per RFC 4180)
+            to prevent the OS text-mode layer from double-translating
+            on Windows.
     """
     tmp_path = None
     try:
         with tempfile.NamedTemporaryFile(
             mode="w",
             encoding=encoding,
+            newline=newline,
             dir=str(path.parent),
             suffix=".tmp",
             delete=False,
@@ -357,6 +369,15 @@ class IntelligentCache:
                 temp_path = Path(tmp_file.name)
 
             temp_path.replace(cache_path)
+
+            # Restrict permissions on cache files (may contain sensitive OCR text)
+            if sys.platform != "win32":
+                import os
+
+                try:
+                    os.chmod(cache_path, 0o600)
+                except OSError:
+                    pass
 
             logger.debug("Cached result for %s", file_path.name)
 

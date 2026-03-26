@@ -265,6 +265,15 @@ MISTRAL_IMAGE_LIMIT=0
 MISTRAL_IMAGE_MIN_SIZE=0
 ```
 
+### MISTRAL_OCR_MAX_FILE_SIZE_MB
+- **Type:** Integer
+- **Default:** `200`
+- **Description:** Maximum file size (in MB) accepted for Mistral OCR uploads. Files exceeding this limit are rejected before upload to prevent unnecessary API charges.
+
+```ini
+MISTRAL_OCR_MAX_FILE_SIZE_MB=200
+```
+
 ### MISTRAL_SIGNED_URL_EXPIRY
 - **Type:** Integer
 - **Default:** `1`
@@ -1063,6 +1072,7 @@ VERBOSE_PROGRESS=true
 | MISTRAL_DOCUMENT_ANNOTATION_PROMPT | string | "" | No | OCR 3 |
 | MISTRAL_IMAGE_LIMIT | int | 0 | No | OCR 3 |
 | MISTRAL_IMAGE_MIN_SIZE | int | 0 | No | OCR 3 |
+| MISTRAL_OCR_MAX_FILE_SIZE_MB | int | 200 | No | OCR |
 | MISTRAL_SIGNED_URL_EXPIRY | int | 1 | No | OCR 3 |
 | MISTRAL_DOCUMENT_QNA_MODEL | string | mistral-small-latest | No | Document QnA |
 | MISTRAL_QNA_SYSTEM_PROMPT | string | "" | No | Document QnA |

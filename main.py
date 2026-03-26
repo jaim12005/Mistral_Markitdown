@@ -927,7 +927,10 @@ Examples:
             sys.exit(1)
 
         start_time = time.time()
-        handler = _CLI_MODE_DISPATCH[args.mode]
+        handler = _CLI_MODE_DISPATCH.get(args.mode)
+        if handler is None:
+            utils.ui_print(f"Unknown mode: {args.mode}")
+            sys.exit(1)
         success, message = handler(files)
         utils.ui_print(f"\n{message}")
 

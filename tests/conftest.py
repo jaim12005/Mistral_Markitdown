@@ -24,7 +24,13 @@ def sample_text_file(tmp_path):
 
 @pytest.fixture
 def mock_env_vars(monkeypatch):
-    """Mock environment variables for testing."""
+    """Set environment variables for testing.
+
+    NOTE: ``config.py`` reads env vars at import time, so these patches
+    do NOT affect already-evaluated config attributes.  Tests that need
+    to override config values should ``monkeypatch.setattr(config, ...)``
+    directly instead of relying on this fixture.
+    """
     test_env = {
         "MISTRAL_API_KEY": "test_api_key_12345",
         "CACHE_DURATION_HOURS": "24",
