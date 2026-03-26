@@ -1,0 +1,35 @@
+# .cursorignore
+# Best-effort exclusion from AI features (Tab, Chat, indexing, @-mentions).
+# NOT a hard security boundary. Pair with Privacy Mode for regulated code.
+# Terminal commands and MCP tools run outside these controls.
+
+# --- Environment and local config ---
+.env
+.env.*
+!.env.example
+!.env.template
+.envrc
+
+# --- Credentials and secrets ---
+**/credentials*
+**/secrets*
+**/*secret*
+**/*token*
+**/*password*
+**/service-account*.json
+**/client_secret*.json
+
+# --- Private keys and certificates ---
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+**/.ssh/
+**/id_rsa*
+**/id_ed25519*
+
+# --- Logs (may contain sensitive data) ---
+*.log
+**/logs/

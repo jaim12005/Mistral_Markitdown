@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "hooks": {
+    "beforeShellExecution": [
+      {
+        "command": ".cursor/hooks/before-shell-guard.sh",
+        "timeout": 5,
+        "failClosed": true
+      }
+    ],
+    "afterFileEdit": [
+      {
+        "command": ".cursor/hooks/after-file-format.sh",
+        "timeout": 20
+      }
+    ],
+    "stop": [
+      {
+        "command": ".cursor/hooks/stop-scoped-tests.sh",
+        "timeout": 180,
+        "loop_limit": 3
+      }
+    ]
+  }
+}
