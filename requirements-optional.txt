@@ -99,7 +99,7 @@ olefile>=0.47
 # ----------------------------------------------------------------------------
 # Note: MarkItDown uses pdfminer-six for PDF text extraction
 # This is auto-installed with markitdown[pdf]
-# We use pdfplumber and camelot for advanced table extraction (in requirements.txt)
+# We use pdfplumber for advanced table extraction (in requirements.txt)
 
 # pdfminer-six>=20221105  # Auto-installed by MarkItDown
 

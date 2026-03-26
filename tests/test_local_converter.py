@@ -10,7 +10,7 @@ Tests cover:
 - get_markitdown_instance / reset (singleton lifecycle)
 - convert_with_markitdown (MarkItDown integration, mocked)
 - convert_stream_with_markitdown (stream-based conversion, mocked)
-- extract_tables_pdfplumber / extract_tables_camelot (mocked)
+- extract_tables_pdfplumber / extract_tables_pdfplumber_text (mocked)
 - extract_all_tables (integration, mocked)
 - save_tables_to_files (file output, mocked)
 - convert_pdf_to_images (pdf2image integration, mocked)
@@ -431,27 +431,51 @@ class TestExtractTablesPdfplumber:
 
 
 # ============================================================================
-# extract_tables_camelot Tests (mocked)
+# extract_tables_pdfplumber_text Tests (mocked)
 # ============================================================================
 
 
-class TestExtractTablesCamelot:
-    """Test camelot table extraction with mocks."""
+class TestExtractTablesPdfplumberText:
+    """Test pdfplumber text-strategy table extraction with mocks."""
 
     def test_returns_empty_when_not_installed(self, tmp_path):
-        with patch.object(local_converter, "camelot", None):
-            result = local_converter.extract_tables_camelot(tmp_path / "test.pdf")
+        with patch.object(local_converter, "pdfplumber", None):
+            result = local_converter.extract_tables_pdfplumber_text(tmp_path / "test.pdf")
         assert result == []
 
     def test_handles_exception(self, tmp_path):
         pdf_file = tmp_path / "test.pdf"
         pdf_file.write_bytes(b"%PDF-1.4")
 
-        with patch.object(local_converter, "camelot") as mock_cam:
-            mock_cam.read_pdf.side_effect = Exception("ghostscript not found")
-            result = local_converter.extract_tables_camelot(pdf_file)
+        mock_pdf = MagicMock()
+        mock_pdf.__enter__ = MagicMock(return_value=mock_pdf)
+        mock_pdf.__exit__ = MagicMock(return_value=False)
+        mock_pdf.pages = [MagicMock()]
+        mock_pdf.pages[0].extract_tables.side_effect = Exception("parse error")
+
+        with patch.object(local_converter.pdfplumber, "open", return_value=mock_pdf):
+            result = local_converter.extract_tables_pdfplumber_text(pdf_file)
 
         assert result == []
+
+    def test_extracts_tables_with_text_strategy(self, tmp_path):
+        pdf_file = tmp_path / "test.pdf"
+        pdf_file.write_bytes(b"%PDF-1.4")
+
+        mock_page = MagicMock()
+        mock_page.extract_tables.return_value = [[["A", "B"], ["1", "2"]]]
+
+        mock_pdf = MagicMock()
+        mock_pdf.__enter__ = MagicMock(return_value=mock_pdf)
+        mock_pdf.__exit__ = MagicMock(return_value=False)
+        mock_pdf.pages = [mock_page]
+
+        with patch.object(local_converter.pdfplumber, "open", return_value=mock_pdf):
+            result = local_converter.extract_tables_pdfplumber_text(pdf_file)
+
+        assert len(result) == 1
+        assert result[0] == [["A", "B"], ["1", "2"]]
+        mock_page.extract_tables.assert_called_once_with({"vertical_strategy": "text", "horizontal_strategy": "text"})
 
 
 # ============================================================================
@@ -550,7 +574,7 @@ class TestConvertPdfToImages:
 class TestExtractAllTables:
     """Test combined table extraction."""
 
-    def test_combines_pdfplumber_and_camelot(self, tmp_path):
+    def test_combines_pdfplumber_and_text_strategy(self, tmp_path):
         pdf_file = tmp_path / "test.pdf"
         pdf_file.write_bytes(b"%PDF-1.4")
 
@@ -558,7 +582,7 @@ class TestExtractAllTables:
         table2 = [["C", "D"], ["3", "4"]]
 
         with patch.object(local_converter, "extract_tables_pdfplumber", return_value=[table1]):
-            with patch.object(local_converter, "extract_tables_camelot", return_value=[table2]):
+            with patch.object(local_converter, "extract_tables_pdfplumber_text", return_value=[table2]):
                 result = local_converter.extract_all_tables(pdf_file)
 
         assert result["table_count"] >= 1
@@ -569,7 +593,7 @@ class TestExtractAllTables:
         pdf_file.write_bytes(b"%PDF-1.4")
 
         with patch.object(local_converter, "extract_tables_pdfplumber", return_value=[]):
-            with patch.object(local_converter, "extract_tables_camelot", return_value=[]):
+            with patch.object(local_converter, "extract_tables_pdfplumber_text", return_value=[]):
                 result = local_converter.extract_all_tables(pdf_file)
 
         assert result["table_count"] == 0
@@ -615,22 +639,6 @@ class TestImportFallbacks:
                 sys.modules["pdfplumber"] = original
             else:
                 sys.modules.pop("pdfplumber", None)
-            importlib.reload(local_converter)
-
-    def test_camelot_import_failure(self):
-        """Lines 56-57: camelot import failure."""
-        import importlib
-
-        original = sys.modules.get("camelot")
-        try:
-            sys.modules["camelot"] = None
-            importlib.reload(local_converter)
-            assert local_converter.camelot is None
-        finally:
-            if original is not None:
-                sys.modules["camelot"] = original
-            else:
-                sys.modules.pop("camelot", None)
             importlib.reload(local_converter)
 
     def test_pdf2image_import_failure(self):
@@ -957,121 +965,26 @@ class TestConvertStreamExceptions:
 
 
 # ============================================================================
-# extract_tables_camelot Stream Flavor Tests (Lines 354-404)
+# extract_all_tables Text Strategy Fallback
 # ============================================================================
 
 
-class TestExtractTablesCamelotStreamFlavor:
-    """Lines 354-404: camelot stream flavor with quality filtering."""
+class TestExtractAllTablesTextFallback:
+    """Text strategy runs when <2 tables found by line-based extraction."""
 
-    def test_stream_flavor_extraction(self, tmp_path, monkeypatch):
-        """Stream flavor with quality filtering."""
-        pdf_file = tmp_path / "test.pdf"
-        pdf_file.write_bytes(b"%PDF-1.4")
-
-        monkeypatch.setattr(config, "CAMELOT_STREAM_SPLIT_TEXT", True)
-        monkeypatch.setattr(config, "CAMELOT_STREAM_EDGE_TOL", 50)
-        monkeypatch.setattr(config, "CAMELOT_STREAM_ROW_TOL", 2)
-        monkeypatch.setattr(config, "CAMELOT_STREAM_COLUMN_TOL", 0)
-        monkeypatch.setattr(config, "CAMELOT_MIN_ACCURACY", 50.0)
-        monkeypatch.setattr(config, "CAMELOT_MAX_WHITESPACE", 80.0)
-
-        mock_table = MagicMock()
-        mock_table.accuracy = 90.0
-        mock_table.whitespace = 20.0
-        mock_table.df = MagicMock()
-        mock_table.df.values.tolist.return_value = [["H1", "H2"], ["A", "B"]]
-
-        with patch.object(local_converter, "camelot") as mock_cam:
-            mock_cam.read_pdf.return_value = [mock_table]
-            result = local_converter.extract_tables_camelot(pdf_file, flavor="stream")
-
-        assert len(result) == 1
-        mock_cam.read_pdf.assert_called_once()
-
-    def test_stream_low_accuracy_filtered(self, tmp_path, monkeypatch):
-        """Low accuracy tables are filtered out."""
-        pdf_file = tmp_path / "test.pdf"
-        pdf_file.write_bytes(b"%PDF-1.4")
-
-        monkeypatch.setattr(config, "CAMELOT_MIN_ACCURACY", 80.0)
-        monkeypatch.setattr(config, "CAMELOT_MAX_WHITESPACE", 90.0)
-
-        mock_table = MagicMock()
-        mock_table.accuracy = 30.0  # below threshold
-        mock_table.whitespace = 10.0
-
-        with patch.object(local_converter, "camelot") as mock_cam:
-            mock_cam.read_pdf.return_value = [mock_table]
-            result = local_converter.extract_tables_camelot(pdf_file, flavor="stream")
-
-        assert len(result) == 0
-
-    def test_stream_high_whitespace_filtered(self, tmp_path, monkeypatch):
-        """High whitespace tables are filtered out."""
-        pdf_file = tmp_path / "test.pdf"
-        pdf_file.write_bytes(b"%PDF-1.4")
-
-        monkeypatch.setattr(config, "CAMELOT_MIN_ACCURACY", 50.0)
-        monkeypatch.setattr(config, "CAMELOT_MAX_WHITESPACE", 60.0)
-
-        mock_table = MagicMock()
-        mock_table.accuracy = 90.0
-        mock_table.whitespace = 95.0  # above threshold
-
-        with patch.object(local_converter, "camelot") as mock_cam:
-            mock_cam.read_pdf.return_value = [mock_table]
-            result = local_converter.extract_tables_camelot(pdf_file, flavor="stream")
-
-        assert len(result) == 0
-
-    def test_stream_accuracy_only_quality_info(self, tmp_path, monkeypatch):
-        """Lines 401-402: quality_info has accuracy but whitespace is None."""
-        pdf_file = tmp_path / "test.pdf"
-        pdf_file.write_bytes(b"%PDF-1.4")
-
-        monkeypatch.setattr(config, "CAMELOT_MIN_ACCURACY", 50.0)
-        monkeypatch.setattr(config, "CAMELOT_MAX_WHITESPACE", 90.0)
-
-        mock_table = MagicMock()
-        mock_table.accuracy = 90.0
-        mock_table.whitespace = None  # No whitespace attr
-        mock_table.df = MagicMock()
-        mock_table.df.values.tolist.return_value = [["H1", "H2"], ["A", "B"]]
-
-        with patch.object(local_converter, "camelot") as mock_cam:
-            mock_cam.read_pdf.return_value = [mock_table]
-            result = local_converter.extract_tables_camelot(pdf_file, flavor="stream")
-
-        assert len(result) == 1
-
-
-# ============================================================================
-# extract_all_tables Camelot-stream Fallback (Lines 437-438)
-# ============================================================================
-
-
-class TestExtractAllTablesCamelotStreamFallback:
-    """Lines 437-438: camelot-stream runs when <2 tables found."""
-
-    def test_camelot_stream_runs_when_few_tables(self, tmp_path):
-        """When pdfplumber finds < 2 tables, camelot-stream is tried."""
+    def test_text_strategy_runs_when_few_tables(self, tmp_path):
+        """When pdfplumber finds < 2 tables, text strategy is tried."""
         pdf_file = tmp_path / "test.pdf"
         pdf_file.write_bytes(b"%PDF-1.4")
 
         table1 = [["A", "B"], ["1", "2"]]
-        stream_table = [["X", "Y"], ["3", "4"]]
-
-        def mock_camelot(path, flavor="lattice", **kwargs):
-            if flavor == "stream":
-                return [stream_table]
-            return []
+        text_table = [["X", "Y"], ["3", "4"]]
 
         with patch.object(local_converter, "extract_tables_pdfplumber", return_value=[table1]):
-            with patch.object(local_converter, "extract_tables_camelot", side_effect=mock_camelot):
+            with patch.object(local_converter, "extract_tables_pdfplumber_text", return_value=[text_table]):
                 result = local_converter.extract_all_tables(pdf_file)
 
-        assert "camelot-stream" in result["methods_used"]
+        assert "pdfplumber-text" in result["methods_used"]
 
 
 # ============================================================================
@@ -1293,7 +1206,7 @@ class TestExtractAllTablesCoalescing:
         table2 = [["Name", "Value"], ["B", "2"]]
 
         with patch.object(local_converter, "extract_tables_pdfplumber", return_value=[table1, table2]):
-            with patch.object(local_converter, "extract_tables_camelot", return_value=[]):
+            with patch.object(local_converter, "extract_tables_pdfplumber_text", return_value=[]):
                 result = local_converter.extract_all_tables(pdf_file)
 
         # They should be coalesced into one table

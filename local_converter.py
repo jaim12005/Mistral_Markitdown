@@ -1,12 +1,12 @@
 """
 Enhanced Document Converter - Local Conversion Module
 
-This module handles MarkItDown integration, PDF table extraction using pdfplumber
-and camelot, and PDF to image conversion.
+This module handles MarkItDown integration, PDF table extraction using pdfplumber,
+and PDF to image conversion.
 
 Documentation references:
 - MarkItDown: https://github.com/microsoft/markitdown
-- Camelot: https://camelot-py.readthedocs.io/
+- pdfplumber: https://github.com/jsvine/pdfplumber
 - pdf2image: https://github.com/Belval/pdf2image
 """
 
@@ -24,7 +24,7 @@ __all__ = [
     "convert_with_markitdown",
     "convert_stream_with_markitdown",
     "extract_tables_pdfplumber",
-    "extract_tables_camelot",
+    "extract_tables_pdfplumber_text",
     "extract_all_tables",
     "save_tables_to_files",
     "convert_pdf_to_images",
@@ -51,11 +51,6 @@ try:
     import pdfplumber
 except ImportError:
     pdfplumber = None
-
-try:
-    import camelot
-except ImportError:
-    camelot = None
 
 try:
     from pdf2image import convert_from_path
@@ -314,99 +309,42 @@ def extract_tables_pdfplumber(pdf_path: Path) -> List[List[List[str]]]:
     return tables
 
 
-def extract_tables_camelot(pdf_path: Path, flavor: str = "lattice") -> List[List[List[str]]]:
+def extract_tables_pdfplumber_text(pdf_path: Path) -> List[List[List[str]]]:
     """
-    Extract tables from PDF using camelot with tuned parameters for financial documents.
+    Extract tables from PDF using pdfplumber with text-based strategy.
+
+    Uses text positioning rather than line detection, which is better for
+    tables without clear grid lines (replaces the former camelot "stream" mode).
 
     Args:
         pdf_path: Path to PDF file
-        flavor: Extraction flavor ('lattice' or 'stream')
 
     Returns:
         List of tables (each table is a list of rows)
     """
-    if camelot is None:
-        logger.warning("camelot not installed")
+    if pdfplumber is None:
+        logger.warning("pdfplumber not installed")
         return []
 
     tables = []
+    table_settings = {
+        "vertical_strategy": "text",
+        "horizontal_strategy": "text",
+    }
 
     try:
-        # Extract tables with camelot using tuned parameters
-        if flavor == "lattice":
-            # Lattice mode: better for tables with clear grid lines
-            # Tuned for wide financial tables (e.g., trial balances with many columns)
-            table_list = camelot.read_pdf(
-                str(pdf_path),
-                pages="all",
-                flavor="lattice",
-                suppress_stdout=True,
-                line_scale=40,  # Increase to detect more subtle grid lines
-                shift_text=["l", "t"],  # Shift text left and top for better alignment
-                strip_text=" \n",  # Strip whitespace and newlines from cells
-            )
-        else:
-            # Stream mode: better for tables without clear grid lines
-            # NOTE: split_text is critical for wide financial tables where PDFMiner
-            # merges adjacent column values into a single string. column_tol=0 and
-            # row_tol=2 are the camelot defaults; previous values (5, 5) were causing
-            # column pairs to merge on tight-spaced tables.
-            table_list = camelot.read_pdf(
-                str(pdf_path),
-                pages="all",
-                flavor="stream",
-                suppress_stdout=True,
-                split_text=config.CAMELOT_STREAM_SPLIT_TEXT,
-                edge_tol=config.CAMELOT_STREAM_EDGE_TOL,
-                row_tol=config.CAMELOT_STREAM_ROW_TOL,
-                column_tol=config.CAMELOT_STREAM_COLUMN_TOL,
-            )
+        with pdfplumber.open(pdf_path) as pdf:
+            for page_num, page in enumerate(pdf.pages):
+                page_tables = page.extract_tables(table_settings)
 
-        for table in table_list:
-            # Quality filtering - skip low-accuracy tables
-            # Guard against None values to prevent TypeError
-            table_accuracy = getattr(table, "accuracy", None)
-            if table_accuracy is not None and table_accuracy < config.CAMELOT_MIN_ACCURACY:
-                logger.debug(
-                    "Skipping low-accuracy table: %.1f%% (threshold: %.1f%%)",
-                    table_accuracy,
-                    config.CAMELOT_MIN_ACCURACY,
-                )
-                continue
-
-            # Whitespace filtering - skip tables with too much empty space
-            # Guard against None values to prevent TypeError
-            table_whitespace = getattr(table, "whitespace", None)
-            if table_whitespace is not None and table_whitespace > config.CAMELOT_MAX_WHITESPACE:
-                logger.debug(
-                    "Skipping high-whitespace table: %.1f%% (threshold: %.1f%%)",
-                    table_whitespace,
-                    config.CAMELOT_MAX_WHITESPACE,
-                )
-                continue
-
-            # Convert DataFrame to list of lists
-            table_data = table.df.values.tolist()
-
-            if table_data and len(table_data) > 0:
-                # Post-process: fix merged currency cells
-                table_data = _fix_merged_currency_cells(table_data)
-                table_data = _fix_split_headers(table_data)
-                tables.append(table_data)
-
-                # Log quality metrics (using already-fetched values)
-                quality_info = ""
-                if table_accuracy is not None:
-                    quality_info += f" (accuracy: {table_accuracy:.1f}%"
-                if table_whitespace is not None:
-                    quality_info += f", whitespace: {table_whitespace:.1f}%)"
-                elif quality_info:
-                    quality_info += ")"
-
-                logger.debug("Camelot extracted table with %d rows%s", len(table_data), quality_info)
+                if page_tables:
+                    for table in page_tables:
+                        if table and len(table) > 0:
+                            tables.append(table)
+                            logger.debug("Found table on page %d via text strategy (%d rows)", page_num + 1, len(table))
 
     except Exception as e:
-        logger.error("Error extracting tables with camelot (%s): %s", flavor, e)
+        logger.error("Error extracting tables with pdfplumber text strategy: %s", e)
 
     return tables
 
@@ -570,37 +508,23 @@ def extract_all_tables(pdf_path: Path) -> Dict[str, Any]:
         "methods_used": [],
     }
 
-    # Try pdfplumber first (fastest, most reliable for well-structured PDFs)
+    # Try pdfplumber first with line-based detection (fastest, most reliable)
     pdfplumber_tables = extract_tables_pdfplumber(pdf_path)
     if pdfplumber_tables:
         result["tables"].extend(pdfplumber_tables)
         result["methods_used"].append("pdfplumber")
 
-    # Try camelot lattice mode (requires Ghostscript, good for grid-line tables).
-    # Skip when pdfplumber already found ample tables -- the overlap is high
-    # and lattice mode has a non-trivial startup cost via Ghostscript.
-    if len(result["tables"]) < 5:
-        camelot_lattice_tables = extract_tables_camelot(pdf_path, flavor="lattice")
-        if camelot_lattice_tables:
-            result["tables"].extend(camelot_lattice_tables)
-            result["methods_used"].append("camelot-lattice")
-    else:
-        logger.debug(
-            "Skipping camelot-lattice: already found %d tables via pdfplumber",
-            len(result["tables"]),
-        )
-
-    # Only run camelot stream if previous methods found few tables.
-    # Stream mode is the slowest and most prone to false positives;
-    # skip it when we already have good coverage from pdfplumber + lattice.
+    # If line-based extraction found few tables, try text-based strategy.
+    # Text strategy infers table structure from text positioning rather than
+    # lines, which is better for tables without clear grid lines.
     if len(result["tables"]) < 2:
-        camelot_stream_tables = extract_tables_camelot(pdf_path, flavor="stream")
-        if camelot_stream_tables:
-            result["tables"].extend(camelot_stream_tables)
-            result["methods_used"].append("camelot-stream")
+        text_tables = extract_tables_pdfplumber_text(pdf_path)
+        if text_tables:
+            result["tables"].extend(text_tables)
+            result["methods_used"].append("pdfplumber-text")
     else:
         logger.debug(
-            "Skipping camelot-stream: already found %d tables via faster methods",
+            "Skipping pdfplumber text strategy: already found %d tables",
             len(result["tables"]),
         )
 

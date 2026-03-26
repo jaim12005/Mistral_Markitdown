@@ -310,20 +310,6 @@ MARKITDOWN_MAX_FILE_SIZE_MB = _safe_int("MARKITDOWN_MAX_FILE_SIZE_MB", 100)
 # Table Extraction Configuration
 # ============================================================================
 
-# Camelot quality thresholds
-CAMELOT_MIN_ACCURACY = _safe_float("CAMELOT_MIN_ACCURACY", 75.0)  # Minimum accuracy % to accept table
-CAMELOT_MAX_WHITESPACE = _safe_float("CAMELOT_MAX_WHITESPACE", 30.0)  # Maximum whitespace % to accept
-
-# Camelot stream mode tuning (for tables without clear grid lines)
-# split_text: splits PDFMiner-merged strings across cell boundaries (critical for tight columns)
-CAMELOT_STREAM_SPLIT_TEXT = _safe_bool("CAMELOT_STREAM_SPLIT_TEXT", True)
-# edge_tol: tolerance for extending textedges vertically (default: 50)
-CAMELOT_STREAM_EDGE_TOL = _safe_int("CAMELOT_STREAM_EDGE_TOL", 50)
-# row_tol: tolerance for combining text into rows (camelot default: 2)
-CAMELOT_STREAM_ROW_TOL = _safe_int("CAMELOT_STREAM_ROW_TOL", 2)
-# column_tol: tolerance for merging column boundaries (camelot default: 0, lower = more columns detected)
-CAMELOT_STREAM_COLUMN_TOL = _safe_int("CAMELOT_STREAM_COLUMN_TOL", 0)
-
 # ============================================================================
 # PDF to Image Configuration
 # ============================================================================
