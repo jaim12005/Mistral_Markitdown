@@ -32,7 +32,7 @@ jobs:
         run: pip install bandit
 
       - name: Run Bandit security linter
-        run: bandit -r *.py -ll --format json --output bandit-report.json || true
+        run: bandit -r *.py -ll --format json --output bandit-report.json
 
       - name: Display Bandit results
         if: always()

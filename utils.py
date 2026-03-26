@@ -41,6 +41,7 @@ __all__ = [
     "safe_output_stem",
     "generate_yaml_frontmatter",
     "strip_yaml_frontmatter",
+    "sanitize_for_terminal",
 ]
 
 # ============================================================================
@@ -86,6 +87,26 @@ def setup_logging(log_file: Optional[str] = None) -> logging.Logger:
 logger = setup_logging()
 
 _FRONTMATTER_RE = re.compile(r"\A---\s*\r?\n.*?\r?\n---\s*(?:\r?\n)?", re.DOTALL)
+
+# ANSI/C0/C1 escape-sequence pattern for terminal sanitization.
+_ANSI_ESCAPE_RE = re.compile(
+    r"(\x1b"             # ESC
+    r"(?:[@-Z\\-_]"      # Fe sequences (C1 controls)
+    r"|\[[0-?]*[ -/]*[@-~]"  # CSI sequences
+    r"|\][^\x07\x1b]*(?:\x07|\x1b\\)"  # OSC sequences
+    r"|[PX^_][^\x1b]*\x1b\\)"  # DCS/SOS/PM/APC sequences
+    r")|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]"  # remaining C0 controls (keep \t \n \r)
+)
+
+
+def sanitize_for_terminal(text: str) -> str:
+    """Strip ANSI escape sequences and non-printable C0/C1 control characters.
+
+    Preserves tab, newline, and carriage return.  Use this before printing
+    untrusted text (e.g. OCR output, LLM answers) to prevent terminal
+    manipulation attacks.
+    """
+    return _ANSI_ESCAPE_RE.sub("", text)
 
 # ============================================================================
 # Intelligent Caching System
@@ -199,6 +220,12 @@ class IntelligentCache:
             with open(cache_path, "r", encoding="utf-8") as f:
                 cache_data = json.load(f)
 
+            if not isinstance(cache_data, dict):
+                raise ValueError("cache entry is not a dict")
+            for required_key in ("timestamp", "type", "data"):
+                if required_key not in cache_data:
+                    raise ValueError(f"cache entry missing required key: {required_key}")
+
             cached_time = datetime.fromisoformat(cache_data.get("timestamp", ""))
             if cached_time.tzinfo is None:
                 cached_time = cached_time.replace(tzinfo=timezone.utc)
@@ -229,8 +256,8 @@ class IntelligentCache:
             with self._lock:
                 self.misses += 1
             return None
-        except json.JSONDecodeError:
-            logger.warning("Corrupt cache file, removing: %s", cache_path)
+        except (json.JSONDecodeError, ValueError):
+            logger.warning("Corrupt or tampered cache file, removing: %s", cache_path)
             try:
                 cache_path.unlink(missing_ok=True)
             except OSError:

@@ -286,6 +286,12 @@ def mode_mistral_ocr_only(file_paths: List[Path]) -> Tuple[bool, str]:
     if not config.MISTRAL_API_KEY:
         return False, "Mistral OCR requires MISTRAL_API_KEY to be set"
 
+    if config.MAX_BATCH_FILES > 0 and len(file_paths) > config.MAX_BATCH_FILES:
+        return False, (
+            f"Batch size ({len(file_paths)}) exceeds MAX_BATCH_FILES ({config.MAX_BATCH_FILES}). "
+            "Increase the limit or split into smaller batches."
+        )
+
     logger.info("MISTRAL OCR MODE: Processing %d file(s)", len(file_paths))
 
     successful, failed = _process_files_concurrently(
@@ -401,7 +407,10 @@ def mode_document_qna(file_paths: List[Path]) -> Tuple[bool, str]:
                 try:
                     for chunk in stream:
                         if chunk.data.choices and chunk.data.choices[0].delta.content:
-                            print(chunk.data.choices[0].delta.content, end="", flush=True)
+                            safe_text = utils.sanitize_for_terminal(
+                                chunk.data.choices[0].delta.content
+                            )
+                            print(safe_text, end="", flush=True)
                 except Exception as e:
                     print(f"\n\nStream error: {e}")
                 print("\n")
@@ -438,6 +447,12 @@ def mode_batch_ocr(file_paths: List[Path]) -> Tuple[bool, str]:
 
     if not config.MISTRAL_BATCH_ENABLED:
         return False, "Batch processing is disabled (set MISTRAL_BATCH_ENABLED=true)"
+
+    if config.MAX_BATCH_FILES > 0 and len(file_paths) > config.MAX_BATCH_FILES:
+        return False, (
+            f"Batch size ({len(file_paths)}) exceeds MAX_BATCH_FILES ({config.MAX_BATCH_FILES}). "
+            "Increase the limit or split into smaller batches."
+        )
 
     if len(file_paths) < config.MISTRAL_BATCH_MIN_FILES:
         print(f"\nNote: Batch processing is most cost-effective with {config.MISTRAL_BATCH_MIN_FILES}+ files.")

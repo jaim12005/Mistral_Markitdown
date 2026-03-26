@@ -152,7 +152,14 @@ METADATA_DIR = LOGS_DIR / "metadata"
 
 
 def ensure_directories() -> None:
-    """Create all required directories if they don't exist."""
+    """Create all required directories if they don't exist.
+
+    On POSIX systems, directories that contain sensitive data (cache,
+    logs, outputs) are created with mode 0o700 to restrict access to the
+    owning user.  On Windows, default NTFS ACLs apply; administrators
+    should tighten permissions via file-system ACLs as appropriate.
+    """
+    _mode = 0o700 if sys.platform != "win32" else None
     directories = [
         INPUT_DIR,
         OUTPUT_MD_DIR,
@@ -164,7 +171,10 @@ def ensure_directories() -> None:
     ]
 
     for directory in directories:
-        directory.mkdir(parents=True, exist_ok=True)
+        if _mode is not None:
+            directory.mkdir(parents=True, exist_ok=True, mode=_mode)
+        else:
+            directory.mkdir(parents=True, exist_ok=True)
 
 
 # ============================================================================
@@ -244,6 +254,9 @@ MISTRAL_DOCUMENT_ANNOTATION_PROMPT = os.getenv("MISTRAL_DOCUMENT_ANNOTATION_PROM
 # Image extraction control (0 = no limit / no minimum)
 MISTRAL_IMAGE_LIMIT = _safe_int("MISTRAL_IMAGE_LIMIT", 0)
 MISTRAL_IMAGE_MIN_SIZE = _safe_int("MISTRAL_IMAGE_MIN_SIZE", 0)
+
+# File size limit for Mistral OCR uploads (MB) - reject files exceeding this
+MISTRAL_OCR_MAX_FILE_SIZE_MB = _safe_int("MISTRAL_OCR_MAX_FILE_SIZE_MB", 200, min_val=1)
 
 # Signed URL expiry (hours) - increase for large batch jobs
 MISTRAL_SIGNED_URL_EXPIRY = _safe_int("MISTRAL_SIGNED_URL_EXPIRY", 1, min_val=1)
@@ -561,6 +574,28 @@ def validate_configuration() -> List[str]:
             f"WARNING: Unsupported TABLE_OUTPUT_FORMATS={sorted(invalid_table_output_formats)}. "
             "Supported values: ['csv', 'markdown']."
         )
+
+    # Security-relevant configuration warnings
+    if MARKITDOWN_ENABLE_PLUGINS:
+        issues.append(
+            "SECURITY: MARKITDOWN_ENABLE_PLUGINS is true. "
+            "Third-party plugins increase the parser attack surface. "
+            "Only enable if you trust all installed plugins."
+        )
+
+    if MARKITDOWN_KEEP_DATA_URIS:
+        issues.append(
+            "SECURITY: MARKITDOWN_KEEP_DATA_URIS is true. "
+            "Output Markdown will contain embedded data URIs which pose "
+            "an XSS risk if served to browsers without sanitization."
+        )
+
+    if MISTRAL_SIGNED_URL_EXPIRY > 24:
+        issues.append(
+            f"SECURITY: MISTRAL_SIGNED_URL_EXPIRY={MISTRAL_SIGNED_URL_EXPIRY}h is unusually long. "
+            "Signed URLs grant access to uploaded documents; consider <=24h."
+        )
+
     return issues
 
 
