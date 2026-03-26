@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \"import subprocess; result = subprocess.run\\([''choco'', ''search'', ''poppler''], capture_output=True, text=True\\); print\\(result.stdout\\)\")",
+      "Bash(python3:*)",
+      "Bash(ls env/bin/python*)",
+      "Bash(ls .venv/bin/python*)",
+      "Bash(source .venv/bin/activate)"
+    ]
+  }
+}

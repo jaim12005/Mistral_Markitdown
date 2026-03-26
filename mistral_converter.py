@@ -1390,7 +1390,11 @@ def improve_weak_pages(client: Mistral, file_path: Path, ocr_result: Dict[str, A
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {executor.submit(_improve_page, idx): idx for idx in weak_pages}
         for future in as_completed(futures):
-            page_idx, improved_page = future.result()
+            try:
+                page_idx, improved_page = future.result()
+            except Exception as e:
+                logger.warning("Unexpected error retrieving page improvement result: %s", e)
+                continue
             if improved_page is None:
                 continue
             original_len = len(ocr_result["pages"][page_idx].get("text", ""))
@@ -1547,8 +1551,11 @@ def _process_ocr_result_pipeline(
         except Exception as e:
             logger.warning("Failed to save OCR metadata JSON: %s", e)
 
-    # Save structured outputs if they exist
-    _save_structured_outputs(file_path, ocr_result)
+    # Save structured outputs if they exist (non-fatal -- OCR already succeeded)
+    try:
+        _save_structured_outputs(file_path, ocr_result)
+    except Exception as e:
+        logger.warning("Failed to save structured outputs: %s", e)
 
     return True, output_path, None
 
@@ -1771,10 +1778,21 @@ def _validate_document_url(url: str) -> Tuple[bool, Optional[str]]:
     # hostname resolves to a different address when Mistral's servers later
     # fetch the URL.  It remains valuable as a first-pass filter against
     # obvious internal targets.
-    prev_timeout = socket.getdefaulttimeout()
+    # Resolve DNS with a per-call timeout.  We avoid socket.setdefaulttimeout()
+    # because it mutates process-global state and is not thread-safe (concurrent
+    # workers in improve_weak_pages could clobber or inherit the 5-second value).
+    from concurrent.futures import ThreadPoolExecutor as _DnsPool, TimeoutError as _DnsTimeout
+
     try:
-        socket.setdefaulttimeout(5)
-        infos = socket.getaddrinfo(hostname, None, proto=socket.IPPROTO_TCP)
+        _pool = _DnsPool(max_workers=1)
+        try:
+            _future = _pool.submit(socket.getaddrinfo, hostname, None, proto=socket.IPPROTO_TCP)
+            try:
+                infos = _future.result(timeout=5)
+            except _DnsTimeout:
+                raise socket.timeout("DNS resolution timed out")
+        finally:
+            _pool.shutdown(wait=False, cancel_futures=True)
         resolved_ips = {info[4][0] for info in infos if info and info[4]}
         for ip in resolved_ips:
             ok, err = _validate_ip_str(ip, f"{hostname} -> {ip}")
@@ -1786,8 +1804,6 @@ def _validate_document_url(url: str) -> Tuple[bool, Optional[str]]:
         logger.debug("DNS resolution timed out for %s", hostname)
     except Exception as e:
         logger.debug("DNS resolution check skipped for %s: %s", hostname, e)
-    finally:
-        socket.setdefaulttimeout(prev_timeout)
 
     return True, None
 
@@ -2099,9 +2115,8 @@ def create_batch_ocr_file(
         import os as _os
         import sys as _sys
 
-        with open(output_file, "w", encoding="utf-8") as f:
-            for entry in entries:
-                f.write(json.dumps(entry) + "\n")
+        content = "".join(json.dumps(entry) + "\n" for entry in entries)
+        utils.atomic_write_text(output_file, content)
 
         if _sys.platform != "win32":
             _os.chmod(output_file, 0o600)

@@ -11,6 +11,7 @@ Documentation references:
 """
 
 import csv
+import io
 import re
 import sys
 import threading
@@ -710,8 +711,6 @@ def save_tables_to_files(pdf_path: Path, tables: List[List[List[str]]]) -> List[
             csv_path = config.OUTPUT_MD_DIR / f"{base_name}_table_{i}.csv"
 
             try:
-                import io
-
                 # Normalize headers for CSV as well
                 headers, data_rows = utils.normalize_table_headers(table)
 

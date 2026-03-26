@@ -271,12 +271,14 @@ class TestValidateConfigurationBranches:
 class TestInitializeIdempotent:
     """Test that initialize() only runs once."""
 
-    def test_initialize_returns_empty_on_second_call(self):
+    def test_initialize_returns_same_issues_on_second_call(self):
         config._initialized = False
-        config.initialize()
+        config._init_issues = []
+        result1 = config.initialize()
         result2 = config.initialize()
-        assert result2 == []
+        assert result2 == result1
         config._initialized = False
+        config._init_issues = []
 
 
 if __name__ == "__main__":

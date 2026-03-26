@@ -612,6 +612,7 @@ def validate_configuration() -> List[str]:
 
 _initialized = False
 _init_lock = threading.Lock()
+_init_issues: List[str] = []
 
 
 def initialize() -> List[str]:
@@ -622,18 +623,19 @@ def initialize() -> List[str]:
     double-checked locking.
 
     Returns:
-        List of configuration warning/error messages (empty if all OK)
+        List of configuration warning/error messages (empty if all OK).
+        Subsequent calls return the same list from the first initialization.
     """
-    global _initialized
+    global _initialized, _init_issues
     if _initialized:
-        return []
+        return _init_issues
     with _init_lock:
         if _initialized:
-            return []
+            return _init_issues
         ensure_directories()
-        issues = validate_configuration()
+        _init_issues = validate_configuration()
         _initialized = True
-        return issues
+        return _init_issues
 
 
 # Run as a standalone config diagnostic: ``python config.py``

@@ -37,7 +37,12 @@ jobs:
     - name: Install system dependencies (Windows)
       if: runner.os == 'Windows'
       run: |
-        choco install ghostscript poppler -y
+        choco install ghostscript -y
+        $popplerVersion = "24.08.0-0"
+        $popplerUrl = "https://github.com/oschwartz10612/poppler-windows/releases/download/v$popplerVersion/Release-$popplerVersion.zip"
+        Invoke-WebRequest -Uri $popplerUrl -OutFile poppler.zip
+        Expand-Archive poppler.zip -DestinationPath C:\poppler
+        echo "C:\poppler\poppler-$popplerVersion\Library\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
     - name: Install Python dependencies
       run: |
