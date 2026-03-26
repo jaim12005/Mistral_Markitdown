@@ -803,7 +803,7 @@ def interactive_menu():
             if not files:
                 continue
 
-            _, (cli_mode, handler) = choice, MODE_DISPATCH[choice]
+            cli_mode, handler = MODE_DISPATCH[choice]
             valid_files = _filter_valid_files(files, mode=cli_mode)
 
             if not valid_files:

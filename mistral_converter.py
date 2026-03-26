@@ -110,6 +110,8 @@ _QUALITY_PENALTY_LOW_DIGITS = 20  # Points lost for low numerical content
 _QUALITY_PENALTY_HIGH_REPETITION = 30  # Points lost for high token repetition
 _QUALITY_AGGREGATE_DIGIT_MULTIPLIER = 5  # Multiplier on per-page digit threshold for aggregate check
 
+# Process-global page counter — suitable for CLI use.  A multi-tenant
+# service would need per-request counters instead.
 _session_pages_processed = 0
 _session_pages_warned = False
 _session_pages_lock = threading.Lock()
@@ -915,11 +917,15 @@ def process_with_ocr(
     except Exception as e:
         error_msg = f"Error processing with Mistral OCR: {e}"
 
-        # Check for specific error types
-        if "401" in str(e) or "Unauthorized" in str(e):
-            error_msg = "Mistral API authentication failed (401 Unauthorized). "
-            error_msg += "Please verify your API key has OCR access at https://console.mistral.ai/"
-        elif "403" in str(e) or "Forbidden" in str(e):
+        # Prefer typed status_code from SDK exceptions; fall back to string matching.
+        status_code = getattr(e, "status_code", None) or getattr(e, "code", None)
+        err_str = str(e)
+        if status_code == 401 or (status_code is None and ("401" in err_str or "Unauthorized" in err_str)):
+            error_msg = (
+                "Mistral API authentication failed (401 Unauthorized). "
+                "Please verify your API key has OCR access at https://console.mistral.ai/"
+            )
+        elif status_code == 403 or (status_code is None and ("403" in err_str or "Forbidden" in err_str)):
             error_msg = "Access denied to Mistral OCR (403 Forbidden). This feature may require a paid plan."
 
         logger.error(error_msg)
@@ -1141,6 +1147,11 @@ def _parse_ocr_response(response: Any, file_path: Path) -> Dict[str, Any]:
 # ============================================================================
 # Per-Page OCR Improvements
 # ============================================================================
+
+# Cap concurrency for weak-page re-OCR to avoid nested thread-pool explosion.
+# When improve_weak_pages runs inside _process_files_concurrently (which uses
+# MAX_CONCURRENT_FILES threads), an uncapped inner pool could spawn M*M threads.
+_MAX_WEAK_PAGE_WORKERS = 3
 
 
 def _is_weak_page(text: str) -> bool:
@@ -1386,7 +1397,7 @@ def improve_weak_pages(client: Mistral, file_path: Path, ocr_result: Dict[str, A
             logger.warning("Error improving page %d: %s", page_idx + 1, e)
         return page_idx, None
 
-    max_workers = min(len(weak_pages), config.MAX_CONCURRENT_FILES)
+    max_workers = min(len(weak_pages), _MAX_WEAK_PAGE_WORKERS)
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {executor.submit(_improve_page, idx): idx for idx in weak_pages}
         for future in as_completed(futures):
@@ -1456,8 +1467,7 @@ def save_extracted_images(ocr_result: Dict[str, Any], file_path: Path) -> List[P
                 image_count += 1
                 image_path = image_dir / f"page_{page_num}_image_{image_count}.png"
 
-                with open(image_path, "wb") as f:
-                    f.write(image_data)
+                utils.atomic_write_binary(image_path, image_data)
 
                 saved_images.append(image_path)
                 logger.debug("Saved extracted image: %s", image_path.name)
@@ -2167,17 +2177,15 @@ def submit_batch_ocr_job(
     try:
         logger.info("Uploading batch file: %s", batch_file_path.name)
 
-        # Upload the batch file (read content as bytes, consistent with OCR upload)
+        # Stream file handle directly to avoid loading the full JSONL into memory.
         with open(batch_file_path, "rb") as f:
-            file_content = f.read()
-
-        batch_data = client.files.upload(
-            file={
-                "file_name": batch_file_path.name,
-                "content": file_content,
-            },
-            purpose="batch",
-        )
+            batch_data = client.files.upload(
+                file={
+                    "file_name": batch_file_path.name,
+                    "content": f,
+                },
+                purpose="batch",
+            )
 
         logger.info("Batch file uploaded: %s", batch_data.id)
 
@@ -2304,8 +2312,7 @@ def download_batch_results(
         # Download file content
         file_content = client.files.download(file_id=job.output_file)
 
-        with open(output_path, "wb") as f:
-            f.write(file_content)
+        utils.atomic_write_binary(output_path, file_content)
 
         logger.info("Batch results saved to: %s", output_path)
         return True, output_path, None
@@ -2338,12 +2345,19 @@ def list_batch_jobs(
 
     try:
         list_kwargs: Dict[str, Any] = {}
+        if status is not None:
+            list_kwargs["status"] = status
         if page > 0:
             list_kwargs["page"] = page
         if page_size != 100:
             list_kwargs["page_size"] = page_size
 
-        jobs_response = client.batch.jobs.list(**list_kwargs)
+        try:
+            jobs_response = client.batch.jobs.list(**list_kwargs)
+        except TypeError:
+            # SDK version doesn't accept status=; fall back to client-side filtering.
+            list_kwargs.pop("status", None)
+            jobs_response = client.batch.jobs.list(**list_kwargs)
         jobs_data = (jobs_response.data or []) if hasattr(jobs_response, "data") else jobs_response
 
         jobs_list = []
@@ -2358,6 +2372,8 @@ def list_batch_jobs(
                 "created_at": str(getattr(job, "created_at", "")),
             }
 
+            # Client-side filter acts as safety net when server-side filtering
+            # is unsupported or as a no-op when the server already filtered.
             if status is None or job_info["status"] == status:
                 jobs_list.append(job_info)
 

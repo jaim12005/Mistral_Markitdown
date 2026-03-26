@@ -576,11 +576,19 @@ def extract_all_tables(pdf_path: Path) -> Dict[str, Any]:
         result["tables"].extend(pdfplumber_tables)
         result["methods_used"].append("pdfplumber")
 
-    # Try camelot lattice mode (requires Ghostscript, good for grid-line tables)
-    camelot_lattice_tables = extract_tables_camelot(pdf_path, flavor="lattice")
-    if camelot_lattice_tables:
-        result["tables"].extend(camelot_lattice_tables)
-        result["methods_used"].append("camelot-lattice")
+    # Try camelot lattice mode (requires Ghostscript, good for grid-line tables).
+    # Skip when pdfplumber already found ample tables -- the overlap is high
+    # and lattice mode has a non-trivial startup cost via Ghostscript.
+    if len(result["tables"]) < 5:
+        camelot_lattice_tables = extract_tables_camelot(pdf_path, flavor="lattice")
+        if camelot_lattice_tables:
+            result["tables"].extend(camelot_lattice_tables)
+            result["methods_used"].append("camelot-lattice")
+    else:
+        logger.debug(
+            "Skipping camelot-lattice: already found %d tables via pdfplumber",
+            len(result["tables"]),
+        )
 
     # Only run camelot stream if previous methods found few tables.
     # Stream mode is the slowest and most prone to false positives;

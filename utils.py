@@ -28,6 +28,7 @@ __all__ = [
     "setup_logging",
     "IntelligentCache",
     "atomic_write_text",
+    "atomic_write_binary",
     "format_table_to_markdown",
     "detect_month_header_row",
     "clean_table_cell",
@@ -163,6 +164,32 @@ def atomic_write_text(path: Path, content: str, encoding: str = "utf-8", newline
         raise
 
 
+def atomic_write_binary(path: Path, data: bytes) -> None:
+    """Write *data* to *path* atomically via a temporary file and rename.
+
+    Binary counterpart of :func:`atomic_write_text`.  Prevents partial /
+    corrupt files when the process is interrupted mid-write.
+    """
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=str(path.parent),
+            suffix=".tmp",
+            delete=False,
+        ) as tmp_file:
+            tmp_file.write(data)
+            tmp_path = Path(tmp_file.name)
+        tmp_path.replace(path)
+    except BaseException:
+        if tmp_path is not None:
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise
+
+
 # ============================================================================
 # Intelligent Caching System
 # ============================================================================
@@ -197,6 +224,12 @@ class IntelligentCache:
     def _get_file_hash(self, file_path: Path) -> str:
         """
         Generate SHA-256 hash of file contents.
+
+        The cache key is content-based by design: two files with identical
+        bytes produce the same hash and share cached results.  This is
+        correct because OCR / conversion output is deterministic for a
+        given input.  Cache *type* segregation (``_get_cache_path``)
+        prevents cross-type collisions.
 
         Results are memoized by (path, mtime_ns, size) so repeated lookups
         for the same unchanged file avoid re-reading the entire file.

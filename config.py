@@ -188,7 +188,10 @@ def ensure_directories() -> None:
 # API Configuration
 # ============================================================================
 
-# Mistral AI API Key (required)
+# Mistral AI API Key (required for OCR/QnA features).
+# Stored as a plain string — acceptable for a CLI process but would need a
+# lazy accessor or SecretStr wrapper if this module is ever used as a library
+# in a long-lived / multi-tenant service.
 MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY", "")
 
 # NOTE: Azure Document Intelligence and OpenAI API keys have been removed.
@@ -385,8 +388,9 @@ ENABLE_BATCH_METADATA = _safe_bool("ENABLE_BATCH_METADATA", True)
 # Mistral Model Configuration
 # ============================================================================
 
-# Latest Mistral models (as of December 2025)
-# NOTE: Model availability and specifications may change. Verify at https://docs.mistral.ai/
+# Latest Mistral models — last verified December 2025.
+# NOTE: Model names and specs go stale. When adding or removing models here,
+# update this date and verify against https://docs.mistral.ai/getting-started/models/
 MISTRAL_MODELS = {
     "mistral-small-latest": {
         "name": "Mistral Small Latest",
