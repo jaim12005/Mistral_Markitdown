@@ -33,6 +33,9 @@ output_images/*
 # Documentation builds
 docs/_build/
 
+# AI IDE config (Cursor)
+.cursor/
+
 # OS
 .DS_Store
 Thumbs.db
