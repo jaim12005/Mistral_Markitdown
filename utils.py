@@ -40,6 +40,7 @@ __all__ = [
     "save_text_output",
     "print_progress",
     "validate_file",
+    "pdf_exceeds_heavy_work_limit",
     "safe_output_stem",
     "generate_yaml_frontmatter",
     "strip_yaml_frontmatter",
@@ -428,21 +429,22 @@ class IntelligentCache:
         removed = 0
         max_age = timedelta(hours=config.CACHE_DURATION_HOURS)
 
-        for cache_file in self.cache_dir.glob("*.json"):
-            try:
-                with open(cache_file, "r", encoding="utf-8") as f:
-                    cache_data = json.load(f)
+        with self._lock:
+            for cache_file in self.cache_dir.glob("*.json"):
+                try:
+                    with open(cache_file, "r", encoding="utf-8") as f:
+                        cache_data = json.load(f)
 
-                cached_time = datetime.fromisoformat(cache_data.get("timestamp", ""))
-                if cached_time.tzinfo is None:
-                    cached_time = cached_time.replace(tzinfo=timezone.utc)
+                    cached_time = datetime.fromisoformat(cache_data.get("timestamp", ""))
+                    if cached_time.tzinfo is None:
+                        cached_time = cached_time.replace(tzinfo=timezone.utc)
 
-                if datetime.now(timezone.utc) - cached_time > max_age:
-                    cache_file.unlink()
-                    removed += 1
+                    if datetime.now(timezone.utc) - cached_time > max_age:
+                        cache_file.unlink()
+                        removed += 1
 
-            except Exception as e:
-                logger.debug("Error processing cache file %s: %s", cache_file.name, e)
+                except Exception as e:
+                    logger.debug("Error processing cache file %s: %s", cache_file.name, e)
 
         return removed
 
@@ -874,6 +876,23 @@ def validate_file(file_path: Path, mode: Optional[str] = None) -> Tuple[bool, Op
         return False, f"Unsupported file type for {mode or 'this'} mode: .{ext}"
 
     return True, None
+
+
+def pdf_exceeds_heavy_work_limit(file_path: Path) -> Tuple[bool, Optional[str]]:
+    """Return (True, error_message) if *file_path* is a PDF over the heavy-work size cap."""
+    if file_path.suffix.lower() != ".pdf":
+        return False, None
+    try:
+        size_mb = file_path.stat().st_size / (1024 * 1024)
+    except OSError as e:
+        return True, f"Cannot read file: {e}"
+    cap = config.pdf_heavy_work_max_file_size_mb()
+    if size_mb > cap:
+        return True, (
+            f"PDF too large ({size_mb:.1f} MB) for table extraction / PDF-to-images "
+            f"(limit {cap} MB; max of MARKITDOWN_MAX_FILE_SIZE_MB and MISTRAL_OCR_MAX_FILE_SIZE_MB)."
+        )
+    return False, None
 
 
 def safe_output_stem(file_path: Path) -> str:

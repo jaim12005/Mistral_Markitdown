@@ -80,10 +80,38 @@ raise SystemExit(0 if missing else 1)
 PY
 }
 
+# Debian / Ubuntu / WSL often ship ``python3 -m venv`` environments without pip.
+ensure_venv_has_pip() {
+  if "$VENV_DIR/bin/python" -m pip --version >/dev/null 2>&1; then
+    return 0
+  fi
+  echo "INFO: venv has no pip; trying ensurepip..." >&2
+  if "$VENV_DIR/bin/python" -m ensurepip --upgrade >/dev/null 2>&1; then
+    return 0
+  fi
+  echo "INFO: ensurepip failed; fetching get-pip.py..." >&2
+  local tmp
+  tmp="$(mktemp)"
+  cleanup() { rm -f "$tmp"; }
+  trap cleanup EXIT
+  if ! "$VENV_DIR/bin/python" -c "import urllib.request, sys; urllib.request.urlretrieve('https://bootstrap.pypa.io/get-pip.py', sys.argv[1])" "$tmp"; then
+    echo "ERROR: could not download get-pip.py (need network or install python3-pip)." >&2
+    return 1
+  fi
+  "$VENV_DIR/bin/python" "$tmp" --no-warn-script-location
+  trap - EXIT
+  rm -f "$tmp"
+  if ! "$VENV_DIR/bin/python" -m pip --version >/dev/null 2>&1; then
+    echo "ERROR: pip still missing after bootstrap; remove $VENV_DIR and retry." >&2
+    return 1
+  fi
+}
+
 install_test_deps() {
   echo "INFO: installing test dependencies into $VENV_DIR (may take a minute)..." >&2
+  ensure_venv_has_pip
   "$VENV_DIR/bin/python" -m pip install -q --upgrade pip
-  "$VENV_DIR/bin/pip" install -q -r "$REQ_MAIN" -r "$REQ_DEV"
+  "$VENV_DIR/bin/python" -m pip install -q -r "$REQ_MAIN" -r "$REQ_DEV"
 }
 
 if ! BASE_PY="$(pick_base_python)"; then

@@ -3,7 +3,7 @@
 ## Supported Versions
 
 | Version | Supported |
-|---------|-----------|
+| ------- | --------- |
 | 3.x     | Yes       |
 | < 3.0   | No        |
 
@@ -22,11 +22,11 @@ If you discover a security vulnerability, please report it responsibly:
 
 ### Trust Boundaries
 
-| Boundary | Examples |
-|----------|----------|
-| **Attacker-controlled inputs** | Document files in `input/` or passed programmatically; document URLs for QnA; content returned by Mistral OCR/QnA; streams passed to `convert_stream_with_markitdown`. |
-| **Operator-controlled inputs** | `.env` configuration, API keys, feature flags (plugins, structured output, image extraction), external binary paths (Poppler/Ghostscript), batch/job IDs, and file selection. |
-| **Developer-controlled inputs** | Source code, tests, build scripts, dependency versions. |
+| Boundary                        | Examples                                                                                                                                                                      |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Attacker-controlled inputs**  | Document files in `input/` or passed programmatically; document URLs for QnA; content returned by Mistral OCR/QnA; streams passed to `convert_stream_with_markitdown`.        |
+| **Operator-controlled inputs**  | `.env` configuration, API keys, feature flags (plugins, structured output, image extraction), external binary paths (Poppler/Ghostscript), batch/job IDs, and file selection. |
+| **Developer-controlled inputs** | Source code, tests, build scripts, dependency versions.                                                                                                                       |
 
 ### Assumptions
 
@@ -51,7 +51,8 @@ If you discover a security vulnerability, please report it responsibly:
 - File paths are validated before processing (`utils.validate_file`): must exist, be a file, be non-empty, and have an extension in the relevant allowlist.
 - **MarkItDown path:** Files exceeding `MARKITDOWN_MAX_FILE_SIZE_MB` (default: 100 MB) are rejected.
 - **Mistral OCR path:** Files exceeding `MISTRAL_OCR_MAX_FILE_SIZE_MB` (default: 200 MB) are rejected before upload.
-- **Document QnA:** An additional 50 MB hard cap applies.
+- **Document QnA:** Files exceeding `MISTRAL_QNA_MAX_FILE_SIZE_MB` (default: 50 MB) are rejected.
+- **PDF table extraction and PDF-to-images:** Skipped when the PDF exceeds `max(MARKITDOWN_MAX_FILE_SIZE_MB, MISTRAL_OCR_MAX_FILE_SIZE_MB)` (see `config.pdf_heavy_work_max_file_size_mb()` / `utils.pdf_exceeds_heavy_work_limit`) to avoid expensive local work on files that would fail size checks on the conversion path.
 
 ### File Upload Security
 
@@ -69,6 +70,7 @@ All document URLs (for QnA and streaming) are validated before use:
 - Private/internal network addresses are blocked (RFC 1918, link-local, loopback, cloud metadata endpoints including `169.254.169.254`).
 - IPv6-mapped IPv4 addresses are checked for private ranges.
 - DNS resolution is verified with a 5-second timeout to prevent DNS rebinding stalling.
+- **`MISTRAL_DOCUMENT_URL_STRICT_DNS`:** When set to `true`, URLs that fail local DNS resolution or time out are rejected (fail closed). Default is `false`, which allows URLs through if resolution fails locally (same tradeoff as documented below).
 
 **Known limitation (TOCTOU):** The local DNS resolution check cannot fully prevent DNS rebinding attacks because Mistral's servers independently resolve the hostname when fetching the document. The local check remains valuable as a first-pass filter against obvious internal targets. For high-security deployments, restrict QnA to pre-uploaded files (via `query_document_file`) rather than arbitrary URLs.
 
@@ -80,21 +82,26 @@ Batch job IDs entered interactively are validated against `^[a-zA-Z0-9_\-]{1,128
 
 `utils.safe_output_stem` derives output filenames to prevent path traversal and collisions. Files from outside the standard input directory receive a SHA-256-based hash suffix.
 
+### Repository / IDE configuration
+
+If `.cursor/` (or similar IDE automation) is committed for team sharing, review changes like any other config: avoid machine-specific paths, and keep secrets in `.env` or other ignored files (for example `.env.mcp.local`).
+
 ---
 
 ## Resource Limits and Cost Guardrails
 
 The following limits prevent runaway API spend and resource exhaustion:
 
-| Setting | Default | Enforcement |
-|---------|---------|-------------|
-| `MARKITDOWN_MAX_FILE_SIZE_MB` | 100 | Hard reject before local conversion |
-| `MISTRAL_OCR_MAX_FILE_SIZE_MB` | 200 | Hard reject before Mistral upload |
-| `MAX_BATCH_FILES` | 100 | Hard reject in smart, OCR-only, and batch modes |
-| `MAX_PAGES_PER_SESSION` | 1000 | Hard reject (refuses further OCR after limit) |
-| `MAX_CONCURRENT_FILES` | 5 | Thread pool cap for parallel processing |
-| `MISTRAL_BATCH_TIMEOUT_HOURS` | 24 | Batch job auto-cancellation |
-| `UPLOAD_RETENTION_DAYS` | 7 | Auto-cleanup of uploaded files on Mistral |
+| Setting                        | Default | Enforcement                                     |
+| ------------------------------ | ------- | ----------------------------------------------- |
+| `MARKITDOWN_MAX_FILE_SIZE_MB`  | 100     | Hard reject before local conversion             |
+| `MISTRAL_OCR_MAX_FILE_SIZE_MB` | 200     | Hard reject before Mistral upload               |
+| `MISTRAL_QNA_MAX_FILE_SIZE_MB` | 50      | Hard reject before Document QnA upload          |
+| `MAX_BATCH_FILES`              | 100     | Hard reject in smart, OCR-only, and batch modes |
+| `MAX_PAGES_PER_SESSION`        | 1000    | Hard reject (refuses further OCR after limit)   |
+| `MAX_CONCURRENT_FILES`         | 5       | Thread pool cap for parallel processing         |
+| `MISTRAL_BATCH_TIMEOUT_HOURS`  | 24      | Batch job auto-cancellation                     |
+| `UPLOAD_RETENTION_DAYS`        | 7       | Auto-cleanup of uploaded files on Mistral       |
 
 ---
 

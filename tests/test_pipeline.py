@@ -127,6 +127,33 @@ class TestModeConvertSmart:
         mock_mistral.convert_with_mistral_ocr.assert_called_once_with(png_file)
 
     @patch("main.local_converter")
+    def test_pdf_over_heavy_limit_skips_table_extraction(self, mock_local, tmp_path, monkeypatch):
+        """Oversized PDFs must not run extract_all_tables in smart mode."""
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "")
+        monkeypatch.setattr(config, "MAX_BATCH_FILES", 0)
+        monkeypatch.setattr(config, "MAX_CONCURRENT_FILES", 1)
+        monkeypatch.setattr(config, "VERBOSE_PROGRESS", False)
+        monkeypatch.setattr(config, "MARKITDOWN_MAX_FILE_SIZE_MB", 1)
+        monkeypatch.setattr(config, "MISTRAL_OCR_MAX_FILE_SIZE_MB", 1)
+        monkeypatch.setattr(config, "OUTPUT_MD_DIR", tmp_path)
+
+        pdf_file = tmp_path / "big.pdf"
+        pdf_file.write_bytes(b"%PDF-1.4" + b"0" * (2 * 1024 * 1024))
+
+        mock_local.analyze_file_content.return_value = {
+            "is_text_based": True,
+            "file_type": "pdf",
+            "page_count": 1,
+        }
+        mock_local.convert_with_markitdown.return_value = (True, "Content", None)
+
+        success, _ = main.mode_convert_smart([pdf_file])
+
+        assert success is True
+        mock_local.extract_all_tables.assert_not_called()
+        mock_local.convert_with_markitdown.assert_called_once_with(pdf_file)
+
+    @patch("main.local_converter")
     def test_no_api_key_all_to_markitdown(self, mock_local, tmp_path, monkeypatch):
         """Without API key, all files (even images) route to MarkItDown."""
         monkeypatch.setattr(config, "MISTRAL_API_KEY", "")
@@ -519,6 +546,18 @@ class TestModePdfToImages:
         mock_local.convert_pdf_to_images.assert_not_called()
 
     @patch("main.local_converter")
+    def test_skips_oversized_pdf(self, mock_local, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "VERBOSE_PROGRESS", False)
+        monkeypatch.setattr(config, "MARKITDOWN_MAX_FILE_SIZE_MB", 1)
+        monkeypatch.setattr(config, "MISTRAL_OCR_MAX_FILE_SIZE_MB", 1)
+        pdf = tmp_path / "big.pdf"
+        pdf.write_bytes(b"%PDF" + b"\x00" * (2 * 1024 * 1024))
+        success, msg = main.mode_pdf_to_images([pdf])
+        assert success is False
+        assert "exceeded" in msg.lower()
+        mock_local.convert_pdf_to_images.assert_not_called()
+
+    @patch("main.local_converter")
     def test_handles_failure(self, mock_local, tmp_path, monkeypatch):
         monkeypatch.setattr(config, "VERBOSE_PROGRESS", False)
         pdf = tmp_path / "bad.pdf"
@@ -552,8 +591,9 @@ class TestModeDocumentQna:
 
     def test_rejects_large_file(self, tmp_path, monkeypatch):
         monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        cap = config.MISTRAL_QNA_MAX_FILE_SIZE_MB
         huge = tmp_path / "huge.pdf"
-        huge.write_bytes(b"\x00" * (51 * 1024 * 1024))  # 51 MB
+        huge.write_bytes(b"\x00" * ((cap + 1) * 1024 * 1024))
 
         with patch.object(main, "mistral_converter") as mock_mc:
             mock_mc.get_mistral_client.return_value = MagicMock()
@@ -1504,14 +1544,15 @@ class TestModeDocumentQnaExpanded:
         assert "not available" in msg
 
     def test_file_too_large(self, tmp_path, monkeypatch):
+        cap = config.MISTRAL_QNA_MAX_FILE_SIZE_MB
         pdf = tmp_path / "test.pdf"
-        pdf.write_bytes(b"x" * (51 * 1024 * 1024))
+        pdf.write_bytes(b"x" * ((cap + 1) * 1024 * 1024))
         monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
 
         with patch.object(mistral_converter, "get_mistral_client", return_value=MagicMock()):
             ok, msg = main.mode_document_qna([pdf])
         assert ok is False
-        assert "too large" in msg.lower() or "50 MB" in msg
+        assert "too large" in msg.lower() or f"{cap} MB" in msg
 
     def test_os_error_reading_file(self, tmp_path, monkeypatch):
         """Lines 333-334: OSError when checking file size."""

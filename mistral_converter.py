@@ -1935,10 +1935,16 @@ def _validate_document_url(url: str) -> Tuple[bool, Optional[str]]:
             if not ok:
                 return ok, err
     except socket.gaierror:
+        if config.MISTRAL_DOCUMENT_URL_STRICT_DNS:
+            return False, f"Could not resolve hostname in strict document URL mode: {hostname}"
         logger.debug("Could not resolve hostname during SSRF validation: %s", hostname)
     except socket.timeout:
+        if config.MISTRAL_DOCUMENT_URL_STRICT_DNS:
+            return False, f"DNS resolution timed out in strict document URL mode: {hostname}"
         logger.debug("DNS resolution timed out for %s", hostname)
     except Exception as e:
+        if config.MISTRAL_DOCUMENT_URL_STRICT_DNS:
+            return False, f"DNS resolution check failed in strict document URL mode for {hostname}: {e}"
         logger.debug("DNS resolution check skipped for %s: %s", hostname, e)
 
     return True, None
@@ -2122,16 +2128,16 @@ def query_document_file(
     if client is None:
         return False, None, "Mistral client not available"
 
-    # Pre-validate file size (Mistral Document QnA limit: 50 MB)
     try:
         file_size_mb = file_path.stat().st_size / (1024 * 1024)
-        if file_size_mb > 50:
+        cap = config.MISTRAL_QNA_MAX_FILE_SIZE_MB
+        if file_size_mb > cap:
             return (
                 False,
                 None,
                 (
                     f"File too large for Document QnA ({file_size_mb:.1f} MB). "
-                    "Mistral limits documents to 50 MB. Consider splitting the document."
+                    f"Maximum allowed is {cap} MB (MISTRAL_QNA_MAX_FILE_SIZE_MB). Consider splitting the document."
                 ),
             )
     except OSError as e:

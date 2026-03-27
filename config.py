@@ -304,6 +304,17 @@ MARKITDOWN_EXIFTOOL_PATH = os.getenv("MARKITDOWN_EXIFTOOL_PATH", "")
 # File size limit - files exceeding this are rejected to prevent OOM
 MARKITDOWN_MAX_FILE_SIZE_MB = _safe_int("MARKITDOWN_MAX_FILE_SIZE_MB", 100)
 
+
+def pdf_heavy_work_max_file_size_mb() -> int:
+    """Max PDF size (MB) for table extraction and PDF-to-images (stat-based gate).
+
+    Uses the larger of the MarkItDown and Mistral OCR caps so smart routing does
+    not run expensive local work only to fail a later size check on the other path.
+    """
+
+    return max(MARKITDOWN_MAX_FILE_SIZE_MB, MISTRAL_OCR_MAX_FILE_SIZE_MB)
+
+
 # ============================================================================
 # Table Extraction Configuration
 # ============================================================================
@@ -344,6 +355,9 @@ MAX_PAGES_PER_SESSION = _safe_int("MAX_PAGES_PER_SESSION", 1000)
 MISTRAL_QNA_SYSTEM_PROMPT = os.getenv("MISTRAL_QNA_SYSTEM_PROMPT", "")  # Custom system prompt for QnA
 MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT = _safe_int("MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT", 0)  # 0 = API default (8)
 MISTRAL_QNA_DOCUMENT_PAGE_LIMIT = _safe_int("MISTRAL_QNA_DOCUMENT_PAGE_LIMIT", 0)  # 0 = API default (64)
+MISTRAL_QNA_MAX_FILE_SIZE_MB = _safe_int("MISTRAL_QNA_MAX_FILE_SIZE_MB", 50, min_val=1)
+# When true, QnA document URLs must pass local DNS resolution (fail closed on lookup/timeout errors)
+MISTRAL_DOCUMENT_URL_STRICT_DNS = _safe_bool("MISTRAL_DOCUMENT_URL_STRICT_DNS", False)
 
 # Batch processing advanced configuration
 MISTRAL_BATCH_TIMEOUT_HOURS = _safe_int("MISTRAL_BATCH_TIMEOUT_HOURS", 24, min_val=1)

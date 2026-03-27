@@ -105,6 +105,24 @@ class TestValidateDocumentUrl:
         ok, err = mistral_converter._validate_document_url("https://169.254.1.1/")
         assert ok is False
 
+    def test_lenient_dns_allows_when_resolve_fails(self, monkeypatch):
+        import socket
+
+        monkeypatch.setattr(config, "MISTRAL_DOCUMENT_URL_STRICT_DNS", False)
+        with patch("socket.getaddrinfo", side_effect=socket.gaierror(8, "nodename nor servname")):
+            ok, err = mistral_converter._validate_document_url("https://example.com/doc.pdf")
+        assert ok is True
+        assert err is None
+
+    def test_strict_dns_rejects_when_resolve_fails(self, monkeypatch):
+        import socket
+
+        monkeypatch.setattr(config, "MISTRAL_DOCUMENT_URL_STRICT_DNS", True)
+        with patch("socket.getaddrinfo", side_effect=socket.gaierror(8, "nodename nor servname")):
+            ok, err = mistral_converter._validate_document_url("https://example.com/doc.pdf")
+        assert ok is False
+        assert err and "strict" in err.lower()
+
 
 # ============================================================================
 # _is_weak_page Tests
@@ -1570,8 +1588,9 @@ class TestQueryDocumentFile:
         assert ok is False
 
     def test_file_too_large(self, tmp_path):
+        cap = config.MISTRAL_QNA_MAX_FILE_SIZE_MB
         pdf = tmp_path / "test.pdf"
-        pdf.write_bytes(b"x" * (51 * 1024 * 1024))  # 51 MB
+        pdf.write_bytes(b"x" * ((cap + 1) * 1024 * 1024))
 
         with patch.object(mistral_converter, "get_mistral_client", return_value=MagicMock()):
             ok, answer, err = mistral_converter.query_document_file(pdf, "what?")

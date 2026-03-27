@@ -1,0 +1,14 @@
+---
+globs: "**/*.py"
+alwaysApply: false
+---
+
+- Add type hints to new or changed Python functions, methods, and public interfaces. Prefer explicit return types on exported or shared functions.
+- Follow the repo's existing patterns (Pydantic models in `schemas.py`, config in `config.py`, utils in `utils.py`) before introducing new abstractions.
+- Keep side effects explicit and keep functions focused.
+- Use `python3 -m <tool>` instead of bare commands when not in a virtualenv. Lint with `python3 -m flake8 .` and format with `python3 -m black . && python3 -m isort .`.
+- When behavior changes, add or update focused tests in `tests/test_<module>.py` near the affected module.
+- When changing interfaces, validation rules, defaults, or data models, update callers and tests in the same task.
+- Load secrets through `python-dotenv` and `config.py`. Never hardcode tokens, keys, passwords, DSNs, or private URLs.
+- Do not print, log, snapshot, or commit secret values. Keep `.env` contents and real credentials out of the diff.
+- Black is configured with `line-length = 120` and isort uses `profile = "black"` — both in `pyproject.toml`. Respect these settings.

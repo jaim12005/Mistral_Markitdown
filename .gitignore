@@ -33,8 +33,9 @@ output_images/*
 # Documentation builds
 docs/_build/
 
-# AI IDE config (Cursor)
-.cursor/
+# AI IDE config (Cursor) — commit .cursor/ for team sharing
+# Only ignore local env files
+.env.mcp.local
 
 # OS
 .DS_Store

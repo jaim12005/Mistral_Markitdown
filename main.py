@@ -197,15 +197,19 @@ def _process_single_smart(
     """
     ext = file_path.suffix.lower().lstrip(".")
 
-    # PDF table extraction runs regardless of engine choice
+    # PDF table extraction runs regardless of engine choice (skip if PDF exceeds heavy-work cap)
     if ext == "pdf":
-        try:
-            table_result = local_converter.extract_all_tables(file_path)
-            if table_result["table_count"] > 0:
-                local_converter.save_tables_to_files(file_path, table_result["tables"])
-                logger.info("Extracted %d tables from %s", table_result["table_count"], file_path.name)
-        except Exception as e:
-            logger.warning("Table extraction failed for %s: %s", file_path.name, e)
+        too_large, size_err = utils.pdf_exceeds_heavy_work_limit(file_path)
+        if too_large:
+            logger.warning("Skipping table extraction for %s: %s", file_path.name, size_err)
+        else:
+            try:
+                table_result = local_converter.extract_all_tables(file_path)
+                if table_result["table_count"] > 0:
+                    local_converter.save_tables_to_files(file_path, table_result["tables"])
+                    logger.info("Extracted %d tables from %s", table_result["table_count"], file_path.name)
+            except Exception as e:
+                logger.warning("Table extraction failed for %s: %s", file_path.name, e)
 
     if use_ocr is None:
         use_ocr = _should_use_ocr(file_path)
@@ -311,13 +315,22 @@ def mode_pdf_to_images(file_paths: List[Path]) -> Tuple[bool, str]:
     """Render each PDF page to PNG images."""
     logger.info("PDF TO IMAGES MODE: Converting %d PDF(s)", len(file_paths))
 
-    pdf_files = [fp for fp in file_paths if fp.suffix.lower() == ".pdf"]
-    skipped = len(file_paths) - len(pdf_files)
-    if skipped:
-        logger.warning("Skipping %d non-PDF file(s)", skipped)
+    pdf_files: List[Path] = []
+    for fp in file_paths:
+        if fp.suffix.lower() != ".pdf":
+            continue
+        too_large, size_err = utils.pdf_exceeds_heavy_work_limit(fp)
+        if too_large:
+            logger.warning("Skipping %s: %s", fp.name, size_err)
+            continue
+        pdf_files.append(fp)
+
+    non_pdf = sum(1 for fp in file_paths if fp.suffix.lower() != ".pdf")
+    if non_pdf:
+        logger.warning("Skipping %d non-PDF file(s)", non_pdf)
 
     if not pdf_files:
-        return False, "No PDF files to convert"
+        return False, "No PDF files to convert (or all exceeded size limit)"
 
     # Cap Poppler threads per PDF when the outer pool also runs in parallel.
     if len(pdf_files) > 1:
@@ -362,10 +375,11 @@ def mode_document_qna(
 
     try:
         file_size_mb = file_path.stat().st_size / (1024 * 1024)
-        if file_size_mb > 50:
+        cap = config.MISTRAL_QNA_MAX_FILE_SIZE_MB
+        if file_size_mb > cap:
             return False, (
                 f"File too large for Document QnA ({file_size_mb:.1f} MB). "
-                "Mistral limits documents to 50 MB. Consider splitting the document."
+                f"Maximum allowed is {cap} MB (MISTRAL_QNA_MAX_FILE_SIZE_MB). Consider splitting the document."
             )
     except OSError as e:
         return False, f"Cannot read file: {e}"

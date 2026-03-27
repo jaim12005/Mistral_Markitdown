@@ -258,6 +258,35 @@ class TestFileValidation:
         assert "Unsupported" in error
 
 
+class TestPdfExceedsHeavyWorkLimit:
+    """pdf_exceeds_heavy_work_limit stat gate for PDF pipelines."""
+
+    def test_non_pdf_not_over_limit(self, tmp_path):
+        t = tmp_path / "x.txt"
+        t.write_text("hi")
+        too_large, err = utils.pdf_exceeds_heavy_work_limit(t)
+        assert too_large is False
+        assert err is None
+
+    def test_pdf_within_limit(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "MARKITDOWN_MAX_FILE_SIZE_MB", 100)
+        monkeypatch.setattr(config, "MISTRAL_OCR_MAX_FILE_SIZE_MB", 200)
+        pdf = tmp_path / "small.pdf"
+        pdf.write_bytes(b"%PDF small")
+        too_large, err = utils.pdf_exceeds_heavy_work_limit(pdf)
+        assert too_large is False
+        assert err is None
+
+    def test_pdf_over_limit(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "MARKITDOWN_MAX_FILE_SIZE_MB", 1)
+        monkeypatch.setattr(config, "MISTRAL_OCR_MAX_FILE_SIZE_MB", 1)
+        pdf = tmp_path / "big.pdf"
+        pdf.write_bytes(b"%PDF" + b"\x00" * (2 * 1024 * 1024))
+        too_large, err = utils.pdf_exceeds_heavy_work_limit(pdf)
+        assert too_large is True
+        assert err and "too large" in err.lower()
+
+
 class TestYAMLFrontmatter:
     """Test YAML frontmatter functions."""
 
