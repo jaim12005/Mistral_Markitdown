@@ -212,7 +212,7 @@ class IntelligentCache:
         """
         self.cache_dir = cache_dir
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self.hits = 0
         self.misses = 0
         # In-memory hash cache keyed by (path, mtime_ns, size) to avoid
@@ -278,7 +278,7 @@ class IntelligentCache:
         # Include cache_type in filename to prevent collisions between different cache types
         return self.cache_dir / f"{file_hash}_{cache_type}.json"
 
-    def get(self, file_path: Path, cache_type: str = "ocr") -> Optional[Dict[str, Any]]:
+    def get(self, file_path: Path, cache_type: str = "ocr") -> Optional[Dict[str, Any]]:  # noqa: C901
         """
         Retrieve cached result for a file.
 
@@ -300,41 +300,42 @@ class IntelligentCache:
             # Use type-segregated cache path to avoid collisions
             cache_path = self._get_cache_path(file_hash, cache_type)
 
-            if not cache_path.exists():
-                with self._lock:
-                    self.misses += 1
-                return None
-
-            with open(cache_path, "r", encoding="utf-8") as f:
-                cache_data = json.load(f)
-
-            if not isinstance(cache_data, dict):
-                raise ValueError("cache entry is not a dict")
-            for required_key in ("timestamp", "type", "data"):
-                if required_key not in cache_data:
-                    raise ValueError(f"cache entry missing required key: {required_key}")
-
-            cached_time = datetime.fromisoformat(cache_data.get("timestamp", ""))
-            if cached_time.tzinfo is None:
-                cached_time = cached_time.replace(tzinfo=timezone.utc)
-            max_age = timedelta(hours=config.CACHE_DURATION_HOURS)
-
-            if datetime.now(timezone.utc) - cached_time > max_age:
-                logger.debug("Cache expired for %s", file_path.name)
-                cache_path.unlink()
-                with self._lock:
-                    self.misses += 1
-                return None
-
-            # Type check is now redundant since paths are segregated,
-            # but keep for backwards compatibility with old cache files
-            if cache_data.get("type") != cache_type:
-                logger.debug("Cache type mismatch (expected %s, got %s)", cache_type, cache_data.get("type"))
-                with self._lock:
-                    self.misses += 1
-                return None
-
             with self._lock:
+                if not cache_path.exists():
+                    self.misses += 1
+                    return None
+
+                try:
+                    with open(cache_path, "r", encoding="utf-8") as f:
+                        cache_data = json.load(f)
+                except FileNotFoundError:
+                    self.misses += 1
+                    return None
+
+                if not isinstance(cache_data, dict):
+                    raise ValueError("cache entry is not a dict")
+                for required_key in ("timestamp", "type", "data"):
+                    if required_key not in cache_data:
+                        raise ValueError(f"cache entry missing required key: {required_key}")
+
+                cached_time = datetime.fromisoformat(cache_data.get("timestamp", ""))
+                if cached_time.tzinfo is None:
+                    cached_time = cached_time.replace(tzinfo=timezone.utc)
+                max_age = timedelta(hours=config.CACHE_DURATION_HOURS)
+
+                if datetime.now(timezone.utc) - cached_time > max_age:
+                    logger.debug("Cache expired for %s", file_path.name)
+                    cache_path.unlink(missing_ok=True)
+                    self.misses += 1
+                    return None
+
+                # Type check is now redundant since paths are segregated,
+                # but keep for backwards compatibility with old cache files
+                if cache_data.get("type") != cache_type:
+                    logger.debug("Cache type mismatch (expected %s, got %s)", cache_type, cache_data.get("type"))
+                    self.misses += 1
+                    return None
+
                 self.hits += 1
             logger.info("Cache hit for %s", file_path.name)
             return cache_data.get("data")  # type: ignore[no-any-return]

@@ -345,6 +345,8 @@ MISTRAL_QNA_DOCUMENT_PAGE_LIMIT=0
 
 **Note:** Documents are limited to 50 MB for QnA. Larger files will be rejected with a clear error message.
 
+**CLI (non-interactive):** `--mode qna --no-interactive --qna-question "Your question?"` runs a single query without `input()` prompts.
+
 **Usage:** Programmatically query documents:
 
 ```python
@@ -405,6 +407,18 @@ MISTRAL_BATCH_MIN_FILES=10
 ```ini
 MISTRAL_BATCH_TIMEOUT_HOURS=24
 ```
+
+### MISTRAL_BATCH_STRICT
+
+- **Type:** Boolean
+- **Default:** `false`
+- **Description:** When `true`, creating a batch JSONL file fails if any input file upload fails (default allows a partial batch with only successfully uploaded files).
+
+```ini
+MISTRAL_BATCH_STRICT=false
+```
+
+**CLI (non-interactive):** With `--mode batch_ocr --no-interactive`, use `--batch-action submit|status|list|download` and for status/download also `--batch-job-id <id>`. Batch JSONL is written under `cache/batch_input.jsonl` (signed URLs — keep `cache/` private; on Windows tighten directory ACLs if needed).
 
 **Usage:** Programmatically batch process documents:
 
@@ -1060,6 +1074,7 @@ VERBOSE_PROGRESS=true
 | MISTRAL_BATCH_ENABLED              | bool   | true                 | No                                                                    | Batch OCR        |
 | MISTRAL_BATCH_MIN_FILES            | int    | 10                   | No                                                                    | Batch OCR        |
 | MISTRAL_BATCH_TIMEOUT_HOURS        | int    | 24                   | No                                                                    | Batch OCR        |
+| MISTRAL_BATCH_STRICT               | bool   | false                | No                                                                    | Batch OCR        |
 | CLEANUP_OLD_UPLOADS                | bool   | true                 | No                                                                    | File Management  |
 | UPLOAD_RETENTION_DAYS              | int    | 7                    | No                                                                    | File Management  |
 | MISTRAL_ENABLE_STRUCTURED_OUTPUT   | bool   | true                 | No                                                                    | Structured Data  |

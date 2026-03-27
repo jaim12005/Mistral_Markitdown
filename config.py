@@ -348,6 +348,9 @@ MISTRAL_QNA_DOCUMENT_PAGE_LIMIT = _safe_int("MISTRAL_QNA_DOCUMENT_PAGE_LIMIT", 0
 # Batch processing advanced configuration
 MISTRAL_BATCH_TIMEOUT_HOURS = _safe_int("MISTRAL_BATCH_TIMEOUT_HOURS", 24, min_val=1)
 
+# Fail batch file creation if any input upload fails (default: allow partial batches)
+MISTRAL_BATCH_STRICT = _safe_bool("MISTRAL_BATCH_STRICT", False)
+
 # HTTP client timeout for Mistral SDK requests (milliseconds).
 # Separate from RETRY_MAX_ELAPSED_TIME_MS, which only bounds the SDK retry
 # backoff budget — using the same value for both can abort slow OCR calls early.

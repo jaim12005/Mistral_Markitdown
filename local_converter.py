@@ -69,6 +69,7 @@ logger = utils.logger
 _MARKITDOWN_UNSET = object()  # sentinel: init never attempted
 _markitdown_instance = _MARKITDOWN_UNSET
 _markitdown_lock = threading.Lock()
+_markitdown_convert_lock = threading.Lock()
 
 
 def get_markitdown_instance() -> Optional[MarkItDown]:
@@ -165,8 +166,10 @@ def convert_with_markitdown(file_path: Path) -> Tuple[bool, Optional[str], Optio
     try:
         logger.info("Converting with MarkItDown: %s", file_path.name)
 
-        # Convert the file
-        result = md.convert(str(file_path))
+        # Serialize convert() — MarkItDown is not documented as thread-safe for
+        # concurrent converts while we share one cached instance across workers.
+        with _markitdown_convert_lock:
+            result = md.convert(str(file_path))
 
         if result and hasattr(result, "markdown"):
             markdown_content = result.markdown
@@ -673,15 +676,20 @@ def save_tables_to_files(pdf_path: Path, tables: List[List[List[str]]]) -> List[
 
 
 def convert_pdf_to_images(
-    pdf_path: Path, output_dir: Optional[Path] = None, dpi: Optional[int] = None
+    pdf_path: Path,
+    output_dir: Optional[Path] = None,
+    dpi: Optional[int] = None,
+    thread_count: Optional[int] = None,
 ) -> Tuple[bool, List[Path], Optional[str]]:
     """
     Convert PDF pages to PNG/JPEG images using pdf2image.
 
     Args:
         pdf_path: Path to PDF file
-        output_dir: Optional output directory (default: output_images/<pdf_name>_pages/)
+        output_dir: Optional output directory (default: output_images/<safe_stem>_pages/)
         dpi: Image resolution (default: from config)
+        thread_count: pdf2image Poppler threads (default: from config, capped when
+            the caller passes a lower value for concurrent batch runs)
 
     Returns:
         Tuple of (success, list_of_image_paths, error_message)
@@ -690,15 +698,18 @@ def convert_pdf_to_images(
         return False, [], "pdf2image not installed"
 
     try:
-        # Set output directory
+        # Set output directory (unique stem when same basename in different dirs)
         if output_dir is None:
-            output_dir = config.OUTPUT_IMAGES_DIR / f"{pdf_path.stem}_pages"
+            output_dir = config.OUTPUT_IMAGES_DIR / f"{utils.safe_output_stem(pdf_path)}_pages"
 
         output_dir.mkdir(parents=True, exist_ok=True)
 
         # Use config defaults if not specified
         if dpi is None:
             dpi = config.PDF_IMAGE_DPI
+
+        if thread_count is None:
+            thread_count = config.PDF_IMAGE_THREAD_COUNT
 
         logger.info("Converting PDF to images: %s (DPI: %d, Format: %s)", pdf_path.name, dpi, config.PDF_IMAGE_FORMAT)
 
@@ -712,7 +723,7 @@ def convert_pdf_to_images(
             "output_folder": str(output_dir),
             "fmt": config.PDF_IMAGE_FORMAT,
             "poppler_path": poppler_path,
-            "thread_count": config.PDF_IMAGE_THREAD_COUNT,
+            "thread_count": max(1, thread_count),
             "use_pdftocairo": config.PDF_IMAGE_USE_PDFTOCAIRO,
         }
 

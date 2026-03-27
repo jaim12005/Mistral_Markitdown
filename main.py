@@ -49,9 +49,9 @@ logger = utils.logger
 
 
 def _list_input_files() -> List[Path]:
-    """Return sorted list of files in the input directory."""
+    """Return sorted list of files in the input directory (includes extensionless files)."""
     return sorted(
-        (f for f in config.INPUT_DIR.glob("*.*") if f.is_file()),
+        (f for f in config.INPUT_DIR.iterdir() if f.is_file()),
         key=lambda p: p.name.lower(),
     )
 
@@ -319,9 +319,16 @@ def mode_pdf_to_images(file_paths: List[Path]) -> Tuple[bool, str]:
     if not pdf_files:
         return False, "No PDF files to convert"
 
-    successful, failed = _process_files_concurrently(
-        pdf_files, local_converter.convert_pdf_to_images, "Converting PDFs"
-    )
+    # Cap Poppler threads per PDF when the outer pool also runs in parallel.
+    if len(pdf_files) > 1:
+        inner_threads = max(1, config.PDF_IMAGE_THREAD_COUNT // max(1, config.MAX_CONCURRENT_FILES))
+    else:
+        inner_threads = config.PDF_IMAGE_THREAD_COUNT
+
+    def _convert_one_pdf(pdf_path: Path) -> Tuple[bool, List[Path], Optional[str]]:
+        return local_converter.convert_pdf_to_images(pdf_path, thread_count=inner_threads)
+
+    successful, failed = _process_files_concurrently(pdf_files, _convert_one_pdf, "Converting PDFs")
 
     return failed == 0, f"Converted {successful} PDFs"
 
@@ -331,7 +338,12 @@ def mode_pdf_to_images(file_paths: List[Path]) -> Tuple[bool, str]:
 # ============================================================================
 
 
-def mode_document_qna(file_paths: List[Path]) -> Tuple[bool, str]:
+def mode_document_qna(
+    file_paths: List[Path],
+    *,
+    initial_question: Optional[str] = None,
+    non_interactive: bool = False,
+) -> Tuple[bool, str]:
     """Query a document in natural language using Mistral chat + OCR."""
     logger.info("DOCUMENT QnA MODE: %d file(s) selected", len(file_paths))
 
@@ -358,6 +370,9 @@ def mode_document_qna(file_paths: List[Path]) -> Tuple[bool, str]:
     except OSError as e:
         return False, f"Cannot read file: {e}"
 
+    if non_interactive and not (initial_question or "").strip():
+        return False, "Non-interactive QnA requires --qna-question"
+
     ttl_seconds = config.MISTRAL_SIGNED_URL_EXPIRY * 3600
     upload_started_at = 0.0
     signed_url: Optional[str] = None
@@ -375,6 +390,31 @@ def mode_document_qna(file_paths: List[Path]) -> Tuple[bool, str]:
 
     utils.ui_print(f"\nQuerying: {file_path.name}")
     utils.ui_print(f"Model: {config.MISTRAL_DOCUMENT_QNA_MODEL}")
+
+    if non_interactive:
+        question = (initial_question or "").strip()
+        document_url = _get_document_url()
+        if not document_url:
+            return False, f"Failed to refresh document URL for {file_path.name}"
+        success, stream, error = mistral_converter.query_document_stream(document_url, question)
+        if success and stream is not None:
+            utils.ui_print("\nAnswer: ", end="", flush=True)
+            emitted_any = False
+            try:
+                for chunk in stream:
+                    if chunk.data.choices and chunk.data.choices[0].delta.content:
+                        emitted_any = True
+                        safe_text = utils.sanitize_for_terminal(chunk.data.choices[0].delta.content)
+                        utils.ui_print(safe_text, end="", flush=True)
+            except Exception as e:
+                utils.ui_print(f"\n\nStream error: {e}")
+                return False, f"QnA stream failed: {e}"
+            utils.ui_print("\n")
+            if not emitted_any:
+                return False, "QnA stream returned no answer content"
+            return True, f"Asked 1 question about {file_path.name}"
+        return False, error or "QnA stream failed"
+
     utils.ui_print("Type 'exit' or 'quit' to return to menu.\n")
 
     questions_asked = 0
@@ -428,7 +468,13 @@ def _validate_job_id(job_id: str) -> bool:
     return bool(_JOB_ID_RE.match(job_id))
 
 
-def mode_batch_ocr(file_paths: List[Path]) -> Tuple[bool, str]:
+def mode_batch_ocr(
+    file_paths: List[Path],
+    *,
+    batch_action: Optional[str] = None,
+    batch_job_id: Optional[str] = None,
+    non_interactive: bool = False,
+) -> Tuple[bool, str]:
     """Submit files for batch OCR processing at 50% cost reduction."""
     logger.info("BATCH OCR MODE: %d file(s) selected", len(file_paths))
 
@@ -448,20 +494,29 @@ def mode_batch_ocr(file_paths: List[Path]) -> Tuple[bool, str]:
         utils.ui_print(f"\nNote: Batch processing is most cost-effective with {config.MISTRAL_BATCH_MIN_FILES}+ files.")
         utils.ui_print(f"You selected {len(file_paths)} file(s). Proceeding anyway.\n")
 
-    utils.ui_print("\nBatch OCR Options:")
-    utils.ui_print("  1. Submit new batch job")
-    utils.ui_print("  2. Check job status")
-    utils.ui_print("  3. List all batch jobs")
-    utils.ui_print("  4. Download batch results")
-    utils.ui_print("  0. Cancel\n")
+    choice: Optional[str] = None
+    if non_interactive:
+        if not batch_action:
+            return False, "Non-interactive batch mode requires --batch-action (submit|status|list|download)"
+        _batch_map = {"submit": "1", "status": "2", "list": "3", "download": "4"}
+        choice = _batch_map.get(batch_action.lower().strip())
+        if choice is None:
+            return False, f"Unknown --batch-action: {batch_action!r}"
+    else:
+        utils.ui_print("\nBatch OCR Options:")
+        utils.ui_print("  1. Submit new batch job")
+        utils.ui_print("  2. Check job status")
+        utils.ui_print("  3. List all batch jobs")
+        utils.ui_print("  4. Download batch results")
+        utils.ui_print("  0. Cancel\n")
 
-    try:
-        choice = input("Select option: ").strip()
-    except (KeyboardInterrupt, EOFError):
-        return False, "Cancelled"
+        try:
+            choice = input("Select option: ").strip()
+        except (KeyboardInterrupt, EOFError):
+            return False, "Cancelled"
 
     if choice == "1":
-        batch_file = config.OUTPUT_MD_DIR / "batch_input.jsonl"
+        batch_file = config.CACHE_DIR / "batch_input.jsonl"
         utils.ui_print(f"\nCreating batch file for {len(file_paths)} document(s)...")
 
         success, batch_path, error = mistral_converter.create_batch_ocr_file(file_paths, batch_file)
@@ -478,9 +533,14 @@ def mode_batch_ocr(file_paths: List[Path]) -> Tuple[bool, str]:
             return False, f"Failed to submit batch job: {error}"
 
     elif choice == "2":
-        job_id = input("Enter job ID: ").strip()
-        if not job_id:
-            return False, "No job ID provided"
+        if non_interactive:
+            job_id = (batch_job_id or "").strip()
+            if not job_id:
+                return False, "Non-interactive batch status requires --batch-job-id"
+        else:
+            job_id = input("Enter job ID: ").strip()
+            if not job_id:
+                return False, "No job ID provided"
         if not _validate_job_id(job_id):
             return False, "Invalid job ID format"
         success, status, error = mistral_converter.get_batch_job_status(job_id)
@@ -510,9 +570,14 @@ def mode_batch_ocr(file_paths: List[Path]) -> Tuple[bool, str]:
             return False, f"Error: {error}"
 
     elif choice == "4":
-        job_id = input("Enter job ID: ").strip()
-        if not job_id:
-            return False, "No job ID provided"
+        if non_interactive:
+            job_id = (batch_job_id or "").strip()
+            if not job_id:
+                return False, "Non-interactive batch download requires --batch-job-id"
+        else:
+            job_id = input("Enter job ID: ").strip()
+            if not job_id:
+                return False, "No job ID provided"
         if not _validate_job_id(job_id):
             return False, "Invalid job ID format"
         success, path, error = mistral_converter.download_batch_results(job_id)
@@ -697,9 +762,12 @@ def select_files() -> List[Path]:
             indices = [int(c.strip()) for c in choice.split(",")]
 
             selected = []
+            seen_idx = set()
             for idx in indices:
                 if 1 <= idx <= len(input_files):
-                    selected.append(input_files[idx - 1])
+                    if idx not in seen_idx:
+                        seen_idx.add(idx)
+                        selected.append(input_files[idx - 1])
                 else:
                     utils.ui_print(f"Invalid selection: {idx}")
                     selected = []
@@ -841,6 +909,8 @@ Examples:
   python main.py --mode smart        # Smart auto-routing
   python main.py --mode markitdown   # Force MarkItDown
   python main.py --mode mistral_ocr  # Force Mistral OCR
+  python main.py --mode qna --no-interactive --qna-question "Summary?"
+  python main.py --mode batch_ocr --no-interactive --batch-action submit
   python main.py --test              # Test mode
         """,
     )
@@ -863,10 +933,27 @@ Examples:
     parser.add_argument(
         "--no-interactive",
         action="store_true",
-        help="Disable interactive prompts and process all files in input directory",
+        help="Use all files in input/ without the selection menu; for qna/batch_ocr, supply --qna-question / --batch-action",
     )
 
     parser.add_argument("--test", action="store_true", help="Run in test mode")
+
+    parser.add_argument(
+        "--batch-action",
+        choices=["submit", "status", "list", "download"],
+        default=None,
+        help="With --mode batch_ocr and --no-interactive: run this action without prompts",
+    )
+    parser.add_argument(
+        "--batch-job-id",
+        default=None,
+        help="Job ID for batch status or download in non-interactive mode",
+    )
+    parser.add_argument(
+        "--qna-question",
+        default=None,
+        help="Single question for --mode qna when using --no-interactive",
+    )
 
     args = parser.parse_args()
 
@@ -926,7 +1013,21 @@ Examples:
         if handler is None:
             utils.ui_print(f"Unknown mode: {args.mode}")
             sys.exit(1)
-        success, message = handler(files)
+        if args.mode == "qna":
+            success, message = mode_document_qna(
+                files,
+                initial_question=args.qna_question,
+                non_interactive=args.no_interactive,
+            )
+        elif args.mode == "batch_ocr":
+            success, message = mode_batch_ocr(
+                files,
+                batch_action=args.batch_action,
+                batch_job_id=args.batch_job_id,
+                non_interactive=args.no_interactive,
+            )
+        else:
+            success, message = handler(files)
         utils.ui_print(f"\n{message}")
 
         elapsed = time.time() - start_time

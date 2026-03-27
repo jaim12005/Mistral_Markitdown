@@ -562,6 +562,74 @@ class TestModeDocumentQna:
         assert success is False
         assert "too large" in msg.lower()
 
+    def test_non_interactive_requires_question(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        pdf = tmp_path / "doc.pdf"
+        pdf.write_bytes(b"%PDF-1.4")
+        success, msg = main.mode_document_qna([pdf], non_interactive=True)
+        assert success is False
+        assert "qna-question" in msg.lower()
+
+    def test_non_interactive_single_question(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        pdf = tmp_path / "doc.pdf"
+        pdf.write_bytes(b"%PDF-1.4")
+
+        chunk = MagicMock()
+        chunk.data.choices = [MagicMock()]
+        chunk.data.choices[0].delta.content = "Hi"
+
+        def _fake_stream():
+            yield chunk
+
+        with patch.object(main, "mistral_converter") as mock_mc:
+            mock_mc.get_mistral_client.return_value = MagicMock()
+            mock_mc.upload_file_for_ocr.return_value = "https://example.com/doc"
+            mock_mc.query_document_stream.return_value = (True, _fake_stream(), None)
+            success, msg = main.mode_document_qna(
+                [pdf], non_interactive=True, initial_question="What is this?"
+            )
+        assert success is True
+        assert "1 question" in msg
+
+    def test_non_interactive_empty_stream_fails(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        pdf = tmp_path / "doc.pdf"
+        pdf.write_bytes(b"%PDF-1.4")
+
+        def _empty_stream():
+            if False:
+                yield None  # pragma: no cover
+
+        with patch.object(main, "mistral_converter") as mock_mc:
+            mock_mc.get_mistral_client.return_value = MagicMock()
+            mock_mc.upload_file_for_ocr.return_value = "https://example.com/doc"
+            mock_mc.query_document_stream.return_value = (True, _empty_stream(), None)
+            success, msg = main.mode_document_qna(
+                [pdf], non_interactive=True, initial_question="What is this?"
+            )
+        assert success is False
+        assert "no answer content" in msg.lower()
+
+    def test_non_interactive_stream_exception_fails(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        pdf = tmp_path / "doc.pdf"
+        pdf.write_bytes(b"%PDF-1.4")
+
+        def _bad_stream():
+            raise RuntimeError("network reset")
+            yield  # pragma: no cover — makes this a generator; raises on first iteration
+
+        with patch.object(main, "mistral_converter") as mock_mc:
+            mock_mc.get_mistral_client.return_value = MagicMock()
+            mock_mc.upload_file_for_ocr.return_value = "https://example.com/doc"
+            mock_mc.query_document_stream.return_value = (True, _bad_stream(), None)
+            success, msg = main.mode_document_qna(
+                [pdf], non_interactive=True, initial_question="What is this?"
+            )
+        assert success is False
+        assert "stream failed" in msg.lower()
+
 
 # ============================================================================
 # mode_batch_ocr Tests
@@ -596,19 +664,74 @@ class TestModeBatchOcr:
         monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
         monkeypatch.setattr(config, "MISTRAL_BATCH_ENABLED", True)
         monkeypatch.setattr(config, "MISTRAL_BATCH_MIN_FILES", 1)
-        monkeypatch.setattr(config, "OUTPUT_MD_DIR", tmp_path)
+        cache_sub = tmp_path / "cache"
+        cache_sub.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setattr(config, "CACHE_DIR", cache_sub)
 
         pdf = tmp_path / "doc.pdf"
         pdf.write_bytes(b"%PDF")
 
         with patch("builtins.input", return_value="1"):
             with patch.object(main, "mistral_converter") as mock_mc:
-                mock_mc.create_batch_ocr_file.return_value = (True, tmp_path / "batch.jsonl", None)
+                mock_mc.create_batch_ocr_file.return_value = (True, cache_sub / "batch_input.jsonl", None)
                 mock_mc.submit_batch_ocr_job.return_value = (True, "job-123", None)
                 success, msg = main.mode_batch_ocr([pdf])
 
         assert success is True
         assert "job-123" in msg
+
+    def test_non_interactive_batch_submit(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        monkeypatch.setattr(config, "MISTRAL_BATCH_ENABLED", True)
+        monkeypatch.setattr(config, "MISTRAL_BATCH_MIN_FILES", 1)
+        cache_sub = tmp_path / "cache"
+        cache_sub.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setattr(config, "CACHE_DIR", cache_sub)
+
+        pdf = tmp_path / "doc.pdf"
+        pdf.write_bytes(b"%PDF")
+
+        with patch.object(main, "mistral_converter") as mock_mc:
+            mock_mc.create_batch_ocr_file.return_value = (True, cache_sub / "batch_input.jsonl", None)
+            mock_mc.submit_batch_ocr_job.return_value = (True, "job-99", None)
+            success, msg = main.mode_batch_ocr([pdf], non_interactive=True, batch_action="submit")
+
+        assert success is True
+        assert "job-99" in msg
+
+    def test_non_interactive_batch_missing_action(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        monkeypatch.setattr(config, "MISTRAL_BATCH_ENABLED", True)
+        monkeypatch.setattr(config, "MISTRAL_BATCH_MIN_FILES", 1)
+        success, msg = main.mode_batch_ocr([tmp_path / "a.pdf"], non_interactive=True)
+        assert success is False
+        assert "batch-action" in msg.lower()
+
+    def test_non_interactive_status_requires_job_id(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        monkeypatch.setattr(config, "MISTRAL_BATCH_ENABLED", True)
+        monkeypatch.setattr(config, "MISTRAL_BATCH_MIN_FILES", 1)
+        success, msg = main.mode_batch_ocr(
+            [tmp_path / "a.pdf"],
+            non_interactive=True,
+            batch_action="status",
+            batch_job_id=None,
+        )
+        assert success is False
+        assert "batch-job-id" in msg.lower()
+
+    def test_non_interactive_download_requires_job_id(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        monkeypatch.setattr(config, "MISTRAL_BATCH_ENABLED", True)
+        monkeypatch.setattr(config, "MISTRAL_BATCH_MIN_FILES", 1)
+        success, msg = main.mode_batch_ocr(
+            [tmp_path / "a.pdf"],
+            non_interactive=True,
+            batch_action="download",
+            batch_job_id="",
+        )
+        assert success is False
+        assert "batch-job-id" in msg.lower()
 
     def test_check_status_flow(self, tmp_path, monkeypatch):
         monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
@@ -1058,7 +1181,9 @@ class TestModeBatchOcrExpanded:
         monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
         monkeypatch.setattr(config, "MISTRAL_BATCH_ENABLED", True)
         monkeypatch.setattr(config, "MISTRAL_BATCH_MIN_FILES", 1)
-        monkeypatch.setattr(config, "OUTPUT_MD_DIR", tmp_path)
+        cache_sub = tmp_path / "cache"
+        cache_sub.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setattr(config, "CACHE_DIR", cache_sub)
 
         with patch("builtins.input", return_value="1"):
             with patch.object(main, "mistral_converter") as mock_mc:
@@ -1072,11 +1197,13 @@ class TestModeBatchOcrExpanded:
         monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
         monkeypatch.setattr(config, "MISTRAL_BATCH_ENABLED", True)
         monkeypatch.setattr(config, "MISTRAL_BATCH_MIN_FILES", 1)
-        monkeypatch.setattr(config, "OUTPUT_MD_DIR", tmp_path)
+        cache_sub = tmp_path / "cache"
+        cache_sub.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setattr(config, "CACHE_DIR", cache_sub)
 
         with patch("builtins.input", return_value="1"):
             with patch.object(main, "mistral_converter") as mock_mc:
-                mock_mc.create_batch_ocr_file.return_value = (True, tmp_path / "batch.jsonl", None)
+                mock_mc.create_batch_ocr_file.return_value = (True, cache_sub / "batch_input.jsonl", None)
                 mock_mc.submit_batch_ocr_job.return_value = (False, None, "submit error")
                 ok, msg = main.mode_batch_ocr([tmp_path / "doc.pdf"])
         assert ok is False

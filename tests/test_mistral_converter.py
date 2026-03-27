@@ -393,6 +393,7 @@ class TestTrackPages:
     def test_increments_counter(self, monkeypatch):
         monkeypatch.setattr(config, "MAX_PAGES_PER_SESSION", 0)
         mistral_converter._session_pages_processed = 0
+        mistral_converter._session_pages_inflight = 0
         mistral_converter._session_pages_warned = False
         mistral_converter._track_pages(5)
         assert mistral_converter._session_pages_processed == 5
@@ -400,6 +401,7 @@ class TestTrackPages:
     def test_warns_once_at_limit(self, monkeypatch):
         monkeypatch.setattr(config, "MAX_PAGES_PER_SESSION", 10)
         mistral_converter._session_pages_processed = 0
+        mistral_converter._session_pages_inflight = 0
         mistral_converter._session_pages_warned = False
         mistral_converter._track_pages(10)
         assert mistral_converter._session_pages_warned is True
@@ -1641,6 +1643,25 @@ class TestSubmitBatchOcrJob:
 
             ok, job_id, err = mistral_converter.submit_batch_ocr_job(batch_file)
         assert ok is False
+
+    def test_deletes_remote_upload_and_local_file_when_job_create_fails(self, tmp_path):
+        batch_file = tmp_path / "batch.jsonl"
+        batch_file.write_text('{"body": {}}\n')
+
+        mock_upload = MagicMock(id="orphan_upload_id")
+
+        with patch.object(mistral_converter, "get_mistral_client") as mock_get:
+            mock_client = MagicMock()
+            mock_client.files.upload.return_value = mock_upload
+            mock_client.batch.jobs.create.side_effect = RuntimeError("batch create failed")
+            mock_get.return_value = mock_client
+
+            ok, job_id, err = mistral_converter.submit_batch_ocr_job(batch_file)
+
+        assert ok is False
+        assert job_id is None
+        mock_client.files.delete.assert_called_once_with(file_id="orphan_upload_id")
+        assert not batch_file.exists()
 
 
 # ============================================================================

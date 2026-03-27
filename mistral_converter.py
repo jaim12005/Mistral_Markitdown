@@ -112,8 +112,83 @@ _QUALITY_PENALTY_HIGH_REPETITION = 30  # Points lost for high token repetition
 # Process-global page counter — suitable for CLI use.  A multi-tenant
 # service would need per-request counters instead.
 _session_pages_processed = 0
+_session_pages_inflight = 0  # reserved estimate while OCR HTTP call is in flight
 _session_pages_warned = False
 _session_pages_lock = threading.Lock()
+
+
+def _estimate_session_pages_for_ocr(file_path: Path, pages: Optional[List[int]]) -> int:
+    """Upper-bound page estimate for session budgeting (concurrent-safe reserve).
+
+    Uses an explicit ``pages`` slice when provided, else local PDF page count when
+    available, else a conservative default so parallel workers cannot all slip
+    past ``MAX_PAGES_PER_SESSION`` before committing real counts.
+    """
+    if pages is not None:
+        return max(1, len(pages))
+
+    ext = file_path.suffix.lower().lstrip(".")
+    if ext in config.IMAGE_EXTENSIONS:
+        return 1
+
+    if ext == "pdf":
+        try:
+            import local_converter as _lc
+
+            analysis = _lc.analyze_file_content(file_path)
+            pc = int(analysis.get("page_count") or 0)
+            if pc > 0:
+                if config.MAX_PAGES_PER_SESSION > 0:
+                    return min(pc, config.MAX_PAGES_PER_SESSION)
+                return pc
+        except Exception:
+            pass
+        cap = config.MAX_PAGES_PER_SESSION if config.MAX_PAGES_PER_SESSION > 0 else 256
+        return max(1, min(cap, 256))
+
+    return 1
+
+
+def _reserve_session_pages(estimated: int) -> bool:
+    """Reserve *estimated* pages against the session cap before starting OCR."""
+    global _session_pages_inflight
+    if config.MAX_PAGES_PER_SESSION <= 0:
+        return True
+    est = max(1, estimated)
+    with _session_pages_lock:
+        if _session_pages_processed + _session_pages_inflight + est > config.MAX_PAGES_PER_SESSION:
+            return False
+        _session_pages_inflight += est
+        return True
+
+
+def _commit_session_pages(reserved: int, actual: int) -> bool:
+    """Release *reserved* inflight credit and commit *actual* processed pages."""
+    global _session_pages_processed, _session_pages_inflight, _session_pages_warned
+    if config.MAX_PAGES_PER_SESSION <= 0:
+        return True
+    with _session_pages_lock:
+        _session_pages_inflight -= reserved
+        _session_pages_processed += actual
+        if _session_pages_processed >= config.MAX_PAGES_PER_SESSION:
+            if not _session_pages_warned:
+                _session_pages_warned = True
+                logger.warning(
+                    "Session page limit reached (%d/%d). Further OCR requests will be refused.",
+                    _session_pages_processed,
+                    config.MAX_PAGES_PER_SESSION,
+                )
+            return False
+        return True
+
+
+def _release_session_pages_reservation(reserved: int) -> None:
+    """Return reserved inflight credit when OCR fails before a result exists."""
+    global _session_pages_inflight
+    if config.MAX_PAGES_PER_SESSION <= 0 or reserved <= 0:
+        return
+    with _session_pages_lock:
+        _session_pages_inflight -= reserved
 
 
 def _track_pages(count: int) -> bool:
@@ -168,9 +243,10 @@ def reset_session_page_counter() -> None:
     Useful when embedding the converter in a long-lived process (e.g. a web
     service) where each request should have its own page budget.
     """
-    global _session_pages_processed, _session_pages_warned
+    global _session_pages_processed, _session_pages_inflight, _session_pages_warned
     with _session_pages_lock:
         _session_pages_processed = 0
+        _session_pages_inflight = 0
         _session_pages_warned = False
 
 
@@ -773,19 +849,9 @@ def process_with_ocr(
         if progress_callback:
             progress_callback(message, progress)
 
+    estimated_pages = _estimate_session_pages_for_ocr(file_path, pages)
+    reserved_pages = 0
     try:
-        if _is_page_limit_reached():
-            return (
-                False,
-                None,
-                (
-                    f"Session page limit reached ({config.MAX_PAGES_PER_SESSION}). "
-                    "Start a new session or increase MAX_PAGES_PER_SESSION."
-                ),
-            )
-
-        _report_progress("Analyzing file...", 0.1)
-
         file_size_mb = file_path.stat().st_size / (1024 * 1024)
         if file_size_mb > config.MISTRAL_OCR_MAX_FILE_SIZE_MB:
             return (
@@ -796,6 +862,20 @@ def process_with_ocr(
                     f"Maximum allowed: {config.MISTRAL_OCR_MAX_FILE_SIZE_MB} MB"
                 ),
             )
+
+        if config.MAX_PAGES_PER_SESSION > 0:
+            if not _reserve_session_pages(estimated_pages):
+                return (
+                    False,
+                    None,
+                    (
+                        f"Session page limit reached ({config.MAX_PAGES_PER_SESSION}). "
+                        "Start a new session or increase MAX_PAGES_PER_SESSION."
+                    ),
+                )
+            reserved_pages = estimated_pages
+
+        _report_progress("Analyzing file...", 0.1)
 
         # Determine best model
         if model is None:
@@ -914,13 +994,16 @@ def process_with_ocr(
                 logger.warning(error_msg)
                 return False, None, error_msg
 
-            if not _track_pages(_ocr_session_page_delta(result)):
-                logger.warning(
-                    "Session page limit (%d) reached during processing of %s. "
-                    "Returning result but further OCR requests will be refused.",
-                    config.MAX_PAGES_PER_SESSION,
-                    file_path.name,
-                )
+            actual_pages = _ocr_session_page_delta(result)
+            if config.MAX_PAGES_PER_SESSION > 0:
+                if not _commit_session_pages(reserved_pages, actual_pages):
+                    logger.warning(
+                        "Session page limit (%d) reached during processing of %s. "
+                        "Returning result but further OCR requests will be refused.",
+                        config.MAX_PAGES_PER_SESSION,
+                        file_path.name,
+                    )
+                reserved_pages = 0
             _report_progress("OCR processing complete", 1.0)
             return True, result, None
         else:
@@ -942,6 +1025,9 @@ def process_with_ocr(
 
         logger.error(error_msg)
         return False, None, error_msg
+    finally:
+        if reserved_pages:
+            _release_session_pages_reservation(reserved_pages)
 
 
 def _extract_page_text(page: Any) -> str:
@@ -1155,6 +1241,7 @@ def _parse_ocr_response(response: Any, file_path: Path) -> Dict[str, Any]:
         "document_annotation": None,
         "usage_info": {},
         "model": None,
+        "parse_error": None,
     }
 
     try:
@@ -1178,6 +1265,7 @@ def _parse_ocr_response(response: Any, file_path: Path) -> Dict[str, Any]:
     except Exception as e:
         logger.error("Error parsing OCR response: %s", e)
         logger.debug("Traceback: %s", traceback.format_exc())
+        result["parse_error"] = str(e)
 
     return result
 
@@ -1900,7 +1988,7 @@ def query_document(
         model = config.MISTRAL_DOCUMENT_QNA_MODEL
 
     try:
-        logger.info("Querying document with question: %s...", question[:50])
+        logger.debug("Querying document (question length=%d)", len(question))
 
         # Build message with document_url content type
         system_prompt = config.MISTRAL_QNA_SYSTEM_PROMPT or _DEFAULT_QNA_SYSTEM_PROMPT
@@ -1975,7 +2063,7 @@ def query_document_stream(
         model = config.MISTRAL_DOCUMENT_QNA_MODEL
 
     try:
-        logger.info("Streaming query for document: %s...", question[:50])
+        logger.debug("Streaming document query (question length=%d)", len(question))
 
         system_prompt = config.MISTRAL_QNA_SYSTEM_PROMPT or _DEFAULT_QNA_SYSTEM_PROMPT
         messages = [
@@ -2120,12 +2208,20 @@ def create_batch_ocr_file(
         logger.info("Creating batch OCR file for %s documents...", len(file_paths))
 
         entries = []
+        upload_failures = 0
 
         for idx, file_path in enumerate(file_paths):
             # Upload file and get signed URL
             signed_url = upload_file_for_ocr(client, file_path, expiry_hours=batch_signed_url_expiry)
             if not signed_url:
+                upload_failures += 1
                 logger.warning("Failed to upload %s, skipping...", file_path.name)
+                if config.MISTRAL_BATCH_STRICT:
+                    return (
+                        False,
+                        None,
+                        f"Batch strict mode: upload failed for {file_path.name}",
+                    )
                 continue
 
             # Determine document type
@@ -2159,7 +2255,9 @@ def create_batch_ocr_file(
         if not entries:
             return False, None, "No files could be prepared for batch processing"
 
-        # Write JSONL file (contains signed URLs -- restrict permissions)
+        # Write JSONL (signed URLs). Prefer writing under ``config.CACHE_DIR`` (POSIX
+        # 0o700 from ``ensure_directories``). On Windows, tighten ACLs on ``cache/``
+        # or the output path if these URLs must stay secret on disk.
         import os as _os
         import sys as _sys
 
@@ -2212,6 +2310,7 @@ def submit_batch_ocr_job(
     if model is None:
         model = config.get_ocr_model()
 
+    batch_file_id: Optional[str] = None
     try:
         logger.info("Uploading batch file: %s", batch_file_path.name)
 
@@ -2225,11 +2324,12 @@ def submit_batch_ocr_job(
                 purpose="batch",
             )
 
-        logger.info("Batch file uploaded: %s", batch_data.id)
+        batch_file_id = batch_data.id
+        logger.info("Batch file uploaded: %s", batch_file_id)
 
         # Create the batch job
         job_params = {
-            "input_files": [batch_data.id],
+            "input_files": [batch_file_id],
             "model": model,
             "endpoint": "/v1/ocr",
         }
@@ -2254,6 +2354,15 @@ def submit_batch_ocr_job(
         return True, created_job.id, None
 
     except Exception as e:
+        if batch_file_id:
+            try:
+                client.files.delete(file_id=batch_file_id)
+            except Exception as del_err:
+                logger.debug("Could not delete orphaned batch upload %s: %s", batch_file_id, del_err)
+        try:
+            batch_file_path.unlink(missing_ok=True)
+        except OSError:
+            pass
         error_msg = f"Error submitting batch OCR job: {e}"
         logger.error(error_msg)
         return False, None, error_msg
