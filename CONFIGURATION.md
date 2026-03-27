@@ -157,25 +157,6 @@ Fine-tune the heuristics used to detect weak OCR pages.
 OCR_MIN_TEXT_LENGTH=50
 ```
 
-#### OCR_MIN_DIGIT_COUNT
-- **Type:** Integer
-- **Default:** `20`
-- **Description:** Minimum digits for financial documents. Used as an absolute threshold when `OCR_WEAK_PAGE_DIGIT_RATIO` is `0`.
-
-```ini
-OCR_MIN_DIGIT_COUNT=20
-```
-
-#### OCR_WEAK_PAGE_DIGIT_RATIO
-- **Type:** Float
-- **Default:** `0.0` (disabled -- uses absolute `OCR_MIN_DIGIT_COUNT` instead)
-- **Description:** Digit-to-text-length ratio threshold for weak page detection. When set to a value greater than `0`, digit count is evaluated as a ratio of total text length instead of using the absolute `OCR_MIN_DIGIT_COUNT`. Useful for documents of varying length.
-- **Recommended Range:** `0.05` -- `0.10`
-
-```ini
-OCR_WEAK_PAGE_DIGIT_RATIO=0.0
-```
-
 #### OCR_MIN_UNIQUENESS_RATIO
 - **Type:** Float
 - **Default:** `0.3`
@@ -506,75 +487,6 @@ MISTRAL_IMAGE_QUALITY_THRESHOLD=70
 
 ---
 
-## Table Extraction
-
-### CAMELOT_MIN_ACCURACY
-- **Type:** Float (0-100)
-- **Default:** `75.0`
-- **Description:** Minimum accuracy % to accept extracted tables
-- **Higher is stricter:** Increase to 85+ for financial documents
-
-```ini
-CAMELOT_MIN_ACCURACY=75.0
-```
-
-### CAMELOT_MAX_WHITESPACE
-- **Type:** Float (0-100)
-- **Default:** `30.0`
-- **Description:** Maximum whitespace % allowed in tables
-- **Lower is stricter:** Decrease to 20 to filter sparse tables
-
-```ini
-CAMELOT_MAX_WHITESPACE=30.0
-```
-
-### CAMELOT_STREAM_SPLIT_TEXT
-- **Type:** Boolean
-- **Default:** `true`
-- **Description:** Split PDFMiner-merged text strings across cell boundaries. Critical for wide financial tables where adjacent columns get merged into a single string by PDFMiner.
-- **Recommendation:** Always keep `true` unless you have a specific reason to disable
-
-```ini
-CAMELOT_STREAM_SPLIT_TEXT=true
-```
-
-### CAMELOT_STREAM_EDGE_TOL
-- **Type:** Integer
-- **Default:** `50`
-- **Description:** Tolerance (in pixels) for extending textedges vertically in stream mode. Controls how aggressively column boundaries are extended to detect table structure.
-- **Higher values:** Detect more columns but may create false column boundaries
-- **Lower values:** More conservative column detection
-
-```ini
-CAMELOT_STREAM_EDGE_TOL=50
-```
-
-### CAMELOT_STREAM_ROW_TOL
-- **Type:** Integer
-- **Default:** `2`
-- **Description:** Tolerance (in pixels) for combining text into the same row. Text within this vertical distance is merged into one row.
-- **Higher values:** Merge more text into single rows (risk losing rows)
-- **Lower values:** More rows detected (risk splitting single rows)
-- **Note:** Camelot default is 2. Previous value of 5 caused row merging issues.
-
-```ini
-CAMELOT_STREAM_ROW_TOL=2
-```
-
-### CAMELOT_STREAM_COLUMN_TOL
-- **Type:** Integer
-- **Default:** `0`
-- **Description:** Tolerance (in pixels) for merging column boundaries. Only boundaries within this distance are combined.
-- **`0` (recommended):** Only merge exactly overlapping column boundaries
-- **Higher values:** More aggressive column merging (risk combining adjacent columns)
-- **Note:** Camelot default is 0. Previous value of 5 caused adjacent month columns (Jan+Feb, Nov+Dec) to merge on tight financial tables.
-
-```ini
-CAMELOT_STREAM_COLUMN_TOL=0
-```
-
----
-
 ## PDF to Image Conversion
 
 ### PDF_IMAGE_FORMAT
@@ -632,17 +544,6 @@ PDF_IMAGE_USE_PDFTOCAIRO=true
 
 ```ini
 POPPLER_PATH="C:/Program Files/poppler-23.08.0/Library/bin"
-```
-
-### GHOSTSCRIPT_PATH
-- **Type:** String
-- **Default:** `""` (auto-detect)
-- **Required for:** Camelot table extraction
-- **Download:** https://ghostscript.com/releases/gsdnld.html
-- **Note:** Usually auto-detected if installed
-
-```ini
-GHOSTSCRIPT_PATH="C:/Program Files/gs/gs10.02.1/bin"
 ```
 
 ---
@@ -947,16 +848,6 @@ MISTRAL_TABLE_FORMAT=""
 MISTRAL_EXTRACT_HEADER=true
 MISTRAL_EXTRACT_FOOTER=true
 
-# Table Extraction Quality
-CAMELOT_MIN_ACCURACY=75.0
-CAMELOT_MAX_WHITESPACE=30.0
-
-# Camelot Stream Mode (for tables without grid lines)
-CAMELOT_STREAM_SPLIT_TEXT=true
-CAMELOT_STREAM_EDGE_TOL=50
-CAMELOT_STREAM_ROW_TOL=2
-CAMELOT_STREAM_COLUMN_TOL=0
-
 # PDF to Image
 PDF_IMAGE_FORMAT=png
 PDF_IMAGE_DPI=200
@@ -995,7 +886,6 @@ MISTRAL_BATCH_TIMEOUT_HOURS=24
 
 # Only needed on Windows
 POPPLER_PATH="C:/Program Files/poppler-23.08.0/Library/bin"
-GHOSTSCRIPT_PATH=""  # Usually auto-detected
 ```
 
 ---
@@ -1061,8 +951,6 @@ VERBOSE_PROGRESS=true
 | ENABLE_OCR_QUALITY_ASSESSMENT | bool | true | No | OCR Quality |
 | ENABLE_OCR_WEAK_PAGE_IMPROVEMENT | bool | true | No | OCR Quality |
 | OCR_MIN_TEXT_LENGTH | int | 50 | No | OCR Quality |
-| OCR_MIN_DIGIT_COUNT | int | 20 | No | OCR Quality |
-| OCR_WEAK_PAGE_DIGIT_RATIO | float | 0.0 | No | OCR Quality |
 | OCR_MIN_UNIQUENESS_RATIO | float | 0.3 | No | OCR Quality |
 | OCR_MAX_PHRASE_REPETITIONS | int | 5 | No | OCR Quality |
 | OCR_MIN_AVG_LINE_LENGTH | int | 10 | No | OCR Quality |
@@ -1091,18 +979,11 @@ VERBOSE_PROGRESS=true
 | MISTRAL_ENABLE_IMAGE_PREPROCESSING | bool | false | No | Image Processing |
 | MISTRAL_MAX_IMAGE_DIMENSION | int | 2048 | No | Image Processing |
 | MISTRAL_IMAGE_QUALITY_THRESHOLD | int | 70 | No | Image Processing |
-| CAMELOT_MIN_ACCURACY | float | 75.0 | No | Tables |
-| CAMELOT_MAX_WHITESPACE | float | 30.0 | No | Tables |
-| CAMELOT_STREAM_SPLIT_TEXT | bool | true | No | Tables |
-| CAMELOT_STREAM_EDGE_TOL | int | 50 | No | Tables |
-| CAMELOT_STREAM_ROW_TOL | int | 2 | No | Tables |
-| CAMELOT_STREAM_COLUMN_TOL | int | 0 | No | Tables |
 | PDF_IMAGE_FORMAT | string | png | No | PDF to Image |
 | PDF_IMAGE_DPI | int | 200 | No | PDF to Image |
 | PDF_IMAGE_THREAD_COUNT | int | 4 | No | PDF to Image |
 | PDF_IMAGE_USE_PDFTOCAIRO | bool | true | No | PDF to Image |
 | POPPLER_PATH | string | "" | No | System Paths |
-| GHOSTSCRIPT_PATH | string | "" | No | System Paths |
 | CACHE_DURATION_HOURS | int | 24 | No | Caching |
 | AUTO_CLEAR_CACHE | bool | true | No | Caching |
 | LOG_LEVEL | string | INFO | No | Logging |

@@ -213,8 +213,8 @@ safety check
 The following libraries process untrusted file content and are potential vectors for exploitation:
 
 - **MarkItDown** (Office, PDF, HTML, archives, audio)
-- **pdfplumber** / **Camelot** (PDF table extraction)
-- **pdf2image** + **Poppler** / **Ghostscript** (PDF rendering)
+- **pdfplumber** (PDF table extraction)
+- **pdf2image** + **Poppler** (PDF rendering)
 - **Pillow** (image processing)
 
 Keep these libraries up to date. In containerized deployments, use read-only filesystem mounts for binaries and restrict system calls with seccomp or AppArmor.

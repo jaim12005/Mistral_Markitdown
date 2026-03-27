@@ -1,6 +1,6 @@
 # Mistral Markitdown
 
-Stack: Python 3.10–3.12, MarkItDown, Mistral AI SDK, Pydantic, pdfplumber, camelot-py, pdf2image
+Stack: Python 3.10–3.12, MarkItDown, Mistral AI SDK, Pydantic, pdfplumber, pdf2image
 
 ## Commands
 
@@ -44,7 +44,7 @@ Stack: Python 3.10–3.12, MarkItDown, Mistral AI SDK, Pydantic, pdfplumber, cam
 ## Environment
 
 - Python: 3.10, 3.11, or 3.12
-- System deps: `poppler-utils` and `ghostscript` (needed by pdf2image and camelot-py)
+- System deps: `poppler-utils` (needed by pdf2image)
 - Setup: `pip install -r requirements.txt && pip install -r requirements-dev.txt`
 - Config: copy `.env.example` to `.env`, set `MISTRAL_API_KEY` (optional — without it, only local MarkItDown works)
 

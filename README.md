@@ -126,7 +126,7 @@ python main.py --no-interactive    # Process all files in input/ without prompts
 ### Processing Pipeline (Smart Mode)
 
 1. Route each file to MarkItDown or Mistral OCR based on content analysis (text layer detection for PDFs, extension for other types)
-2. For PDFs: run multi-strategy table extraction (pdfplumber + Camelot) with automatic post-processing
+2. For PDFs: run pdfplumber-based multi-strategy table extraction with automatic post-processing
 3. OCR quality assessment (0-100 scoring) with automatic weak page re-processing
 4. Results cached by SHA-256 content hash (24-hour TTL, second run = $0)
 
@@ -142,10 +142,10 @@ python main.py --no-interactive    # Process all files in input/ without prompts
 
 Advanced multi-strategy extraction for any tabular data:
 
-- **pdfplumber** (fast baseline) + **Camelot lattice** (grid tables) + **Camelot stream** (borderless tables)
+- **pdfplumber line-based** (grid tables) + **pdfplumber text-based** (borderless tables)
 - Automatic post-processing: split-header repair, merged cell detection, page artifact removal, cross-page table coalescing
 - Financial extras: merged currency cell splitting (`"$ 1,234.56 $ 5,678.90"` → two cells), month header normalization
-- Quality filtering: tables below 75% accuracy are rejected
+- Deduplication and cross-page table coalescing
 
 ### OCR Quality Assessment
 
@@ -222,7 +222,7 @@ MARKITDOWN_LLM_MODEL=pixtral-large-latest
 
 | File | Purpose |
 |------|---------|
-| `requirements.txt` | Core: MarkItDown, Mistral SDK, Pydantic, pdfplumber, Camelot, pdf2image, Pillow |
+| `requirements.txt` | Core: MarkItDown, Mistral SDK, Pydantic, pdfplumber, pdf2image, Pillow |
 | `requirements-dev.txt` | Dev: pytest, flake8, black, isort, pip-audit |
 | `requirements-optional.txt` | Optional: audio transcription, YouTube, Azure, OpenAI client, markitdown-ocr |
 
@@ -230,15 +230,13 @@ MARKITDOWN_LLM_MODEL=pixtral-large-latest
 
 | Binary | Required For | Install |
 |--------|-------------|---------|
-| Poppler | PDF to images, Camelot | `brew install poppler` / `apt install poppler-utils` / [Windows binary](https://github.com/oschwartz10612/poppler-windows) |
-| Ghostscript | Camelot lattice mode | `brew install ghostscript` / `apt install ghostscript` |
+| Poppler | PDF to images | `brew install poppler` / `apt install poppler-utils` / [Windows binary](https://github.com/oschwartz10612/poppler-windows) |
 | ffmpeg | Audio transcription | `brew install ffmpeg` / `apt install ffmpeg` |
 | ExifTool | EXIF metadata extraction | Optional, set `MARKITDOWN_EXIFTOOL_PATH` |
 
-On Windows, set paths in `.env`:
+On Windows, set the Poppler path in `.env`:
 ```ini
 POPPLER_PATH="C:/path/to/poppler/bin"
-GHOSTSCRIPT_PATH="C:/path/to/gs/bin"
 ```
 
 ## Output Structure

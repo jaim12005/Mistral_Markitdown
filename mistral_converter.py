@@ -103,13 +103,11 @@ logger = utils.logger
 # ============================================================================
 # NOTE: All OCR quality thresholds are now configured via config.py
 # This ensures .env settings are honored as documented in README.md
-# See: config.OCR_MIN_TEXT_LENGTH, config.OCR_MIN_DIGIT_COUNT, etc.
+# See: config.OCR_MIN_TEXT_LENGTH, config.OCR_MIN_UNIQUENESS_RATIO, etc.
 
 # Quality scoring point deductions (max total deduction = 100).
 _QUALITY_PENALTY_WEAK_PAGES_MAX = 50  # Maximum points lost when all pages are weak
-_QUALITY_PENALTY_LOW_DIGITS = 20  # Points lost for low numerical content
 _QUALITY_PENALTY_HIGH_REPETITION = 30  # Points lost for high token repetition
-_QUALITY_AGGREGATE_DIGIT_MULTIPLIER = 5  # Multiplier on per-page digit threshold for aggregate check
 
 # Process-global page counter — suitable for CLI use.  A multi-tenant
 # service would need per-request counters instead.

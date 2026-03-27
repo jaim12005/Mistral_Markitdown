@@ -1,7 +1,7 @@
 """
 Enhanced Document Converter - Main Application
 
-Interactive CLI for document conversion with 7 modes:
+Interactive CLI for document conversion with 8 modes:
 1. Convert (Smart)       - Auto-picks best engine per file type
 2. Convert (MarkItDown)  - Force local conversion (no API)
 3. Convert (Mistral OCR) - Force cloud OCR
@@ -9,6 +9,7 @@ Interactive CLI for document conversion with 7 modes:
 5. Document QnA          - Query documents in natural language
 6. Batch OCR             - 50% cost reduction batch jobs
 7. System Status         - Cache and performance metrics
+8. Maintenance           - Clear cache, clean up old uploads
 
 Usage:
     python main.py                      # Interactive menu

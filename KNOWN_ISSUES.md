@@ -27,15 +27,12 @@ On macOS/Linux these are auto-detected via PATH. On Windows you must configure t
 
 ```ini
 POPPLER_PATH="C:/Program Files/poppler-23.08.0/Library/bin"
-GHOSTSCRIPT_PATH="C:/Program Files/gs/gs10.02.1/bin"
 ```
 
 - **Poppler** is required for PDF to Images mode
-- **Ghostscript** is required for Camelot lattice table extraction
 
 Download links:
 - Poppler: https://github.com/oschwartz10612/poppler-windows/releases
-- Ghostscript: https://ghostscript.com/releases/gsdnld.html
 
 ---
 

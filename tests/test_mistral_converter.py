@@ -277,21 +277,18 @@ class TestClientCacheInvalidation:
 
 
 class TestIsWeakPageDigitRatio:
-    """Test the configurable digit ratio threshold."""
+    """Digit ratio/count checks were removed — verify pages are not flagged for low digit content."""
 
-    def test_digit_ratio_no_longer_flags_page(self, monkeypatch):
-        """Digit ratio/count checks were removed — low-digit pages are not weak."""
-        monkeypatch.setattr(config, "OCR_WEAK_PAGE_DIGIT_RATIO", 0.1)
+    def test_low_digit_text_not_flagged(self, monkeypatch):
+        """Low-digit pages should NOT be flagged as weak."""
         monkeypatch.setattr(config, "OCR_MIN_TEXT_LENGTH", 10)
-        monkeypatch.setattr(config, "OCR_MIN_DIGIT_COUNT", 20)
 
-        # Text with few digits — should NOT be flagged (digit check removed)
+        # Text with few digits — should NOT be flagged
         text = "This is text with very few digits 12 and some more unique words here now. " * 3
         assert mistral_converter._is_weak_page(text) is False
 
-    def test_ratio_passes_when_enough_digits(self, monkeypatch):
+    def test_sufficient_digits_not_flagged(self, monkeypatch):
         """Text with sufficient digit ratio should not be weak."""
-        monkeypatch.setattr(config, "OCR_WEAK_PAGE_DIGIT_RATIO", 0.05)
         monkeypatch.setattr(config, "OCR_MIN_TEXT_LENGTH", 10)
         monkeypatch.setattr(config, "OCR_MIN_UNIQUENESS_RATIO", 0.1)
         monkeypatch.setattr(config, "OCR_MAX_PHRASE_REPETITIONS", 100)
@@ -4044,8 +4041,6 @@ class TestIsWeakPageBranches:
     def test_low_digit_count_no_longer_flags_page(self, monkeypatch):
         """Digit count check was removed — low-digit pages are not weak."""
         monkeypatch.setattr(config, "OCR_MIN_TEXT_LENGTH", 5)
-        monkeypatch.setattr(config, "OCR_WEAK_PAGE_DIGIT_RATIO", 0)
-        monkeypatch.setattr(config, "OCR_MIN_DIGIT_COUNT", 100)
         monkeypatch.setattr(config, "OCR_MIN_UNIQUENESS_RATIO", 0.0)
         monkeypatch.setattr(config, "OCR_MAX_PHRASE_REPETITIONS", 100)
         monkeypatch.setattr(config, "OCR_MIN_AVG_LINE_LENGTH", 0)
@@ -4057,8 +4052,6 @@ class TestIsWeakPageBranches:
     def test_repeated_page_references(self, monkeypatch):
         """Lines 1174-1175: too many Page N references."""
         monkeypatch.setattr(config, "OCR_MIN_TEXT_LENGTH", 5)
-        monkeypatch.setattr(config, "OCR_WEAK_PAGE_DIGIT_RATIO", 0)
-        monkeypatch.setattr(config, "OCR_MIN_DIGIT_COUNT", 0)
         monkeypatch.setattr(config, "OCR_MIN_UNIQUENESS_RATIO", 0.0)
         monkeypatch.setattr(config, "OCR_MAX_PHRASE_REPETITIONS", 2)
         monkeypatch.setattr(config, "OCR_MIN_AVG_LINE_LENGTH", 0)
@@ -4069,8 +4062,6 @@ class TestIsWeakPageBranches:
     def test_short_average_line_length(self, monkeypatch):
         """Lines 1183-1184: very short average line length."""
         monkeypatch.setattr(config, "OCR_MIN_TEXT_LENGTH", 5)
-        monkeypatch.setattr(config, "OCR_WEAK_PAGE_DIGIT_RATIO", 0)
-        monkeypatch.setattr(config, "OCR_MIN_DIGIT_COUNT", 0)
         monkeypatch.setattr(config, "OCR_MIN_UNIQUENESS_RATIO", 0.0)
         monkeypatch.setattr(config, "OCR_MAX_PHRASE_REPETITIONS", 100)
         monkeypatch.setattr(config, "OCR_MIN_AVG_LINE_LENGTH", 50)

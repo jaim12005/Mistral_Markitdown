@@ -49,9 +49,8 @@ flowchart TD
 
     subgraph Table Pipeline
         M
-        M1[pdfplumber] --> M
-        M2[Camelot Lattice] --> M
-        M3[Camelot Stream] --> M
+        M1[pdfplumber line-based] --> M
+        M2[pdfplumber text-based] --> M
     end
 ```
 
@@ -62,7 +61,7 @@ flowchart TD
 | `config.py` | Environment loading, path setup, runtime constants, validation |
 | `utils.py` | Logging, caching (SHA-256 + TTL), table formatting, file validation, YAML frontmatter |
 | `schemas.py` | Pydantic models and JSON schemas for structured extraction (invoices, contracts, etc.) |
-| `local_converter.py` | MarkItDown wrapper, PDF table extraction (pdfplumber + Camelot), PDF to images |
+| `local_converter.py` | MarkItDown wrapper, PDF table extraction (pdfplumber), PDF to images |
 | `mistral_converter.py` | Mistral OCR client, upload/process/batch, QnA streaming, SSRF validation, image optimization |
 | `main.py` | CLI entry point, smart routing, concurrent processing, interactive menu |
 
