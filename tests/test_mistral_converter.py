@@ -364,6 +364,29 @@ class TestSaveExtractedImages:
 # ============================================================================
 
 
+class TestOcrSessionPageDelta:
+    """_ocr_session_page_delta accounts for usage_info when pages list is empty."""
+
+    def test_uses_len_pages_when_present(self):
+        delta = mistral_converter._ocr_session_page_delta(
+            {"pages": [{"text": "a"}, {"text": "b"}], "full_text": "a\nb"}
+        )
+        assert delta == 2
+
+    def test_falls_back_to_usage_pages_processed(self):
+        delta = mistral_converter._ocr_session_page_delta(
+            {"pages": [], "full_text": "hello", "usage_info": {"pages_processed": 4}}
+        )
+        assert delta == 4
+
+    def test_falls_back_to_one_when_only_full_text(self):
+        delta = mistral_converter._ocr_session_page_delta({"pages": [], "full_text": "hello"})
+        assert delta == 1
+
+    def test_zero_when_empty(self):
+        assert mistral_converter._ocr_session_page_delta({"pages": [], "full_text": ""}) == 0
+
+
 class TestTrackPages:
     """Test page tracking and session limits."""
 
@@ -1685,6 +1708,7 @@ class TestGetMistralClientInit:
     def test_client_creation_with_retry(self, monkeypatch):
         mistral_converter.reset_mistral_client()
         monkeypatch.setattr(config, "MISTRAL_API_KEY", "test-key-123")
+        monkeypatch.setattr(config, "MISTRAL_CLIENT_TIMEOUT_MS", 120000)
         monkeypatch.setattr(config, "RETRY_MAX_ELAPSED_TIME_MS", 30000)
 
         mock_retry = MagicMock()
@@ -1700,7 +1724,7 @@ class TestGetMistralClientInit:
         call_kwargs = mock_mistral_class.call_args[1]
         assert call_kwargs["api_key"] == "test-key-123"
         assert call_kwargs["retry_config"] is mock_retry
-        assert call_kwargs["timeout_ms"] == 30000
+        assert call_kwargs["timeout_ms"] == 120000
         mistral_converter.reset_mistral_client()
 
     def test_client_creation_no_retry(self, monkeypatch):

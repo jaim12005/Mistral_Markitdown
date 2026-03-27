@@ -1177,6 +1177,37 @@ class TestAnalyzeFileContentPdf:
 
         assert result["page_count"] == 0
 
+    def test_pdf_pypdf_fallback_when_pdfplumber_unavailable(self, tmp_path):
+        """Smart routing still gets page_count via pypdf when pdfplumber is None."""
+        from pypdf import PdfWriter
+
+        pdf_file = tmp_path / "minimal.pdf"
+        writer = PdfWriter()
+        writer.add_blank_page(width=72, height=72)
+        with open(pdf_file, "wb") as f:
+            writer.write(f)
+
+        with patch.object(local_converter, "pdfplumber", None):
+            result = local_converter.analyze_file_content(pdf_file)
+
+        assert result["page_count"] == 1
+
+    def test_pdf_pypdf_fallback_after_pdfplumber_error(self, tmp_path):
+        """If pdfplumber.open fails, pypdf can still classify a valid PDF."""
+        from pypdf import PdfWriter
+
+        pdf_file = tmp_path / "recover.pdf"
+        writer = PdfWriter()
+        writer.add_blank_page(width=72, height=72)
+        with open(pdf_file, "wb") as f:
+            writer.write(f)
+
+        with patch.object(local_converter, "pdfplumber") as mock_plumber:
+            mock_plumber.open.side_effect = RuntimeError("pdfplumber failed")
+            result = local_converter.analyze_file_content(pdf_file)
+
+        assert result["page_count"] == 1
+
     def test_image_file_detection(self, tmp_path, monkeypatch):
         """Image file type detection branch."""
         img_file = tmp_path / "photo.jpg"

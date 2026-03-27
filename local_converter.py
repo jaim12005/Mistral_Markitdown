@@ -805,6 +805,43 @@ def coalesce_tables(tables: List[List[List[str]]]) -> List[List[List[str]]]:
 # ============================================================================
 
 
+def _analyze_pdf_text_layer_pypdf(file_path: Path, analysis: Dict[str, Any]) -> None:
+    """Lightweight PDF text-layer probe using pypdf (MarkItDown dependency).
+
+    Used when pdfplumber is unavailable or ``pdfplumber.open`` fails, so smart
+    routing can still treat text-based PDFs as MarkItDown-friendly.
+    """
+    try:
+        from pypdf import PdfReader
+    except ImportError:
+        logger.debug("pypdf not available; skipping PDF text-layer fallback")
+        return
+
+    try:
+        reader = PdfReader(str(file_path))
+        analysis["page_count"] = len(reader.pages)
+
+        sampled_pages = reader.pages[: min(3, len(reader.pages))]
+        text_pages = 0
+
+        for page in sampled_pages:
+            text = (page.extract_text() or "").strip()
+            if len(text) > 50:
+                text_pages += 1
+
+        if sampled_pages:
+            analysis["is_text_based"] = text_pages >= max(1, (len(sampled_pages) + 1) // 2)
+
+        analysis["is_complex"] = (
+            analysis["is_complex"]
+            or (analysis["page_count"] > 5 and analysis["has_images"])
+            or (analysis["has_tables"] and not analysis["is_text_based"])
+            or (analysis["has_images"] and not analysis["is_text_based"])
+        )
+    except Exception as e:
+        logger.debug("pypdf PDF analysis failed: %s", e)
+
+
 def analyze_file_content(file_path: Path) -> Dict[str, Any]:
     """
     Analyze file to determine optimal processing strategy.
@@ -826,39 +863,46 @@ def analyze_file_content(file_path: Path) -> Dict[str, Any]:
     }
 
     # PDF-specific analysis
-    if analysis["file_type"] == "pdf" and pdfplumber is not None:
-        try:
-            with pdfplumber.open(file_path) as pdf:
-                analysis["page_count"] = len(pdf.pages)
+    if analysis["file_type"] == "pdf":
+        if pdfplumber is not None:
+            try:
+                with pdfplumber.open(file_path) as pdf:
+                    analysis["page_count"] = len(pdf.pages)
 
-                # Sample up to 3 pages for content type detection
-                sampled_pages = pdf.pages[: min(3, len(pdf.pages))]
-                text_pages = 0
+                    # Sample up to 3 pages for content type detection
+                    sampled_pages = pdf.pages[: min(3, len(pdf.pages))]
+                    text_pages = 0
 
-                for page in sampled_pages:
-                    text = (page.extract_text() or "").strip()
-                    if len(text) > 50:
-                        text_pages += 1
+                    for page in sampled_pages:
+                        text = (page.extract_text() or "").strip()
+                        if len(text) > 50:
+                            text_pages += 1
 
-                    if page.extract_tables():
-                        analysis["has_tables"] = True
+                        if page.extract_tables():
+                            analysis["has_tables"] = True
 
-                    if page.images:
-                        analysis["has_images"] = True
+                        if page.images:
+                            analysis["has_images"] = True
 
-                # Text-based if majority of sampled pages have text
-                if sampled_pages:
-                    analysis["is_text_based"] = text_pages >= max(1, (len(sampled_pages) + 1) // 2)
+                    # Text-based if majority of sampled pages have text
+                    if sampled_pages:
+                        analysis["is_text_based"] = text_pages >= max(1, (len(sampled_pages) + 1) // 2)
 
-                # Complex if: multi-page with images OR text-less with tables/images
-                analysis["is_complex"] = (
-                    (analysis["page_count"] > 5 and analysis["has_images"])
-                    or (analysis["has_tables"] and not analysis["is_text_based"])
-                    or (analysis["has_images"] and not analysis["is_text_based"])
-                )
+                    # Complex if: multi-page with images OR text-less with tables/images
+                    analysis["is_complex"] = (
+                        (analysis["page_count"] > 5 and analysis["has_images"])
+                        or (analysis["has_tables"] and not analysis["is_text_based"])
+                        or (analysis["has_images"] and not analysis["is_text_based"])
+                    )
 
-        except Exception as e:
-            logger.debug("Error analyzing PDF: %s", e)
+            except Exception as e:
+                logger.debug("Error analyzing PDF with pdfplumber: %s", e)
+                _analyze_pdf_text_layer_pypdf(file_path, analysis)
+        else:
+            logger.debug(
+                "pdfplumber unavailable; using pypdf for smart-routing text-layer probe when possible"
+            )
+            _analyze_pdf_text_layer_pypdf(file_path, analysis)
 
     # Image files
     elif analysis["file_type"] in config.IMAGE_EXTENSIONS:

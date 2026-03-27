@@ -348,6 +348,11 @@ MISTRAL_QNA_DOCUMENT_PAGE_LIMIT = _safe_int("MISTRAL_QNA_DOCUMENT_PAGE_LIMIT", 0
 # Batch processing advanced configuration
 MISTRAL_BATCH_TIMEOUT_HOURS = _safe_int("MISTRAL_BATCH_TIMEOUT_HOURS", 24, min_val=1)
 
+# HTTP client timeout for Mistral SDK requests (milliseconds).
+# Separate from RETRY_MAX_ELAPSED_TIME_MS, which only bounds the SDK retry
+# backoff budget — using the same value for both can abort slow OCR calls early.
+MISTRAL_CLIENT_TIMEOUT_MS = _safe_int("MISTRAL_CLIENT_TIMEOUT_MS", 300_000, min_val=1)
+
 # Retry Configuration (for Mistral API calls)
 # Set to 0 to disable retries entirely. Actual retry count is bounded by
 # RETRY_MAX_ELAPSED_TIME_MS (the SDK does not support a max-attempts parameter).

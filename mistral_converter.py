@@ -143,6 +143,25 @@ def _is_page_limit_reached() -> bool:
         return config.MAX_PAGES_PER_SESSION > 0 and _session_pages_processed >= config.MAX_PAGES_PER_SESSION
 
 
+def _ocr_session_page_delta(result: Dict[str, Any]) -> int:
+    """Pages to count against ``MAX_PAGES_PER_SESSION`` for one OCR response.
+
+    Prefer ``len(pages)``; if the parser left ``pages`` empty but text exists,
+    use ``usage_info.pages_processed`` when present, otherwise count as one page.
+    """
+    pages = result.get("pages") or []
+    if pages:
+        return len(pages)
+    usage = result.get("usage_info") or {}
+    if isinstance(usage, dict):
+        pp = usage.get("pages_processed")
+        if isinstance(pp, int) and pp > 0:
+            return pp
+    if (result.get("full_text") or "").strip():
+        return 1
+    return 0
+
+
 def reset_session_page_counter() -> None:
     """Reset the session page counter so a new logical session can start fresh.
 
@@ -207,8 +226,8 @@ def get_mistral_client() -> Optional[Mistral]:
             if global_retry:
                 client_kwargs["retry_config"] = global_retry
 
-            # Set global timeout (60 seconds default)
-            client_kwargs["timeout_ms"] = config.RETRY_MAX_ELAPSED_TIME_MS
+            # Per-request HTTP timeout (distinct from retry backoff budget).
+            client_kwargs["timeout_ms"] = config.MISTRAL_CLIENT_TIMEOUT_MS
 
             client = Mistral(**client_kwargs)
             _client_instance = client
@@ -895,7 +914,7 @@ def process_with_ocr(
                 logger.warning(error_msg)
                 return False, None, error_msg
 
-            if not _track_pages(len(result.get("pages", []))):
+            if not _track_pages(_ocr_session_page_delta(result)):
                 logger.warning(
                     "Session page limit (%d) reached during processing of %s. "
                     "Returning result but further OCR requests will be refused.",
