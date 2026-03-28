@@ -8,7 +8,7 @@ version = "3.0.0"
 description = "Enhanced Document Converter with MarkItDown and Mistral AI OCR"
 readme = "README.md"
 requires-python = ">=3.10,<4"
-license = {text = "MIT"}
+license = "MIT"
 authors = [
     {name = "Enhanced Document Converter Contributors"}
 ]
@@ -16,7 +16,6 @@ keywords = ["document", "conversion", "ocr", "pdf", "markdown", "mistral", "mark
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -61,6 +60,10 @@ Repository = "https://github.com/jaim12005/Mistral_Markitdown"
 Issues = "https://github.com/jaim12005/Mistral_Markitdown/issues"
 Documentation = "https://github.com/jaim12005/Mistral_Markitdown/blob/main/CONFIGURATION.md"
 Changelog = "https://github.com/jaim12005/Mistral_Markitdown/blob/main/CHANGELOG.md"
+
+[tool.setuptools]
+py-modules = ["main", "config", "schemas", "mistral_converter", "local_converter", "utils", "run_tests"]
+packages = []
 
 [tool.black]
 line-length = 120
