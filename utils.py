@@ -40,6 +40,8 @@ __all__ = [
     "save_text_output",
     "print_progress",
     "validate_file",
+    "sanitize_stdin_filename_hint",
+    "read_stdin_bytes_limited",
     "pdf_exceeds_heavy_work_limit",
     "safe_output_stem",
     "generate_yaml_frontmatter",
@@ -866,6 +868,54 @@ def print_progress(current: int, total: int, prefix: str = "Progress") -> None:
 # ============================================================================
 
 
+def sanitize_stdin_filename_hint(hint: str) -> Tuple[bool, str, Optional[str]]:
+    """
+    Normalize ``--stdin-filename`` to a single path segment (basename only).
+
+    Rejects empty hints and embedded path separators so output paths cannot
+    escape ``OUTPUT_MD_DIR``.
+    """
+    stripped = (hint or "").strip()
+    if not stripped:
+        return False, "", "Empty --stdin-filename"
+    normalized = stripped.replace("\\", "/")
+    base = normalized.rsplit("/", 1)[-1] if "/" in normalized else normalized
+    if not base or base in (".", ".."):
+        return False, "", "Invalid --stdin-filename"
+    if "/" in base or "\\" in base:
+        return False, "", "Invalid --stdin-filename"
+    return True, base, None
+
+
+def read_stdin_bytes_limited(max_bytes: int) -> Tuple[bool, bytes, Optional[str]]:
+    """
+    Read stdin until EOF, failing if more than *max_bytes* are received.
+
+    Reads in chunks so oversized input is not fully buffered before rejection.
+    """
+    if max_bytes < 0:
+        return False, b"", "Invalid stdin size limit"
+    chunks: List[bytes] = []
+    total = 0
+    while True:
+        to_read = 1024 * 1024
+        if max_bytes > 0:
+            to_read = min(to_read, max_bytes - total + 1)
+        chunk = sys.stdin.buffer.read(to_read)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            mb = max_bytes / (1024 * 1024)
+            return (
+                False,
+                b"",
+                f"Stdin exceeds MarkItDown size limit ({mb:.1f} MB).",
+            )
+        chunks.append(chunk)
+    return True, b"".join(chunks), None
+
+
 def _resolved_path_under_input_dir(file_path: Path) -> Tuple[bool, Optional[str]]:
     """If strict resolution is enabled, ensure *file_path* resolves under ``INPUT_DIR``."""
     if not config.STRICT_INPUT_PATH_RESOLUTION:
@@ -893,13 +943,13 @@ def validate_file(  # noqa: C901
         file_path: Path to file
         mode: Conversion mode to validate against. When ``"markitdown"``,
               only MarkItDown-supported extensions are accepted. When
-              ``"mistral_ocr"``, only Mistral OCR-supported extensions are
-              accepted. ``None`` or ``"smart"`` accepts the union of both
-              extensions. A mode-specific **size cap** is applied when applicable;
-              for ``smart`` the cap is the larger of the MarkItDown and Mistral
-              OCR limits so OCR-only files are not rejected early—individual
-              routes still enforce stricter limits (e.g. text PDF routed to
-              MarkItDown).
+              ``"mistral_ocr"``, ``"qna"``, or ``"batch_ocr"``, only
+              Mistral-OCR-supported extensions are accepted. ``"pdf_to_images"``
+              accepts PDF only. ``None`` or ``"smart"`` accepts the union of both
+              extension sets; the **size cap** for ``smart`` uses the MarkItDown
+              limit alone for types that always route to MarkItDown, and the
+              larger of MarkItDown and Mistral OCR limits when the extension may
+              use cloud OCR (e.g. PDF, images, docx, pptx).
 
     Returns:
         Tuple of (is_valid, error_message)
@@ -922,10 +972,12 @@ def validate_file(  # noqa: C901
 
     if mode == "markitdown":
         supported = config.MARKITDOWN_SUPPORTED
-    elif mode == "mistral_ocr":
+    elif mode in ("mistral_ocr", "qna", "batch_ocr"):
         supported = config.MISTRAL_OCR_SUPPORTED
+    elif mode == "pdf_to_images":
+        supported = config.PDF_EXTENSIONS
     else:
-        # smart / None / pdf_to_images / qna / batch_ocr — accept all
+        # smart / None — union (routing picks engine per file)
         supported = config.MARKITDOWN_SUPPORTED | config.MISTRAL_OCR_SUPPORTED
 
     if ext not in supported:
@@ -947,9 +999,16 @@ def validate_file(  # noqa: C901
         if ext == "pdf":
             max_mb = float(config.pdf_heavy_work_max_file_size_mb())
     else:
-        max_mb = float(
-            max(config.MARKITDOWN_MAX_FILE_SIZE_MB, config.MISTRAL_OCR_MAX_FILE_SIZE_MB)
-        )
+        # smart / None — types that may route to Mistral OCR use the larger cap
+        if ext in config.MISTRAL_OCR_SUPPORTED:
+            max_mb = float(
+                max(
+                    config.MARKITDOWN_MAX_FILE_SIZE_MB,
+                    config.MISTRAL_OCR_MAX_FILE_SIZE_MB,
+                )
+            )
+        else:
+            max_mb = float(config.MARKITDOWN_MAX_FILE_SIZE_MB)
 
     if max_mb is not None and size_mb > max_mb:
         return False, (

@@ -24,8 +24,10 @@ Documentation references:
 
 import argparse
 import io
+import os
 import re
 import sys
+import tempfile
 import time
 import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -342,26 +344,34 @@ def mode_markitdown_only(file_paths: List[Path]) -> Tuple[bool, str]:
 
 def mode_markitdown_stdin(stdin_bytes: bytes, filename_hint: str) -> Tuple[bool, str]:
     """Convert stdin bytes with MarkItDown using *filename_hint* for format detection."""
-    logger.info("MARKITDOWN STDIN: %s (%d bytes)", filename_hint, len(stdin_bytes))
+    ok, base, sanit_err = utils.sanitize_stdin_filename_hint(filename_hint)
+    if not ok:
+        return False, sanit_err or "Invalid --stdin-filename"
+
+    logger.info("MARKITDOWN STDIN: %s (%d bytes)", base, len(stdin_bytes))
 
     stream = io.BytesIO(stdin_bytes)
     success, markdown, error = local_converter.convert_stream_with_markitdown(
-        stream, filename=filename_hint
+        stream, filename=base
     )
     if not success or not markdown:
         return False, error or "MarkItDown stream conversion failed"
 
-    hint_path = Path(filename_hint)
-    stem = utils.safe_output_stem(hint_path) if hint_path.suffix else filename_hint
+    hint_path = Path(base)
+    if hint_path.suffix:
+        stem_raw = hint_path.stem if hint_path.stem else "document"
+    else:
+        stem_raw = hint_path.name if hint_path.name else "stdin"
+    stem = re.sub(r"[^\w\-. ]+", "_", stem_raw).strip("._ ") or "stdin"
     doc_metadata = {
         "file_size_bytes": len(stdin_bytes),
         "file_extension": hint_path.suffix.lower() or "",
         "source": "stdin",
     }
-    doc_title = hint_path.stem if hint_path.stem else stem
+    doc_title = stem_raw if stem_raw else stem
     frontmatter = utils.generate_yaml_frontmatter(
         title=doc_title,
-        file_name=filename_hint,
+        file_name=base,
         conversion_method="MarkItDown (stream)",
         additional_fields=doc_metadata,
     )
@@ -654,25 +664,13 @@ def mode_batch_ocr(
     non_interactive: bool = False,
 ) -> Tuple[bool, str]:
     """Submit files for batch OCR processing at 50% cost reduction."""
-    logger.info("BATCH OCR MODE: %d file(s) selected", len(file_paths))
+    logger.info("BATCH OCR MODE: %d file(s) in initial selection", len(file_paths))
 
     if not config.MISTRAL_API_KEY:
         return False, "Batch OCR requires MISTRAL_API_KEY to be set"
 
     if not config.MISTRAL_BATCH_ENABLED:
         return False, "Batch processing is disabled (set MISTRAL_BATCH_ENABLED=true)"
-
-    if config.MAX_BATCH_FILES > 0 and len(file_paths) > config.MAX_BATCH_FILES:
-        return False, (
-            f"Batch size ({len(file_paths)}) exceeds MAX_BATCH_FILES ({config.MAX_BATCH_FILES}). "
-            "Increase the limit or split into smaller batches."
-        )
-
-    if len(file_paths) < config.MISTRAL_BATCH_MIN_FILES:
-        utils.ui_print(
-            f"\nNote: Batch processing is most cost-effective with {config.MISTRAL_BATCH_MIN_FILES}+ files."
-        )
-        utils.ui_print(f"You selected {len(file_paths)} file(s). Proceeding anyway.\n")
 
     choice: Optional[str] = None
     if non_interactive:
@@ -698,26 +696,69 @@ def mode_batch_ocr(
         except (KeyboardInterrupt, EOFError):
             return False, "Cancelled"
 
+    if choice == "0":
+        return False, "Cancelled"
+
     if choice == "1":
-        batch_file = config.CACHE_DIR / "batch_input.jsonl"
-        utils.ui_print(f"\nCreating batch file for {len(file_paths)} document(s)...")
+        submit_paths = list(file_paths)
+        if not submit_paths:
+            if non_interactive:
+                return (
+                    False,
+                    "Batch submit requires files in input/ (use interactive mode to pick files).",
+                )
+            picked = select_files()
+            if not picked:
+                return False, "No files selected"
+            submit_paths = _filter_valid_files(picked, mode="batch_ocr")
+            if not submit_paths:
+                return False, "No valid files to process for batch OCR."
 
-        success, batch_path, error = mistral_converter.create_batch_ocr_file(
-            file_paths, batch_file
-        )
-        if not success or batch_path is None:
-            return False, f"Failed to create batch file: {error}"
-
-        utils.ui_print("Submitting batch job...")
-        success, job_id, error = mistral_converter.submit_batch_ocr_job(batch_path)
-        if success:
-            utils.ui_print(f"\nBatch job submitted: {job_id}")
-            utils.ui_print(
-                "Use option 2 to check status, option 4 to download results when complete."
+        if config.MAX_BATCH_FILES > 0 and len(submit_paths) > config.MAX_BATCH_FILES:
+            return False, (
+                f"Batch size ({len(submit_paths)}) exceeds MAX_BATCH_FILES ({config.MAX_BATCH_FILES}). "
+                "Increase the limit or split into smaller batches."
             )
-            return True, f"Batch job submitted: {job_id}"
-        else:
+
+        if len(submit_paths) < config.MISTRAL_BATCH_MIN_FILES:
+            utils.ui_print(
+                f"\nNote: Batch processing is most cost-effective with {config.MISTRAL_BATCH_MIN_FILES}+ files."
+            )
+            utils.ui_print(
+                f"You selected {len(submit_paths)} file(s). Proceeding anyway.\n"
+            )
+
+        batch_file: Optional[Path] = None
+        try:
+            fd, batch_path_str = tempfile.mkstemp(
+                suffix=".jsonl",
+                prefix="batch_ocr_",
+                dir=str(config.CACHE_DIR),
+            )
+            os.close(fd)
+            batch_file = Path(batch_path_str)
+            utils.ui_print(
+                f"\nCreating batch file for {len(submit_paths)} document(s)..."
+            )
+
+            success, batch_path, error = mistral_converter.create_batch_ocr_file(
+                submit_paths, batch_file
+            )
+            if not success or batch_path is None:
+                return False, f"Failed to create batch file: {error}"
+
+            utils.ui_print("Submitting batch job...")
+            success, job_id, error = mistral_converter.submit_batch_ocr_job(batch_path)
+            if success:
+                utils.ui_print(f"\nBatch job submitted: {job_id}")
+                utils.ui_print(
+                    "Use option 2 to check status, option 4 to download results when complete."
+                )
+                return True, f"Batch job submitted: {job_id}"
             return False, f"Failed to submit batch job: {error}"
+        finally:
+            if batch_file is not None:
+                batch_file.unlink(missing_ok=True)
 
     elif choice == "2":
         if non_interactive:
@@ -1062,6 +1103,15 @@ def interactive_menu():
                 input("\nPress Enter to continue...")
                 continue
 
+            if choice == "6":
+                start_time = time.time()
+                success, message = mode_batch_ocr([], non_interactive=False)
+                utils.ui_print(f"\n{message}")
+                elapsed = time.time() - start_time
+                utils.ui_print(f"Total processing time: {elapsed:.2f} seconds")
+                input("\nPress Enter to continue...")
+                continue
+
             if choice not in MODE_DISPATCH:
                 utils.ui_print(
                     "\nInvalid choice. Please enter a number between 0 and 8.\n"
@@ -1233,8 +1283,14 @@ Examples:
             if not args.stdin_filename:
                 utils.ui_print("--stdin requires --stdin-filename (e.g. report.pdf)")
                 sys.exit(1)
+            max_stdin_bytes = int(config.MARKITDOWN_MAX_FILE_SIZE_MB * 1024 * 1024)
+            ok_stdin, stdin_data, stdin_err = utils.read_stdin_bytes_limited(
+                max_stdin_bytes
+            )
+            if not ok_stdin:
+                utils.ui_print(stdin_err or "Stdin read failed")
+                sys.exit(1)
             start_time = time.time()
-            stdin_data = sys.stdin.buffer.read()
             success, message = mode_markitdown_stdin(stdin_data, args.stdin_filename)
             utils.ui_print(f"\n{message}")
             elapsed = time.time() - start_time
@@ -1247,6 +1303,21 @@ Examples:
                 utils.ui_print(
                     "Non-interactive QnA using --qna-document-url (no input/ files)."
                 )
+            elif args.mode == "batch_ocr":
+                ba = (args.batch_action or "").lower().strip()
+                if ba in ("status", "list", "download"):
+                    files = []
+                    utils.ui_print(
+                        f"Non-interactive batch: --batch-action {ba} (no input/ files required)."
+                    )
+                else:
+                    files = _list_input_files()
+                    if not files:
+                        utils.ui_print(f"No files found in {config.INPUT_DIR}")
+                        return
+                    utils.ui_print(
+                        f"Non-interactive mode: Processing {len(files)} files from input directory"
+                    )
             else:
                 files = _list_input_files()
                 if not files:
@@ -1261,10 +1332,17 @@ Examples:
                 return
 
         if not (args.mode == "qna" and qna_url):
-            files = _filter_valid_files(files, mode=args.mode)
-            if not files:
-                utils.ui_print("No valid files to process.")
-                sys.exit(1)
+            _batch_no_files = (
+                args.mode == "batch_ocr"
+                and args.no_interactive
+                and (args.batch_action or "").lower().strip()
+                in ("status", "list", "download")
+            )
+            if not _batch_no_files:
+                files = _filter_valid_files(files, mode=args.mode)
+                if not files:
+                    utils.ui_print("No valid files to process.")
+                    sys.exit(1)
 
         start_time = time.time()
         handler = _CLI_MODE_DISPATCH.get(args.mode)

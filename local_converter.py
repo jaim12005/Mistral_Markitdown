@@ -581,6 +581,11 @@ def extract_all_tables(pdf_path: Path) -> Dict[str, Any]:
     if coalesced_count > 0:
         logger.info("Coalesced %d split table(s) across pages", coalesced_count)
 
+    result["tables"] = [
+        _fix_split_headers(_fix_merged_currency_cells(table))
+        for table in result["tables"]
+    ]
+
     result["table_count"] = len(result["tables"])
 
     logger.info(

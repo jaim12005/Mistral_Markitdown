@@ -299,6 +299,96 @@ class TestFileValidation:
         assert ok is False
         assert err and "input directory" in err.lower()
 
+    def test_validate_file_smart_txt_uses_markitdown_size_cap(
+        self, tmp_path, monkeypatch
+    ):
+        """Smart mode: types that only go through MarkItDown use MARKITDOWN cap, not OCR cap."""
+        monkeypatch.setattr(config, "MARKITDOWN_MAX_FILE_SIZE_MB", 1)
+        monkeypatch.setattr(config, "MISTRAL_OCR_MAX_FILE_SIZE_MB", 50)
+        test_file = tmp_path / "huge.txt"
+        test_file.write_bytes(b"x" * (2 * 1024 * 1024))
+        ok, err = utils.validate_file(test_file, mode="smart")
+        assert ok is False
+        assert err and "too large" in err.lower()
+
+    def test_validate_file_qna_accepts_mistral_extensions_only(self, tmp_path):
+        pdf = tmp_path / "a.pdf"
+        pdf.write_bytes(b"%PDF")
+        ok, err = utils.validate_file(pdf, mode="qna")
+        assert ok is True
+
+        txt = tmp_path / "notes.txt"
+        txt.write_text("hello")
+        ok2, err2 = utils.validate_file(txt, mode="qna")
+        assert ok2 is False
+        assert err2 and "Unsupported" in err2
+
+    def test_validate_file_batch_ocr_matches_mistral_extensions(self, tmp_path):
+        pptx = tmp_path / "s.pptx"
+        pptx.write_bytes(b"PK\x03\x04")
+        ok, err = utils.validate_file(pptx, mode="batch_ocr")
+        assert ok is True
+
+        csv_f = tmp_path / "d.csv"
+        csv_f.write_text("a,b")
+        ok2, err2 = utils.validate_file(csv_f, mode="batch_ocr")
+        assert ok2 is False
+        assert err2 and "Unsupported" in err2
+
+    def test_validate_file_pdf_to_images_pdf_only(self, tmp_path):
+        pdf = tmp_path / "a.pdf"
+        pdf.write_bytes(b"%PDF")
+        assert utils.validate_file(pdf, mode="pdf_to_images")[0] is True
+
+        png = tmp_path / "i.png"
+        png.write_bytes(b"\x89PNG")
+        ok, err = utils.validate_file(png, mode="pdf_to_images")
+        assert ok is False
+        assert err and "Unsupported" in err
+
+
+class TestStdinHelpers:
+    """sanitize_stdin_filename_hint and read_stdin_bytes_limited."""
+
+    def test_sanitize_stdin_takes_basename_only(self):
+        ok, base, err = utils.sanitize_stdin_filename_hint("foo/bar/report.pdf")
+        assert ok and base == "report.pdf" and err is None
+
+    def test_sanitize_stdin_rejects_empty(self):
+        ok, base, err = utils.sanitize_stdin_filename_hint("  ")
+        assert ok is False and not base
+
+    def test_read_stdin_bytes_limited_under_cap(self, monkeypatch):
+        import io
+
+        class _Std:
+            buffer = io.BytesIO(b"hello")
+
+        monkeypatch.setattr(utils.sys, "stdin", _Std())
+        ok, data, err = utils.read_stdin_bytes_limited(100)
+        assert ok and data == b"hello" and err is None
+
+    def test_read_stdin_bytes_limited_rejects_over_cap(self, monkeypatch):
+        import io
+
+        class _Std:
+            buffer = io.BytesIO(b"x" * 200)
+
+        monkeypatch.setattr(utils.sys, "stdin", _Std())
+        ok, data, err = utils.read_stdin_bytes_limited(100)
+        assert ok is False
+        assert data == b""
+        assert err and "limit" in err.lower()
+
+
+class TestAtomicWriteText:
+    """Regression: atomic_write_text leaves a complete destination file."""
+
+    def test_atomic_write_text_content_visible(self, tmp_path):
+        dest = tmp_path / "out.md"
+        utils.atomic_write_text(dest, "complete")
+        assert dest.read_text(encoding="utf-8") == "complete"
+
 
 class TestPdfExceedsHeavyWorkLimit:
     """pdf_exceeds_heavy_work_limit stat gate for PDF pipelines."""

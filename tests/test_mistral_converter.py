@@ -150,6 +150,17 @@ class TestValidateDocumentUrl:
         assert err and "strict" in err.lower()
 
 
+class TestValidateHttpsDocumentUrlPublic:
+    """Public SSRF API must stay aligned with _validate_document_url."""
+
+    def test_delegates_to_private_validator(self):
+        # Hosts blocked without DNS so results are deterministic.
+        for url in ("https://localhost/secret", "https://10.0.0.1/"):
+            a, ea = mistral_converter._validate_document_url(url)
+            b, eb = mistral_converter.validate_https_document_url(url)
+            assert (a, ea) == (b, eb)
+
+
 # ============================================================================
 # _is_weak_page Tests
 # ============================================================================

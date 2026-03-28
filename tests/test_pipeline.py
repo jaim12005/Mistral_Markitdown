@@ -37,7 +37,9 @@ class TestModeConvertSmart:
 
     @patch("main.mistral_converter")
     @patch("main.local_converter")
-    def test_scanned_pdf_routes_to_ocr(self, mock_local, mock_mistral, tmp_path, monkeypatch):
+    def test_scanned_pdf_routes_to_ocr(
+        self, mock_local, mock_mistral, tmp_path, monkeypatch
+    ):
         """Scanned PDFs (no text layer) should route to Mistral OCR."""
         monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
         monkeypatch.setattr(config, "MAX_BATCH_FILES", 0)
@@ -56,7 +58,11 @@ class TestModeConvertSmart:
             "table_count": 0,
             "methods_used": [],
         }
-        mock_mistral.convert_with_mistral_ocr.return_value = (True, tmp_path / "out.md", None)
+        mock_mistral.convert_with_mistral_ocr.return_value = (
+            True,
+            tmp_path / "out.md",
+            None,
+        )
 
         success, message = main.mode_convert_smart([pdf_file])
 
@@ -119,7 +125,11 @@ class TestModeConvertSmart:
         png_file = tmp_path / "scan.png"
         png_file.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
 
-        mock_mistral.convert_with_mistral_ocr.return_value = (True, tmp_path / "out.md", None)
+        mock_mistral.convert_with_mistral_ocr.return_value = (
+            True,
+            tmp_path / "out.md",
+            None,
+        )
 
         success, _ = main.mode_convert_smart([png_file])
 
@@ -127,7 +137,9 @@ class TestModeConvertSmart:
         mock_mistral.convert_with_mistral_ocr.assert_called_once_with(png_file)
 
     @patch("main.local_converter")
-    def test_pdf_over_heavy_limit_skips_table_extraction(self, mock_local, tmp_path, monkeypatch):
+    def test_pdf_over_heavy_limit_skips_table_extraction(
+        self, mock_local, tmp_path, monkeypatch
+    ):
         """Oversized PDFs must not run extract_all_tables in smart mode."""
         monkeypatch.setattr(config, "MISTRAL_API_KEY", "")
         monkeypatch.setattr(config, "MAX_BATCH_FILES", 0)
@@ -191,7 +203,9 @@ class TestModeConvertSmart:
 
     @patch("main.mistral_converter")
     @patch("main.local_converter")
-    def test_pdf_table_extraction_runs(self, mock_local, mock_mistral, tmp_path, monkeypatch):
+    def test_pdf_table_extraction_runs(
+        self, mock_local, mock_mistral, tmp_path, monkeypatch
+    ):
         """PDF table extraction should run regardless of OCR routing."""
         monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
         monkeypatch.setattr(config, "MAX_BATCH_FILES", 0)
@@ -208,7 +222,11 @@ class TestModeConvertSmart:
             "methods_used": ["pdfplumber"],
         }
         mock_local.save_tables_to_files.return_value = [tmp_path / "tables_all.md"]
-        mock_mistral.convert_with_mistral_ocr.return_value = (True, tmp_path / "out.md", None)
+        mock_mistral.convert_with_mistral_ocr.return_value = (
+            True,
+            tmp_path / "out.md",
+            None,
+        )
 
         success, _ = main.mode_convert_smart([pdf_file])
 
@@ -266,7 +284,11 @@ class TestModeConcurrency:
             f.write_bytes(b"%PDF-1.4")
             files.append(f)
 
-        mock_mistral.convert_with_mistral_ocr.return_value = (True, tmp_path / "out.md", None)
+        mock_mistral.convert_with_mistral_ocr.return_value = (
+            True,
+            tmp_path / "out.md",
+            None,
+        )
 
         success, message = main.mode_mistral_ocr_only(files)
 
@@ -301,7 +323,9 @@ class TestDispatchTable:
 
     def test_dispatch_handlers_are_callable(self):
         for choice, (cli_name, handler) in main.MODE_DISPATCH.items():
-            assert callable(handler), f"Handler for {cli_name} (choice {choice}) is not callable"
+            assert callable(handler), (
+                f"Handler for {cli_name} (choice {choice}) is not callable"
+            )
 
 
 # ============================================================================
@@ -405,14 +429,18 @@ class TestProcessFilesConcurrently:
     def test_single_file_success(self, tmp_path):
         f = tmp_path / "test.txt"
         f.write_text("data")
-        success, failed = main._process_files_concurrently([f], lambda p: (True, "content", None))
+        success, failed = main._process_files_concurrently(
+            [f], lambda p: (True, "content", None)
+        )
         assert success == 1
         assert failed == 0
 
     def test_single_file_failure(self, tmp_path):
         f = tmp_path / "test.txt"
         f.write_text("data")
-        success, failed = main._process_files_concurrently([f], lambda p: (False, None, "error"))
+        success, failed = main._process_files_concurrently(
+            [f], lambda p: (False, None, "error")
+        )
         assert success == 0
         assert failed == 1
 
@@ -435,7 +463,9 @@ class TestProcessFilesConcurrently:
             f.write_text(f"content {i}")
             files.append(f)
 
-        success, failed = main._process_files_concurrently(files, lambda p: (True, "ok", None))
+        success, failed = main._process_files_concurrently(
+            files, lambda p: (True, "ok", None)
+        )
         assert success == 3
         assert failed == 0
 
@@ -448,7 +478,9 @@ class TestProcessFilesConcurrently:
             f.write_text(f"content {i}")
             files.append(f)
 
-        success, failed = main._process_files_concurrently(files, lambda p: (False, None, "failed"))
+        success, failed = main._process_files_concurrently(
+            files, lambda p: (False, None, "failed")
+        )
         assert success == 0
         assert failed == 2
 
@@ -528,7 +560,11 @@ class TestModePdfToImages:
         pdf = tmp_path / "test.pdf"
         pdf.write_bytes(b"%PDF-1.4")
 
-        mock_local.convert_pdf_to_images.return_value = (True, [tmp_path / "page1.png", tmp_path / "page2.png"], None)
+        mock_local.convert_pdf_to_images.return_value = (
+            True,
+            [tmp_path / "page1.png", tmp_path / "page2.png"],
+            None,
+        )
 
         success, msg = main.mode_pdf_to_images([pdf])
         assert success is True
@@ -713,12 +749,21 @@ class TestModeBatchOcr:
 
         with patch("builtins.input", return_value="1"):
             with patch.object(main, "mistral_converter") as mock_mc:
-                mock_mc.create_batch_ocr_file.return_value = (True, cache_sub / "batch_input.jsonl", None)
+
+                def _fake_create(paths, out_path):
+                    return True, out_path, None
+
+                mock_mc.create_batch_ocr_file.side_effect = _fake_create
                 mock_mc.submit_batch_ocr_job.return_value = (True, "job-123", None)
                 success, msg = main.mode_batch_ocr([pdf])
 
         assert success is True
         assert "job-123" in msg
+        call = mock_mc.create_batch_ocr_file.call_args
+        assert call[0][0] == [pdf]
+        assert call[0][1].parent == cache_sub
+        assert call[0][1].name.startswith("batch_ocr_")
+        assert call[0][1].suffix == ".jsonl"
 
     def test_non_interactive_batch_submit(self, tmp_path, monkeypatch):
         monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
@@ -732,12 +777,21 @@ class TestModeBatchOcr:
         pdf.write_bytes(b"%PDF")
 
         with patch.object(main, "mistral_converter") as mock_mc:
-            mock_mc.create_batch_ocr_file.return_value = (True, cache_sub / "batch_input.jsonl", None)
+
+            def _fake_create(paths, out_path):
+                return True, out_path, None
+
+            mock_mc.create_batch_ocr_file.side_effect = _fake_create
             mock_mc.submit_batch_ocr_job.return_value = (True, "job-99", None)
-            success, msg = main.mode_batch_ocr([pdf], non_interactive=True, batch_action="submit")
+            success, msg = main.mode_batch_ocr(
+                [pdf], non_interactive=True, batch_action="submit"
+            )
 
         assert success is True
         assert "job-99" in msg
+        assert mock_mc.create_batch_ocr_file.call_args[0][1].name.startswith(
+            "batch_ocr_"
+        )
 
     def test_non_interactive_batch_missing_action(self, tmp_path, monkeypatch):
         monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
@@ -773,6 +827,19 @@ class TestModeBatchOcr:
         assert success is False
         assert "batch-job-id" in msg.lower()
 
+    def test_non_interactive_list_requires_no_input_files(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        monkeypatch.setattr(config, "MISTRAL_BATCH_ENABLED", True)
+        with patch.object(main, "mistral_converter") as mock_mc:
+            mock_mc.list_batch_jobs.return_value = (True, [], None)
+            ok, msg = main.mode_batch_ocr(
+                [],
+                non_interactive=True,
+                batch_action="list",
+            )
+        assert ok is True
+        mock_mc.create_batch_ocr_file.assert_not_called()
+
     def test_check_status_flow(self, tmp_path, monkeypatch):
         monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
         monkeypatch.setattr(config, "MISTRAL_BATCH_ENABLED", True)
@@ -783,7 +850,12 @@ class TestModeBatchOcr:
             with patch.object(main, "mistral_converter") as mock_mc:
                 mock_mc.get_batch_job_status.return_value = (
                     True,
-                    {"status": "completed", "progress_percent": 100, "succeeded_requests": 5, "failed_requests": 0},
+                    {
+                        "status": "completed",
+                        "progress_percent": 100,
+                        "succeeded_requests": 5,
+                        "failed_requests": 0,
+                    },
                     None,
                 )
                 success, msg = main.mode_batch_ocr([tmp_path / "doc.pdf"])
@@ -800,7 +872,14 @@ class TestModeBatchOcr:
             with patch.object(main, "mistral_converter") as mock_mc:
                 mock_mc.list_batch_jobs.return_value = (
                     True,
-                    [{"id": "job-1", "status": "completed", "total_requests": 3, "created_at": "2025-01-01"}],
+                    [
+                        {
+                            "id": "job-1",
+                            "status": "completed",
+                            "total_requests": 3,
+                            "created_at": "2025-01-01",
+                        }
+                    ],
                     None,
                 )
                 success, msg = main.mode_batch_ocr([tmp_path / "doc.pdf"])
@@ -816,7 +895,11 @@ class TestModeBatchOcr:
         inputs = iter(["4", "job-xyz"])
         with patch("builtins.input", side_effect=inputs):
             with patch.object(main, "mistral_converter") as mock_mc:
-                mock_mc.download_batch_results.return_value = (True, "/output/results.md", None)
+                mock_mc.download_batch_results.return_value = (
+                    True,
+                    "/output/results.md",
+                    None,
+                )
                 success, msg = main.mode_batch_ocr([tmp_path / "doc.pdf"])
 
         assert success is True
@@ -867,8 +950,12 @@ class TestModeMaintenance:
         monkeypatch.setattr(config, "UPLOAD_RETENTION_DAYS", 7)
 
         mock_client = MagicMock()
-        with patch.object(mistral_converter, "get_mistral_client", return_value=mock_client):
-            with patch.object(mistral_converter, "cleanup_uploaded_files", return_value=5):
+        with patch.object(
+            mistral_converter, "get_mistral_client", return_value=mock_client
+        ):
+            with patch.object(
+                mistral_converter, "cleanup_uploaded_files", return_value=5
+            ):
                 ok, msg = main.mode_maintenance()
         assert ok is True
         assert "5 old uploaded" in msg
@@ -889,7 +976,9 @@ class TestModeMaintenance:
         monkeypatch.setattr(config, "CLEANUP_OLD_UPLOADS", True)
         monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
 
-        with patch.object(mistral_converter, "get_mistral_client", side_effect=Exception("API error")):
+        with patch.object(
+            mistral_converter, "get_mistral_client", side_effect=Exception("API error")
+        ):
             ok, msg = main.mode_maintenance()
         assert ok is True
 
@@ -998,14 +1087,18 @@ class TestMainCli:
         main.main()
 
     def test_no_files_non_interactive(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("sys.argv", ["main.py", "--mode", "markitdown", "--no-interactive"])
+        monkeypatch.setattr(
+            "sys.argv", ["main.py", "--mode", "markitdown", "--no-interactive"]
+        )
         monkeypatch.setattr(config, "INPUT_DIR", tmp_path)
         # Empty dir → should print message and return
         main.main()
 
     def test_direct_mode_markitdown(self, tmp_path, monkeypatch):
         """Test direct mode execution with --mode and files."""
-        monkeypatch.setattr("sys.argv", ["main.py", "--mode", "markitdown", "--no-interactive"])
+        monkeypatch.setattr(
+            "sys.argv", ["main.py", "--mode", "markitdown", "--no-interactive"]
+        )
         monkeypatch.setattr(config, "INPUT_DIR", tmp_path)
         monkeypatch.setattr(config, "OUTPUT_MD_DIR", tmp_path / "out")
         monkeypatch.setattr(config, "OUTPUT_TXT_DIR", tmp_path / "out_txt")
@@ -1163,8 +1256,16 @@ class TestModeConvertSmartExpanded:
         pdf = tmp_path / "test.pdf"
         pdf.write_bytes(b"%PDF-1.4")
 
-        with patch.object(local_converter, "extract_all_tables", side_effect=Exception("extraction failed")):
-            with patch.object(local_converter, "convert_with_markitdown", return_value=(True, "content", None)):
+        with patch.object(
+            local_converter,
+            "extract_all_tables",
+            side_effect=Exception("extraction failed"),
+        ):
+            with patch.object(
+                local_converter,
+                "convert_with_markitdown",
+                return_value=(True, "content", None),
+            ):
                 ok, msg = main.mode_convert_smart([pdf])
         assert ok is True
 
@@ -1187,7 +1288,11 @@ class TestModeConvertSmartExpanded:
         doc = tmp_path / "test.docx"
         doc.write_bytes(b"PK\x03\x04")
 
-        with patch.object(local_converter, "convert_with_markitdown", return_value=(True, "content", None)):
+        with patch.object(
+            local_converter,
+            "convert_with_markitdown",
+            return_value=(True, "content", None),
+        ):
             ok, msg = main.mode_convert_smart([doc])
         assert ok is True
 
@@ -1227,7 +1332,11 @@ class TestModeBatchOcrExpanded:
 
         with patch("builtins.input", return_value="1"):
             with patch.object(main, "mistral_converter") as mock_mc:
-                mock_mc.create_batch_ocr_file.return_value = (False, None, "creation error")
+                mock_mc.create_batch_ocr_file.return_value = (
+                    False,
+                    None,
+                    "creation error",
+                )
                 ok, msg = main.mode_batch_ocr([tmp_path / "doc.pdf"])
         assert ok is False
         assert "Failed to create" in msg
@@ -1243,8 +1352,16 @@ class TestModeBatchOcrExpanded:
 
         with patch("builtins.input", return_value="1"):
             with patch.object(main, "mistral_converter") as mock_mc:
-                mock_mc.create_batch_ocr_file.return_value = (True, cache_sub / "batch_input.jsonl", None)
-                mock_mc.submit_batch_ocr_job.return_value = (False, None, "submit error")
+
+                def _fake_create(paths, out_path):
+                    return True, out_path, None
+
+                mock_mc.create_batch_ocr_file.side_effect = _fake_create
+                mock_mc.submit_batch_ocr_job.return_value = (
+                    False,
+                    None,
+                    "submit error",
+                )
                 ok, msg = main.mode_batch_ocr([tmp_path / "doc.pdf"])
         assert ok is False
         assert "Failed to submit" in msg
@@ -1386,8 +1503,12 @@ class TestModeSystemStatusExpanded:
         monkeypatch.setattr(config, "AUTO_CLEAR_CACHE", False)
 
         mock_client = MagicMock()
-        with patch.object(mistral_converter, "get_mistral_client", return_value=mock_client):
-            with patch.object(mistral_converter, "cleanup_uploaded_files", return_value=3):
+        with patch.object(
+            mistral_converter, "get_mistral_client", return_value=mock_client
+        ):
+            with patch.object(
+                mistral_converter, "cleanup_uploaded_files", return_value=3
+            ):
                 ok, msg = main.mode_system_status()
         assert ok is True
 
@@ -1397,7 +1518,9 @@ class TestModeSystemStatusExpanded:
         monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
         monkeypatch.setattr(config, "AUTO_CLEAR_CACHE", False)
 
-        with patch.object(mistral_converter, "get_mistral_client", side_effect=Exception("API fail")):
+        with patch.object(
+            mistral_converter, "get_mistral_client", side_effect=Exception("API fail")
+        ):
             ok, msg = main.mode_system_status()
         assert ok is True
 
@@ -1463,7 +1586,11 @@ class TestInteractiveMenuExpanded:
         # Choose mode 2, select file 1, then exit
         inputs = iter(["2", "1", "", "0"])
         with patch("builtins.input", side_effect=inputs):
-            with patch.object(local_converter, "convert_with_markitdown", return_value=(True, "content", None)):
+            with patch.object(
+                local_converter,
+                "convert_with_markitdown",
+                return_value=(True, "content", None),
+            ):
                 main.interactive_menu()
 
     def test_mode_no_valid_files(self, tmp_path, monkeypatch):
@@ -1517,7 +1644,9 @@ class TestMainCliExpanded:
 
     def test_no_valid_files_exits_1(self, tmp_path, monkeypatch):
         """Lines 826-827: no valid files with --mode exits with code 1."""
-        monkeypatch.setattr("sys.argv", ["main.py", "--mode", "markitdown", "--no-interactive"])
+        monkeypatch.setattr(
+            "sys.argv", ["main.py", "--mode", "markitdown", "--no-interactive"]
+        )
         monkeypatch.setattr(config, "INPUT_DIR", tmp_path)
 
         # Create an empty file that won't pass validation
@@ -1549,7 +1678,9 @@ class TestModeDocumentQnaExpanded:
         pdf.write_bytes(b"x" * ((cap + 1) * 1024 * 1024))
         monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
 
-        with patch.object(mistral_converter, "get_mistral_client", return_value=MagicMock()):
+        with patch.object(
+            mistral_converter, "get_mistral_client", return_value=MagicMock()
+        ):
             ok, msg = main.mode_document_qna([pdf])
         assert ok is False
         assert "too large" in msg.lower() or f"{cap} MB" in msg
@@ -1560,7 +1691,9 @@ class TestModeDocumentQnaExpanded:
         pdf.write_bytes(b"%PDF-1.4")
         monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
 
-        with patch.object(mistral_converter, "get_mistral_client", return_value=MagicMock()):
+        with patch.object(
+            mistral_converter, "get_mistral_client", return_value=MagicMock()
+        ):
             with patch.object(Path, "stat", side_effect=OSError("disk error")):
                 ok, msg = main.mode_document_qna([pdf])
         assert ok is False
@@ -1574,8 +1707,12 @@ class TestModeDocumentQnaExpanded:
         monkeypatch.setattr(config, "MISTRAL_SIGNED_URL_EXPIRY", 1)
 
         mock_client = MagicMock()
-        with patch.object(mistral_converter, "get_mistral_client", return_value=mock_client):
-            with patch.object(mistral_converter, "upload_file_for_ocr", return_value=None):
+        with patch.object(
+            mistral_converter, "get_mistral_client", return_value=mock_client
+        ):
+            with patch.object(
+                mistral_converter, "upload_file_for_ocr", return_value=None
+            ):
                 ok, msg = main.mode_document_qna([pdf])
         assert ok is False
         assert "Failed to upload" in msg
@@ -1595,9 +1732,19 @@ class TestModeDocumentQnaExpanded:
 
         inputs = iter(["What is this?", "exit"])
 
-        with patch.object(mistral_converter, "get_mistral_client", return_value=mock_client):
-            with patch.object(mistral_converter, "upload_file_for_ocr", return_value="https://example.com/doc"):
-                with patch.object(mistral_converter, "query_document_stream", return_value=(True, [mock_chunk], None)):
+        with patch.object(
+            mistral_converter, "get_mistral_client", return_value=mock_client
+        ):
+            with patch.object(
+                mistral_converter,
+                "upload_file_for_ocr",
+                return_value="https://example.com/doc",
+            ):
+                with patch.object(
+                    mistral_converter,
+                    "query_document_stream",
+                    return_value=(True, [mock_chunk], None),
+                ):
                     with patch("builtins.input", side_effect=inputs):
                         ok, msg = main.mode_document_qna([pdf])
 
@@ -1615,9 +1762,19 @@ class TestModeDocumentQnaExpanded:
         mock_client = MagicMock()
         inputs = iter(["What?", "exit"])
 
-        with patch.object(mistral_converter, "get_mistral_client", return_value=mock_client):
-            with patch.object(mistral_converter, "upload_file_for_ocr", return_value="https://example.com/doc"):
-                with patch.object(mistral_converter, "query_document_stream", return_value=(False, None, "API error")):
+        with patch.object(
+            mistral_converter, "get_mistral_client", return_value=mock_client
+        ):
+            with patch.object(
+                mistral_converter,
+                "upload_file_for_ocr",
+                return_value="https://example.com/doc",
+            ):
+                with patch.object(
+                    mistral_converter,
+                    "query_document_stream",
+                    return_value=(False, None, "API error"),
+                ):
                     with patch("builtins.input", side_effect=inputs):
                         ok, msg = main.mode_document_qna([pdf])
 
@@ -1633,8 +1790,14 @@ class TestModeDocumentQnaExpanded:
 
         mock_client = MagicMock()
 
-        with patch.object(mistral_converter, "get_mistral_client", return_value=mock_client):
-            with patch.object(mistral_converter, "upload_file_for_ocr", return_value="https://example.com/doc"):
+        with patch.object(
+            mistral_converter, "get_mistral_client", return_value=mock_client
+        ):
+            with patch.object(
+                mistral_converter,
+                "upload_file_for_ocr",
+                return_value="https://example.com/doc",
+            ):
                 with patch("builtins.input", side_effect=KeyboardInterrupt):
                     ok, msg = main.mode_document_qna([pdf])
 
@@ -1656,9 +1819,19 @@ class TestModeDocumentQnaExpanded:
 
         inputs = iter(["What?", "exit"])
 
-        with patch.object(mistral_converter, "get_mistral_client", return_value=mock_client):
-            with patch.object(mistral_converter, "upload_file_for_ocr", return_value="https://example.com/doc"):
-                with patch.object(mistral_converter, "query_document_stream", return_value=(True, bad_stream(), None)):
+        with patch.object(
+            mistral_converter, "get_mistral_client", return_value=mock_client
+        ):
+            with patch.object(
+                mistral_converter,
+                "upload_file_for_ocr",
+                return_value="https://example.com/doc",
+            ):
+                with patch.object(
+                    mistral_converter,
+                    "query_document_stream",
+                    return_value=(True, bad_stream(), None),
+                ):
                     with patch("builtins.input", side_effect=inputs):
                         ok, msg = main.mode_document_qna([pdf])
 
@@ -1678,8 +1851,12 @@ class TestModeDocumentQnaExpanded:
 
         inputs = iter(["What?", "exit"])
 
-        with patch.object(mistral_converter, "get_mistral_client", return_value=mock_client):
-            with patch.object(mistral_converter, "upload_file_for_ocr", side_effect=upload_calls):
+        with patch.object(
+            mistral_converter, "get_mistral_client", return_value=mock_client
+        ):
+            with patch.object(
+                mistral_converter, "upload_file_for_ocr", side_effect=upload_calls
+            ):
                 with patch("builtins.input", side_effect=inputs):
                     ok, msg = main.mode_document_qna([pdf])
 
