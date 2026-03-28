@@ -2716,10 +2716,24 @@ def download_batch_results(
 
         output_path = output_dir / f"batch_ocr_results_{job_id}.jsonl"
 
-        # Download file content
+        # Download file content. SDK versions differ here:
+        # - older/test paths may return raw bytes
+        # - current SDK returns an httpx.Response stream wrapper
         file_content = client.files.download(file_id=job.output_file)
 
-        utils.atomic_write_binary(output_path, file_content)
+        if httpx is not None and isinstance(file_content, httpx.Response):
+            payload = file_content.read()
+            file_content.close()
+        elif isinstance(file_content, (bytes, bytearray, memoryview)):
+            payload = bytes(file_content)
+        elif hasattr(file_content, "content"):
+            payload = file_content.content
+        elif hasattr(file_content, "read"):
+            payload = file_content.read()
+        else:
+            raise TypeError(f"Unsupported batch download payload type: {type(file_content)!r}")
+
+        utils.atomic_write_binary(output_path, payload)
 
         logger.info("Batch results saved to: %s", output_path)
         return True, output_path, None

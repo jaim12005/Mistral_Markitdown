@@ -12,6 +12,7 @@ Tests cover:
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 
 import config
@@ -1520,6 +1521,27 @@ class TestDownloadBatchResults:
 
         assert ok is True
         assert path.exists()
+
+    def test_successful_download_httpx_response(self, tmp_path):
+        mock_job = MagicMock()
+        mock_job.status = "SUCCESS"
+        mock_job.output_file = "output_file_id"
+
+        with patch.object(mistral_converter, "get_mistral_client") as mock_get:
+            mock_client = MagicMock()
+            mock_client.batch.jobs.get.return_value = mock_job
+            mock_client.files.download.return_value = httpx.Response(
+                200,
+                content=b'{"result": "streamed"}\n',
+                headers={"content-type": "application/octet-stream"},
+            )
+            mock_get.return_value = mock_client
+
+            ok, path, err = mistral_converter.download_batch_results("job_ok_httpx", output_dir=tmp_path)
+
+        assert ok is True
+        assert path.exists()
+        assert path.read_text() == '{"result": "streamed"}\n'
 
     def test_job_not_complete(self):
         mock_job = MagicMock()
