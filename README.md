@@ -16,6 +16,9 @@ A document conversion system combining Microsoft **MarkItDown** (local) with **M
 - Python 3.10+
 - Mistral API key (optional — only needed for cloud OCR/QnA/Batch features): https://console.mistral.ai/api-keys/
   - Without a key, local MarkItDown conversion (mode 2) and PDF-to-images (mode 4) work fully.
+  - A valid API key is enough for single-file OCR and Document QnA.
+  - Batch OCR additionally requires Mistral AI Studio Scale / paid access. A valid key alone is not enough.
+  - If batch submit still returns free-trial / 402 messaging after a plan change, confirm the workspace is on Scale and create a fresh API key.
 
 ### Installation
 
@@ -73,8 +76,8 @@ python3 main.py --test       # Verify setup
 | 2   | **Convert (MarkItDown)**  | No         | Force local conversion. Fast, free, supports 30+ formats.                           |
 | 3   | **Convert (Mistral OCR)** | Yes        | Force cloud OCR. Best for scanned docs, complex layouts, equations.                 |
 | 4   | **PDF to Images**         | No         | Render each PDF page to PNG/JPEG at configurable DPI.                               |
-| 5   | **Document QnA**          | Yes        | Ask questions about a document in natural language.                                 |
-| 6   | **Batch OCR**             | Yes        | Submit to Mistral Batch API at 50% cost reduction.                                  |
+| 5   | **Document QnA**          | Yes        | Ask questions about a document in natural language (advisory for exact values).     |
+| 6   | **Batch OCR**             | Yes        | Submit to Mistral Batch API at 50% cost reduction (requires AI Studio Scale).       |
 | 7   | **System Status**         | No         | Cache stats, config info, diagnostics.                                              |
 | 8   | **Maintenance**           | No         | Clear expired cache, clean up old Mistral uploads.                                  |
 
@@ -133,7 +136,7 @@ python3 main.py --no-interactive    # Process all files in input/ without prompt
 ### Cost Optimization
 
 - **Caching**: SHA-256 file hashing with 24-hour persistence. Reprocessing the same files costs nothing.
-- **Batch OCR**: 50% cost reduction for 10+ documents via Mistral Batch API.
+- **Batch OCR**: 50% cost reduction for 10+ documents via Mistral Batch API. Requires AI Studio Scale / paid access.
 - **Auto-cleanup**: Old uploaded files removed from Mistral after 7 days (configurable).
 
 ## Key Features
@@ -179,6 +182,9 @@ Built-in schemas for invoices, financial statements, contracts, forms, and gener
 ### Document QnA
 
 Interactive natural language queries against document content:
+
+Important caveat: QnA works well for summaries and exploratory questions, but do not trust it blindly for exact-value extraction.
+For dates, amounts, invoice numbers, IDs, or compliance-sensitive fields, use OCR markdown/metadata as the source of truth and treat QnA as advisory only.
 
 ```bash
 python3 main.py --mode qna

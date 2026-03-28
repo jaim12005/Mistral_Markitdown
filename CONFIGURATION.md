@@ -58,6 +58,7 @@ LOG_LEVEL=INFO
 - **Default:** None (must be set)
 - **Required for:** Convert (Smart) (`--mode smart`), Convert (Mistral OCR) (`--mode mistral_ocr`), Document QnA (`--mode qna`), Batch OCR (`--mode batch_ocr`); optional for MarkItDown LLM/plugin features when using Convert (MarkItDown) (`--mode markitdown`)
 - **Get it from:** https://console.mistral.ai/api-keys/
+- **Important:** A valid API key is enough for single-file OCR and Document QnA, but Batch OCR additionally requires Mistral AI Studio Scale / paid access.
 
 ```ini
 MISTRAL_API_KEY="your_api_key_here"
@@ -312,6 +313,9 @@ MISTRAL_CLIENT_TIMEOUT_MS=300000
 
 Query documents in natural language using Mistral's chat completion with document_url content type.
 
+Important caveat: treat Document QnA as advisory only for exact-value extraction.
+For dates, amounts, invoice numbers, IDs, and compliance-sensitive fields, prefer OCR markdown/metadata as the source of truth and cross-check QnA answers before trusting them.
+
 ### MISTRAL_DOCUMENT_QNA_MODEL
 
 - **Type:** String
@@ -386,6 +390,9 @@ if success:
 ## Batch OCR Processing
 
 Process multiple documents at 50% cost reduction using Mistral's Batch API.
+
+Important: Batch OCR requires Mistral AI Studio Scale / paid access.
+A valid API key alone is not enough. If batch submit returns free-trial / 402 messaging even for tiny jobs, check the workspace plan first and, after plan changes, consider creating a fresh API key.
 
 ### MISTRAL_BATCH_ENABLED
 

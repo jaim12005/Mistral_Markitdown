@@ -48,9 +48,33 @@ MarkItDown plugins for audio/video are not installed by default:
 
 ---
 
+### Batch OCR may still fail with free-trial / 402 messaging until the workspace is on Scale
+
+Batch OCR is gated differently from single-file OCR. It is possible for auth, single-file OCR, and Document QnA to work while Batch OCR still fails with Mistral free-trial / 402 wording.
+
+**What to check:**
+
+- Confirm the Mistral workspace is on AI Studio Scale / paid access
+- If the plan was just changed, create a fresh API key and retry
+- Treat this as a plan gate first, not a local batch-wrapper bug
+
+---
+
 ### Batch job IDs are validated for safe characters
 
 When supplying `--batch-job-id` for batch status or download in non-interactive mode, the ID must contain only alphanumeric characters, hyphens, and underscores, and be at most 128 characters. Invalid IDs are rejected with a descriptive error before processing begins.
+
+---
+
+### Document QnA can return plausible-but-wrong exact values
+
+Document QnA is useful for summaries and exploratory follow-up questions, but it is not yet a safe source of truth for exact dates, amounts, invoice numbers, IDs, or compliance-sensitive fields.
+
+**Recommendation:**
+
+- Use OCR markdown/metadata as the source of truth for exact values
+- Treat QnA as advisory only
+- Cross-check exact-value answers before trusting them
 
 ---
 
