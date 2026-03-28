@@ -35,7 +35,8 @@ make check
 ```
 
 **Note on Optional Dependencies:**
-- `requirements-optional.txt` contains MarkItDown plugin features (audio, YouTube, Azure)
+
+- `requirements-optional.txt` contains MarkItDown plugin features (audio, YouTube, etc.)
 - Only install if you're working on features that require these capabilities
 - See [README.md](README.md) and [CONFIGURATION.md](CONFIGURATION.md) for details
 
@@ -73,6 +74,7 @@ make check
 ### Making Changes
 
 1. **Create a branch**
+
    ```bash
    git checkout -b feature/your-feature-name
    ```
@@ -83,11 +85,13 @@ make check
    - Add tests for new features
 
 3. **Test your changes**
+
    ```bash
    make check
    ```
 
 4. **Commit your changes**
+
    ```bash
    git add .
    git commit -m "feat: add new feature"
@@ -145,6 +149,7 @@ def process_document(file_path: Path, use_cache: bool = True) -> Tuple[bool, Opt
 - Mock external API calls
 
 **Testing Optional Features:**
+
 - Audio/YouTube features require `requirements-optional.txt` to be installed
 - Use `pytest.importorskip()` to skip tests when optional packages are missing
 - Example: `pytest.importorskip("pydub", reason="Audio features not installed")`
@@ -156,10 +161,10 @@ def test_feature_name():
     """Test description."""
     # Arrange
     input_data = create_test_data()
-    
+
     # Act
     result = function_under_test(input_data)
-    
+
     # Assert
     assert result == expected_output
 ```
@@ -167,6 +172,7 @@ def test_feature_name():
 ### Fixtures
 
 Common fixtures are available in `tests/conftest.py`:
+
 - `tmp_path`: Temporary directory
 - `sample_pdf_path`: Sample PDF file
 - `sample_markdown`: Sample markdown content
@@ -184,7 +190,7 @@ Mistral_Markitdown/
 ├── schemas.py               # JSON schemas for structured extraction
 │
 ├── requirements.txt         # Core dependencies (required)
-├── requirements-optional.txt # Optional features (audio, YouTube, Azure)
+├── requirements-optional.txt # Optional features (audio, YouTube, …)
 ├── requirements-dev.txt     # Development dependencies (testing, linting)
 │
 ├── README.md                # Complete user guide
@@ -226,10 +232,11 @@ Mistral_Markitdown/
 ### Adding a New Feature
 
 1. **Create tests first** (TDD approach)
+
    ```bash
    # Create test file
    touch tests/test_new_feature.py
-   
+
    # Write failing tests
    # Then implement feature to make tests pass
    ```
@@ -354,6 +361,7 @@ Thank you for contributing to Enhanced Document Converter!
 **Version:** 3.0.0
 
 **Related Documentation:**
+
 - **[README.md](README.md)** - Complete feature documentation
 - **[CONFIGURATION.md](CONFIGURATION.md)** - Configuration reference
 - **[KNOWN_ISSUES.md](KNOWN_ISSUES.md)** - Known issues

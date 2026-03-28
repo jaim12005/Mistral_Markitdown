@@ -879,7 +879,7 @@ def mode_system_status() -> Tuple[bool, str]:
     out(f"Input Directory: {len([f for f in input_files if f.is_file()])} files ready")
     out()
 
-    out("Configured Mistral Models:")
+    out("Bundled model reference (verify current IDs on https://docs.mistral.ai):")
     key_models = ["mistral-ocr-latest", "pixtral-large-latest", "ministral-8b-latest"]
     for model_id in key_models:
         if model_id in config.MISTRAL_MODELS:

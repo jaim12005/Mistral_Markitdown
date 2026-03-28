@@ -217,13 +217,13 @@ Advanced features available with the `mistral-ocr-2512` model.
 ### MISTRAL_TABLE_FORMAT
 
 - **Type:** String
-- **Default:** `""` (inline markdown)
-- **Options:** `""` (inline markdown), `"markdown"` (separate blocks), `"html"` (colspan/rowspan support)
+- **Default:** `"markdown"` (separate markdown table blocks)
+- **Options:** `""` (omit parameter → API default), `"markdown"` (separate blocks), `"html"` (colspan/rowspan support)
 - **Description:** Controls how tables are formatted in OCR output
 - **Recommendation:** Use `"html"` for complex tables with merged cells
 
 ```ini
-MISTRAL_TABLE_FORMAT=""
+MISTRAL_TABLE_FORMAT=markdown
 ```
 
 ### MISTRAL_EXTRACT_HEADER
@@ -469,7 +469,7 @@ UPLOAD_RETENTION_DAYS=7
 
 ## Structured Data Extraction
 
-**Important:** The OCR API uses raw JSON schema dictionaries for structured extraction, not ResponseFormat objects. The converter handles this automatically - these settings simply enable/disable the features.
+**Important:** The Mistral OCR API expects `bbox_annotation_format` / `document_annotation_format` as **ResponseFormat** envelopes (`type: json_schema` wrapping the schema, name, and strict flag). The converter builds those from Pydantic models, the SDK helper when available, or manual wrapping — not “raw schema only” payloads.
 
 ### MISTRAL_ENABLE_STRUCTURED_OUTPUT
 
@@ -731,7 +731,7 @@ MAX_PAGES_PER_SESSION=1000
 
 - **Type:** Integer
 - **Default:** `3`
-- **Description:** Number of retry attempts for failed API calls
+- **Description:** Passed into the Mistral SDK retry/backoff configuration (not a simple fixed “N attempts” counter in all cases). Set to `0` to disable retries.
 
 ```ini
 MAX_RETRIES=3
@@ -825,8 +825,7 @@ TABLE_OUTPUT_FORMATS="markdown,csv"
 
 - **Type:** Boolean
 - **Default:** `true`
-- **Description:** Track batch processing statistics
-- **Output:** `logs/metadata/batch_metadata.json`
+- **Description:** Reserved for future batch job metadata files; **no code path writes output yet** (kept for `.env` compatibility).
 
 ```ini
 ENABLE_BATCH_METADATA=true
@@ -967,7 +966,7 @@ LOG_LEVEL=INFO
 # ============================================================================
 
 # OCR 3 Features
-MISTRAL_TABLE_FORMAT=""
+MISTRAL_TABLE_FORMAT=markdown
 MISTRAL_EXTRACT_HEADER=true
 MISTRAL_EXTRACT_FOOTER=true
 
@@ -1037,12 +1036,13 @@ CACHE_DURATION_HOURS=72  # Longer cache for expensive OCR
 
 ```ini
 MISTRAL_API_KEY="your_key"
-CAMELOT_MIN_ACCURACY=85.0  # Stricter quality
-CAMELOT_MAX_WHITESPACE=20.0  # Less whitespace tolerance
-CAMELOT_STREAM_SPLIT_TEXT=true  # Critical for wide tables
-CAMELOT_STREAM_COLUMN_TOL=0  # Prevent column merging
+MISTRAL_TABLE_FORMAT=html
+MISTRAL_EXTRACT_HEADER=true
+MISTRAL_EXTRACT_FOOTER=true
 TABLE_OUTPUT_FORMATS=markdown,csv
 ```
+
+Local PDF table extraction uses **pdfplumber** (not Camelot). Tune OCR/table output via Mistral OCR settings above.
 
 ### For Batch Processing (Performance Optimized)
 
@@ -1068,82 +1068,82 @@ VERBOSE_PROGRESS=true
 
 ## Environment Variable Reference
 
-| Variable                           | Type   | Default              | Required                                                              | Section          |
-| ---------------------------------- | ------ | -------------------- | --------------------------------------------------------------------- | ---------------- |
-| MISTRAL_API_KEY                    | string | -                    | Yes (for smart, mistral_ocr, qna, batch_ocr; optional for markitdown) | API Keys         |
-| MISTRAL_SERVER_URL                 | string | ""                   | No                                                                    | API Keys         |
-| STRICT_INPUT_PATH_RESOLUTION       | bool   | false                | No                                                                    | Security         |
-| MISTRAL_OCR_MODEL                  | string | mistral-ocr-latest   | No                                                                    | OCR              |
-| MISTRAL_INCLUDE_IMAGES             | bool   | true                 | No                                                                    | OCR              |
-| SAVE_MISTRAL_JSON                  | bool   | true                 | No                                                                    | OCR              |
-| OCR_QUALITY_THRESHOLD_EXCELLENT    | int    | 80                   | No                                                                    | OCR Quality      |
-| OCR_QUALITY_THRESHOLD_GOOD         | int    | 60                   | No                                                                    | OCR Quality      |
-| OCR_QUALITY_THRESHOLD_ACCEPTABLE   | int    | 40                   | No                                                                    | OCR Quality      |
-| ENABLE_OCR_QUALITY_ASSESSMENT      | bool   | true                 | No                                                                    | OCR Quality      |
-| ENABLE_OCR_WEAK_PAGE_IMPROVEMENT   | bool   | true                 | No                                                                    | OCR Quality      |
-| OCR_MIN_TEXT_LENGTH                | int    | 50                   | No                                                                    | OCR Quality      |
-| OCR_MIN_UNIQUENESS_RATIO           | float  | 0.3                  | No                                                                    | OCR Quality      |
-| OCR_MAX_PHRASE_REPETITIONS         | int    | 5                    | No                                                                    | OCR Quality      |
-| OCR_MIN_AVG_LINE_LENGTH            | int    | 10                   | No                                                                    | OCR Quality      |
-| MISTRAL_TABLE_FORMAT               | string | ""                   | No                                                                    | OCR 3            |
-| MISTRAL_EXTRACT_HEADER             | bool   | true                 | No                                                                    | OCR 3            |
-| MISTRAL_EXTRACT_FOOTER             | bool   | true                 | No                                                                    | OCR 3            |
-| MISTRAL_DOCUMENT_ANNOTATION_PROMPT | string | ""                   | No                                                                    | OCR 3            |
-| MISTRAL_IMAGE_LIMIT                | int    | 0                    | No                                                                    | OCR 3            |
-| MISTRAL_IMAGE_MIN_SIZE             | int    | 0                    | No                                                                    | OCR 3            |
-| MISTRAL_OCR_MAX_FILE_SIZE_MB       | int    | 200                  | No                                                                    | OCR              |
-| MISTRAL_SIGNED_URL_EXPIRY          | int    | 1                    | No                                                                    | OCR 3            |
-| MISTRAL_CLIENT_TIMEOUT_MS          | int    | 300000               | No                                                                    | Mistral API      |
-| MISTRAL_DOCUMENT_QNA_MODEL         | string | mistral-small-latest | No                                                                    | Document QnA     |
-| MISTRAL_QNA_SYSTEM_PROMPT          | string | ""                   | No                                                                    | Document QnA     |
-| MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT   | int    | 0                    | No                                                                    | Document QnA     |
-| MISTRAL_QNA_DOCUMENT_PAGE_LIMIT    | int    | 0                    | No                                                                    | Document QnA     |
-| MISTRAL_BATCH_ENABLED              | bool   | true                 | No                                                                    | Batch OCR        |
-| MISTRAL_BATCH_MIN_FILES            | int    | 10                   | No                                                                    | Batch OCR        |
-| MISTRAL_BATCH_TIMEOUT_HOURS        | int    | 24                   | No                                                                    | Batch OCR        |
-| MISTRAL_BATCH_STRICT               | bool   | false                | No                                                                    | Batch OCR        |
-| CLEANUP_OLD_UPLOADS                | bool   | true                 | No                                                                    | File Management  |
-| UPLOAD_RETENTION_DAYS              | int    | 7                    | No                                                                    | File Management  |
-| MISTRAL_ENABLE_STRUCTURED_OUTPUT   | bool   | true                 | No                                                                    | Structured Data  |
-| MISTRAL_DOCUMENT_SCHEMA_TYPE       | string | auto                 | No                                                                    | Structured Data  |
-| MISTRAL_ENABLE_BBOX_ANNOTATION     | bool   | false                | No                                                                    | Structured Data  |
-| MISTRAL_ENABLE_DOCUMENT_ANNOTATION | bool   | false                | No                                                                    | Structured Data  |
-| MISTRAL_ENABLE_IMAGE_OPTIMIZATION  | bool   | true                 | No                                                                    | Image Processing |
-| MISTRAL_ENABLE_IMAGE_PREPROCESSING | bool   | false                | No                                                                    | Image Processing |
-| MISTRAL_MAX_IMAGE_DIMENSION        | int    | 2048                 | No                                                                    | Image Processing |
-| MISTRAL_IMAGE_QUALITY_THRESHOLD    | int    | 70                   | No                                                                    | Image Processing |
-| PDF_IMAGE_FORMAT                   | string | png                  | No                                                                    | PDF to Image     |
-| PDF_IMAGE_DPI                      | int    | 200                  | No                                                                    | PDF to Image     |
-| PDF_IMAGE_THREAD_COUNT             | int    | 4                    | No                                                                    | PDF to Image     |
-| PDF_IMAGE_USE_PDFTOCAIRO           | bool   | true                 | No                                                                    | PDF to Image     |
-| POPPLER_PATH                       | string | ""                   | No                                                                    | System Paths     |
-| CACHE_DURATION_HOURS               | int    | 24                   | No                                                                    | Caching          |
-| AUTO_CLEAR_CACHE                   | bool   | true                 | No                                                                    | Caching          |
-| LOG_LEVEL                          | string | INFO                 | No                                                                    | Logging          |
-| SAVE_PROCESSING_LOGS               | bool   | true                 | No                                                                    | Logging          |
-| VERBOSE_PROGRESS                   | bool   | true                 | No                                                                    | Logging          |
-| MAX_CONCURRENT_FILES               | int    | 5                    | No                                                                    | Performance      |
-| MAX_BATCH_FILES                    | int    | 100                  | No                                                                    | Performance      |
-| MAX_PAGES_PER_SESSION              | int    | 1000                 | No                                                                    | Performance      |
-| MAX_RETRIES                        | int    | 3                    | No                                                                    | Retry            |
-| RETRY_INITIAL_INTERVAL_MS          | int    | 1000                 | No                                                                    | Retry            |
-| RETRY_MAX_INTERVAL_MS              | int    | 10000                | No                                                                    | Retry            |
-| RETRY_EXPONENT                     | float  | 2.0                  | No                                                                    | Retry            |
-| RETRY_MAX_ELAPSED_TIME_MS          | int    | 60000                | No                                                                    | Retry            |
-| RETRY_CONNECTION_ERRORS            | bool   | true                 | No                                                                    | Retry            |
-| GENERATE_TXT_OUTPUT                | bool   | true                 | No                                                                    | Output           |
-| INCLUDE_METADATA                   | bool   | true                 | No                                                                    | Output           |
-| TABLE_OUTPUT_FORMATS               | string | markdown,csv         | No                                                                    | Output           |
-| ENABLE_BATCH_METADATA              | bool   | true                 | No                                                                    | Output           |
-| MARKITDOWN_ENABLE_BUILTINS         | bool   | true                 | No                                                                    | MarkItDown       |
-| MARKITDOWN_KEEP_DATA_URIS          | bool   | false                | No                                                                    | MarkItDown       |
-| MARKITDOWN_ENABLE_LLM_DESCRIPTIONS | bool   | false                | No                                                                    | MarkItDown       |
-| MARKITDOWN_LLM_MODEL               | string | pixtral-large-latest | No                                                                    | MarkItDown       |
-| MARKITDOWN_LLM_PROMPT              | string | ""                   | No                                                                    | MarkItDown       |
-| MARKITDOWN_ENABLE_PLUGINS          | bool   | false                | No                                                                    | MarkItDown       |
-| MARKITDOWN_STYLE_MAP               | string | ""                   | No                                                                    | MarkItDown       |
-| MARKITDOWN_EXIFTOOL_PATH           | string | ""                   | No                                                                    | MarkItDown       |
-| MARKITDOWN_MAX_FILE_SIZE_MB        | int    | 100                  | No                                                                    | MarkItDown       |
+| Variable                           | Type   | Default              | Required                                                              | Section           |
+| ---------------------------------- | ------ | -------------------- | --------------------------------------------------------------------- | ----------------- |
+| MISTRAL_API_KEY                    | string | -                    | Yes (for smart, mistral_ocr, qna, batch_ocr; optional for markitdown) | API Keys          |
+| MISTRAL_SERVER_URL                 | string | ""                   | No                                                                    | API Keys          |
+| STRICT_INPUT_PATH_RESOLUTION       | bool   | false                | No                                                                    | Security          |
+| MISTRAL_OCR_MODEL                  | string | mistral-ocr-latest   | No                                                                    | OCR               |
+| MISTRAL_INCLUDE_IMAGES             | bool   | true                 | No                                                                    | OCR               |
+| SAVE_MISTRAL_JSON                  | bool   | true                 | No                                                                    | OCR               |
+| OCR_QUALITY_THRESHOLD_EXCELLENT    | int    | 80                   | No                                                                    | OCR Quality       |
+| OCR_QUALITY_THRESHOLD_GOOD         | int    | 60                   | No                                                                    | OCR Quality       |
+| OCR_QUALITY_THRESHOLD_ACCEPTABLE   | int    | 40                   | No                                                                    | OCR Quality       |
+| ENABLE_OCR_QUALITY_ASSESSMENT      | bool   | true                 | No                                                                    | OCR Quality       |
+| ENABLE_OCR_WEAK_PAGE_IMPROVEMENT   | bool   | true                 | No                                                                    | OCR Quality       |
+| OCR_MIN_TEXT_LENGTH                | int    | 50                   | No                                                                    | OCR Quality       |
+| OCR_MIN_UNIQUENESS_RATIO           | float  | 0.3                  | No                                                                    | OCR Quality       |
+| OCR_MAX_PHRASE_REPETITIONS         | int    | 5                    | No                                                                    | OCR Quality       |
+| OCR_MIN_AVG_LINE_LENGTH            | int    | 10                   | No                                                                    | OCR Quality       |
+| MISTRAL_TABLE_FORMAT               | string | markdown             | No                                                                    | OCR 3             |
+| MISTRAL_EXTRACT_HEADER             | bool   | true                 | No                                                                    | OCR 3             |
+| MISTRAL_EXTRACT_FOOTER             | bool   | true                 | No                                                                    | OCR 3             |
+| MISTRAL_DOCUMENT_ANNOTATION_PROMPT | string | ""                   | No                                                                    | OCR 3             |
+| MISTRAL_IMAGE_LIMIT                | int    | 0                    | No                                                                    | OCR 3             |
+| MISTRAL_IMAGE_MIN_SIZE             | int    | 0                    | No                                                                    | OCR 3             |
+| MISTRAL_OCR_MAX_FILE_SIZE_MB       | int    | 200                  | No                                                                    | OCR               |
+| MISTRAL_SIGNED_URL_EXPIRY          | int    | 1                    | No                                                                    | OCR 3             |
+| MISTRAL_CLIENT_TIMEOUT_MS          | int    | 300000               | No                                                                    | Mistral API       |
+| MISTRAL_DOCUMENT_QNA_MODEL         | string | mistral-small-latest | No                                                                    | Document QnA      |
+| MISTRAL_QNA_SYSTEM_PROMPT          | string | ""                   | No                                                                    | Document QnA      |
+| MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT   | int    | 0                    | No                                                                    | Document QnA      |
+| MISTRAL_QNA_DOCUMENT_PAGE_LIMIT    | int    | 0                    | No                                                                    | Document QnA      |
+| MISTRAL_BATCH_ENABLED              | bool   | true                 | No                                                                    | Batch OCR         |
+| MISTRAL_BATCH_MIN_FILES            | int    | 10                   | No                                                                    | Batch OCR         |
+| MISTRAL_BATCH_TIMEOUT_HOURS        | int    | 24                   | No                                                                    | Batch OCR         |
+| MISTRAL_BATCH_STRICT               | bool   | false                | No                                                                    | Batch OCR         |
+| CLEANUP_OLD_UPLOADS                | bool   | true                 | No                                                                    | File Management   |
+| UPLOAD_RETENTION_DAYS              | int    | 7                    | No                                                                    | File Management   |
+| MISTRAL_ENABLE_STRUCTURED_OUTPUT   | bool   | true                 | No                                                                    | Structured Data   |
+| MISTRAL_DOCUMENT_SCHEMA_TYPE       | string | auto                 | No                                                                    | Structured Data   |
+| MISTRAL_ENABLE_BBOX_ANNOTATION     | bool   | false                | No                                                                    | Structured Data   |
+| MISTRAL_ENABLE_DOCUMENT_ANNOTATION | bool   | false                | No                                                                    | Structured Data   |
+| MISTRAL_ENABLE_IMAGE_OPTIMIZATION  | bool   | true                 | No                                                                    | Image Processing  |
+| MISTRAL_ENABLE_IMAGE_PREPROCESSING | bool   | false                | No                                                                    | Image Processing  |
+| MISTRAL_MAX_IMAGE_DIMENSION        | int    | 2048                 | No                                                                    | Image Processing  |
+| MISTRAL_IMAGE_QUALITY_THRESHOLD    | int    | 70                   | No                                                                    | Image Processing  |
+| PDF_IMAGE_FORMAT                   | string | png                  | No                                                                    | PDF to Image      |
+| PDF_IMAGE_DPI                      | int    | 200                  | No                                                                    | PDF to Image      |
+| PDF_IMAGE_THREAD_COUNT             | int    | 4                    | No                                                                    | PDF to Image      |
+| PDF_IMAGE_USE_PDFTOCAIRO           | bool   | true                 | No                                                                    | PDF to Image      |
+| POPPLER_PATH                       | string | ""                   | No                                                                    | System Paths      |
+| CACHE_DURATION_HOURS               | int    | 24                   | No                                                                    | Caching           |
+| AUTO_CLEAR_CACHE                   | bool   | true                 | No                                                                    | Caching           |
+| LOG_LEVEL                          | string | INFO                 | No                                                                    | Logging           |
+| SAVE_PROCESSING_LOGS               | bool   | true                 | No                                                                    | Logging           |
+| VERBOSE_PROGRESS                   | bool   | true                 | No                                                                    | Logging           |
+| MAX_CONCURRENT_FILES               | int    | 5                    | No                                                                    | Performance       |
+| MAX_BATCH_FILES                    | int    | 100                  | No                                                                    | Performance       |
+| MAX_PAGES_PER_SESSION              | int    | 1000                 | No                                                                    | Performance       |
+| MAX_RETRIES                        | int    | 3                    | No                                                                    | Retry             |
+| RETRY_INITIAL_INTERVAL_MS          | int    | 1000                 | No                                                                    | Retry             |
+| RETRY_MAX_INTERVAL_MS              | int    | 10000                | No                                                                    | Retry             |
+| RETRY_EXPONENT                     | float  | 2.0                  | No                                                                    | Retry             |
+| RETRY_MAX_ELAPSED_TIME_MS          | int    | 60000                | No                                                                    | Retry             |
+| RETRY_CONNECTION_ERRORS            | bool   | true                 | No                                                                    | Retry             |
+| GENERATE_TXT_OUTPUT                | bool   | true                 | No                                                                    | Output            |
+| INCLUDE_METADATA                   | bool   | true                 | No                                                                    | Output            |
+| TABLE_OUTPUT_FORMATS               | string | markdown,csv         | No                                                                    | Output            |
+| ENABLE_BATCH_METADATA              | bool   | true                 | No                                                                    | Output (reserved) |
+| MARKITDOWN_ENABLE_BUILTINS         | bool   | true                 | No                                                                    | MarkItDown        |
+| MARKITDOWN_KEEP_DATA_URIS          | bool   | false                | No                                                                    | MarkItDown        |
+| MARKITDOWN_ENABLE_LLM_DESCRIPTIONS | bool   | false                | No                                                                    | MarkItDown        |
+| MARKITDOWN_LLM_MODEL               | string | pixtral-large-latest | No                                                                    | MarkItDown        |
+| MARKITDOWN_LLM_PROMPT              | string | ""                   | No                                                                    | MarkItDown        |
+| MARKITDOWN_ENABLE_PLUGINS          | bool   | false                | No                                                                    | MarkItDown        |
+| MARKITDOWN_STYLE_MAP               | string | ""                   | No                                                                    | MarkItDown        |
+| MARKITDOWN_EXIFTOOL_PATH           | string | ""                   | No                                                                    | MarkItDown        |
+| MARKITDOWN_MAX_FILE_SIZE_MB        | int    | 100                  | No                                                                    | MarkItDown        |
 
 See README.md for complete feature documentation.
 

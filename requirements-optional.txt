@@ -54,15 +54,12 @@ ffmpeg-python>=0.2.0
 youtube-transcript-api>=0.6.1
 
 # ----------------------------------------------------------------------------
-# Azure Document Intelligence Integration
+# Azure Document Intelligence (upstream MarkItDown only)
 # ----------------------------------------------------------------------------
-# Enables: Azure AI Document Intelligence for enhanced PDF processing
-# Requires: AZURE_DOC_INTEL_ENDPOINT and AZURE_DOC_INTEL_KEY in .env
-# MarkItDown extras equivalent: pip install markitdown[az-doc-intel]
-# Setup: https://portal.azure.com/ (create Document Intelligence resource)
-
-azure-ai-documentintelligence>=1.0.0
-azure-identity>=1.15.0
+# This repository does not wire Azure; local conversion uses MarkItDown +
+# pdfplumber, and cloud OCR uses Mistral. To experiment with upstream
+# markitdown[az-doc-intel], install Azure packages yourself — they are not
+# listed here to avoid implying first-class support in this project.
 
 # ----------------------------------------------------------------------------
 # Outlook Message File Support

@@ -620,6 +620,7 @@ class TestParsePageObject:
 
         result = mistral_converter._parse_page_object(page, 0)
         assert result["page_number"] == 1  # converted to 1-based
+        assert result["api_page_index"] == 0
         assert result["text"] == "Page content"
         assert result["images"] == []
 
@@ -627,6 +628,7 @@ class TestParsePageObject:
         page = {"markdown": "Dict content", "index": 1}  # 0-based
         result = mistral_converter._parse_page_object(page, 1)
         assert result["page_number"] == 2  # converted to 1-based
+        assert result["api_page_index"] == 1
         assert result["text"] == "Dict content"
 
 
@@ -644,6 +646,7 @@ class TestParseSingleTextResponse:
         assert result["full_text"] == "Hello World"
         assert len(result["pages"]) == 1
         assert result["pages"][0]["page_number"] == 1
+        assert result["pages"][0]["api_page_index"] == 0
 
 
 # ============================================================================
@@ -1720,11 +1723,13 @@ class TestConvertWithMistralOcr:
             "full_text": "Cached text",
             "pages": [{"text": "Cached text", "page_number": 1}],
         }
+        contract = mistral_converter.build_mistral_ocr_cache_contract_metadata()
+        cache_entry = {"data": cached_result, "metadata": contract}
 
         with patch.object(
             mistral_converter, "get_mistral_client", return_value=MagicMock()
         ):
-            with patch("utils.cache.get", return_value=cached_result):
+            with patch("utils.cache.get_entry", return_value=cache_entry):
                 with patch.object(
                     mistral_converter,
                     "_create_markdown_output",
@@ -1738,6 +1743,51 @@ class TestConvertWithMistralOcr:
 
         assert ok is True
 
+    def test_cache_contract_mismatch_runs_ocr(self, tmp_path, monkeypatch):
+        """Stale cache without matching contract metadata must not short-circuit OCR."""
+        monkeypatch.setattr(config, "OUTPUT_MD_DIR", tmp_path)
+        monkeypatch.setattr(config, "SAVE_MISTRAL_JSON", False)
+        monkeypatch.setattr(config, "ENABLE_OCR_QUALITY_ASSESSMENT", False)
+
+        pdf = tmp_path / "test.pdf"
+        pdf.write_bytes(b"%PDF")
+
+        bad_entry = {
+            "data": {"full_text": "old", "pages": []},
+            "metadata": {"contract_type": "mistral_ocr", "contract_version": -99},
+        }
+
+        fresh = {"full_text": "new", "pages": [{"text": "new", "page_number": 1}]}
+
+        with patch.object(
+            mistral_converter, "get_mistral_client", return_value=MagicMock()
+        ):
+            with patch("utils.cache.get_entry", return_value=bad_entry):
+                with patch.object(
+                    mistral_converter,
+                    "process_with_ocr",
+                    return_value=(True, fresh, None),
+                ) as mock_pw:
+                    with patch.object(
+                        mistral_converter,
+                        "_create_markdown_output",
+                        return_value=tmp_path / "out.md",
+                    ):
+                        with patch.object(
+                            mistral_converter, "_save_structured_outputs"
+                        ):
+                            with patch.object(
+                                mistral_converter, "save_extracted_images"
+                            ):
+                                ok, path, err = (
+                                    mistral_converter.convert_with_mistral_ocr(
+                                        pdf, use_cache=True
+                                    )
+                                )
+
+        assert ok is True
+        mock_pw.assert_called_once()
+
     def test_ocr_failure(self, tmp_path):
         pdf = tmp_path / "test.pdf"
         pdf.write_bytes(b"%PDF")
@@ -1745,7 +1795,7 @@ class TestConvertWithMistralOcr:
         with patch.object(
             mistral_converter, "get_mistral_client", return_value=MagicMock()
         ):
-            with patch("utils.cache.get", return_value=None):
+            with patch("utils.cache.get_entry", return_value=None):
                 with patch.object(
                     mistral_converter,
                     "process_with_ocr",
@@ -1755,6 +1805,64 @@ class TestConvertWithMistralOcr:
 
         assert ok is False
         assert "OCR failed" in err
+
+
+# ============================================================================
+# OCR request / QnA message helpers
+# ============================================================================
+
+
+class TestOcrRequestHelpers:
+    def test_build_ocr_process_kwargs_batch_omits_retries(self, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_TABLE_FORMAT", "")
+        monkeypatch.setattr(config, "MISTRAL_DOCUMENT_ANNOTATION_PROMPT", "")
+        monkeypatch.setattr(config, "MISTRAL_IMAGE_LIMIT", 0)
+        monkeypatch.setattr(config, "MISTRAL_IMAGE_MIN_SIZE", 0)
+        monkeypatch.setattr(config, "MISTRAL_EXTRACT_HEADER", True)
+        monkeypatch.setattr(config, "MISTRAL_EXTRACT_FOOTER", True)
+
+        with patch.object(
+            mistral_converter, "get_bbox_annotation_format", return_value=None
+        ):
+            with patch.object(
+                mistral_converter, "get_document_annotation_format", return_value=None
+            ):
+                body = mistral_converter.build_ocr_process_kwargs(
+                    document={"type": "document_url", "document_url": "https://x"},
+                    model="mistral-ocr-latest",
+                    include_retries=False,
+                    request_id="custom",
+                )
+        assert "retries" not in body
+        assert body["id"] == "custom"
+
+    def test_build_ocr_process_kwargs_sync_has_retries_key(self, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_TABLE_FORMAT", "")
+        monkeypatch.setattr(config, "MISTRAL_DOCUMENT_ANNOTATION_PROMPT", "")
+        monkeypatch.setattr(config, "MISTRAL_IMAGE_LIMIT", 0)
+        monkeypatch.setattr(config, "MISTRAL_IMAGE_MIN_SIZE", 0)
+        monkeypatch.setattr(config, "MISTRAL_EXTRACT_HEADER", True)
+        monkeypatch.setattr(config, "MISTRAL_EXTRACT_FOOTER", True)
+
+        with patch.object(
+            mistral_converter, "get_bbox_annotation_format", return_value=None
+        ):
+            with patch.object(
+                mistral_converter, "get_document_annotation_format", return_value=None
+            ):
+                body = mistral_converter.build_ocr_process_kwargs(
+                    document={"type": "document_url", "document_url": "https://x"},
+                    model="mistral-ocr-latest",
+                    include_retries=True,
+                    request_id=None,
+                )
+        assert "retries" in body
+
+    def test_build_qna_messages_stable_shape(self):
+        a = mistral_converter._build_qna_messages("https://doc", "hello?")
+        b = mistral_converter._build_qna_messages("https://doc", "hello?")
+        assert a == b
+        assert a[1]["content"][1]["type"] == "document_url"
 
 
 # ============================================================================
@@ -2968,6 +3076,41 @@ class TestImproveWeakPages:
                 )
 
         assert result["pages"][0]["text"] == good_text
+
+    def test_improve_weak_pages_passes_api_page_index(self, monkeypatch):
+        """Re-OCR must use ``api_page_index`` for the ``pages`` selector when present."""
+        monkeypatch.setattr(config, "MAX_CONCURRENT_FILES", 1)
+        monkeypatch.setattr(config, "MISTRAL_SIGNED_URL_EXPIRY", 24)
+
+        weak_text = (
+            "x" * 200
+        )  # long enough to not be weak? Actually "x"*200 might be weak due to uniqueness
+        # Use repetitive weak short - use "short" which is weak
+        weak_text = "short"
+        ocr_result = {
+            "pages": [
+                {
+                    "text": weak_text,
+                    "page_number": 3,
+                    "api_page_index": 2,
+                }
+            ]
+        }
+        improved = {"text": "much longer improved text " * 20, "page_number": 3}
+        mock_client = MagicMock()
+        with patch.object(
+            mistral_converter, "upload_file_for_ocr", return_value="https://u"
+        ):
+            with patch.object(
+                mistral_converter,
+                "process_with_ocr",
+                return_value=(True, {"pages": [improved]}, None),
+            ) as m_ocr:
+                mistral_converter.improve_weak_pages(
+                    mock_client, Path("doc.pdf"), ocr_result, "mistral-ocr-latest"
+                )
+        kwargs = m_ocr.call_args[1]
+        assert kwargs.get("pages") == [2]
 
     def test_improvement_fails_keeps_original(self, monkeypatch):
         monkeypatch.setattr(config, "MAX_CONCURRENT_FILES", 1)
@@ -4278,12 +4421,14 @@ class TestParsePageObjectDict:
         page = {"markdown": "Dict page text", "index": 4}  # 0-based
         result = mistral_converter._parse_page_object(page, 0)
         assert result["page_number"] == 5  # converted to 1-based
+        assert result["api_page_index"] == 4
         assert result["text"] == "Dict page text"
 
     def test_dict_page_without_index(self):
         page = {"text": "Dict text"}
         result = mistral_converter._parse_page_object(page, 3)
         assert result["page_number"] == 4  # idx + 1
+        assert result["api_page_index"] == 3
 
     def test_page_with_dimensions(self):
         page = MagicMock()

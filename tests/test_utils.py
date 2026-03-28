@@ -67,6 +67,18 @@ class TestIntelligentCache:
         assert cache.hits == 1
         assert cache.misses == 0
 
+    def test_cache_get_entry_returns_full_record(self, tmp_path):
+        cache = utils.IntelligentCache(cache_dir=tmp_path)
+        test_file = tmp_path / "entry.txt"
+        test_file.write_text("abc")
+        payload = {"k": 1}
+        cache.set(test_file, payload, cache_type="test")
+        entry = cache.get_entry(test_file, cache_type="test")
+        assert entry is not None
+        assert entry["data"] == payload
+        assert entry["type"] == "test"
+        assert cache.hits == 1
+
     def test_cache_miss(self, tmp_path):
         """Test cache miss behavior."""
         cache = utils.IntelligentCache(cache_dir=tmp_path)

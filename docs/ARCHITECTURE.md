@@ -25,14 +25,11 @@ flowchart TD
     J -->|score < threshold| K[Re-process Weak Pages]
     K --> G
 
-    G --> L{Post-Processing}
+    G --> L{Local post-processing}
     L --> M[PDF Table Extraction]
-    L --> N[Structured Data Extraction]
-    L --> O[Document QnA]
+    L --> P[Final Output]
 
-    M --> P[Final Output]
-    N --> P
-    O --> P
+    Q[Document QnA mode] --> P
 
     subgraph Local Engine
         C
@@ -56,14 +53,14 @@ flowchart TD
 
 ## Module Responsibilities
 
-| Module | Role |
-|--------|------|
-| `config.py` | Environment loading, path setup, runtime constants, validation |
-| `utils.py` | Logging, caching (SHA-256 + TTL), table formatting, file validation, YAML frontmatter |
-| `schemas.py` | Pydantic models and JSON schemas for structured extraction (invoices, contracts, etc.) |
-| `local_converter.py` | MarkItDown wrapper, PDF table extraction (pdfplumber), PDF to images |
+| Module                 | Role                                                                                         |
+| ---------------------- | -------------------------------------------------------------------------------------------- |
+| `config.py`            | Environment loading, path setup, runtime constants, validation                               |
+| `utils.py`             | Logging, caching (SHA-256 + TTL), table formatting, file validation, YAML frontmatter        |
+| `schemas.py`           | Pydantic models and JSON schemas for structured extraction (invoices, contracts, etc.)       |
+| `local_converter.py`   | MarkItDown wrapper, PDF table extraction (pdfplumber), PDF to images                         |
 | `mistral_converter.py` | Mistral OCR client, upload/process/batch, QnA streaming, SSRF validation, image optimization |
-| `main.py` | CLI entry point, smart routing, concurrent processing, interactive menu |
+| `main.py`              | CLI entry point, smart routing, concurrent processing, interactive menu                      |
 
 ## Data Flow
 
@@ -71,5 +68,5 @@ flowchart TD
 2. **Routing** — Smart router analyzes content to pick the best engine
 3. **Conversion** — Selected engine produces Markdown
 4. **Caching** — Results cached by SHA-256 content hash (24h TTL)
-5. **Post-processing** — Optional table extraction, structured extraction, or QnA
+5. **Post-processing** — Optional pdfplumber table extraction on local/PDF paths. Bbox/document structured fields are returned by the **Mistral OCR** call when enabled (not a separate post-pass on markdown). **Document QnA** is a separate mode (chat over a document URL), not an automatic follow-up to conversion.
 6. **Output** — Markdown saved to `output_md/`, plain text to `output_txt/`

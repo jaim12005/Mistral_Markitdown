@@ -285,17 +285,16 @@ class IntelligentCache:
         # Include cache_type in filename to prevent collisions between different cache types
         return self.cache_dir / f"{file_hash}_{cache_type}.json"
 
-    def get(self, file_path: Path, cache_type: str = "ocr") -> Optional[Dict[str, Any]]:  # noqa: C901
+    def get_entry(
+        self, file_path: Path, cache_type: str = "ocr"
+    ) -> Optional[Dict[str, Any]]:  # noqa: C901
         """
-        Retrieve cached result for a file.
-
-        Args:
-            file_path: Path to the file
-            cache_type: Type of cache (ocr, table, etc.)
+        Retrieve the full validated cache entry (``data``, ``metadata``, etc.).
 
         Returns:
-            Cached data if valid, None otherwise
+            Parsed cache JSON dict, or ``None`` if missing/invalid/expired.
         """
+        cache_path: Optional[Path] = None
         try:
             if not file_path.exists():
                 logger.debug("Cache lookup skipped (file missing): %s", file_path)
@@ -304,7 +303,6 @@ class IntelligentCache:
                 return None
 
             file_hash = self._get_file_hash(file_path)
-            # Use type-segregated cache path to avoid collisions
             cache_path = self._get_cache_path(file_hash, cache_type)
 
             with self._lock:
@@ -338,8 +336,6 @@ class IntelligentCache:
                     self.misses += 1
                     return None
 
-                # Type check is now redundant since paths are segregated,
-                # but keep for backwards compatibility with old cache files
                 if cache_data.get("type") != cache_type:
                     logger.debug(
                         "Cache type mismatch (expected %s, got %s)",
@@ -351,7 +347,7 @@ class IntelligentCache:
 
                 self.hits += 1
             logger.info("Cache hit for %s", file_path.name)
-            return cache_data.get("data")  # type: ignore[no-any-return]
+            return cache_data
 
         except FileNotFoundError:
             logger.debug("Cache lookup failed (file not found): %s", file_path)
@@ -359,11 +355,14 @@ class IntelligentCache:
                 self.misses += 1
             return None
         except (json.JSONDecodeError, ValueError):
-            logger.warning("Corrupt or tampered cache file, removing: %s", cache_path)
-            try:
-                cache_path.unlink(missing_ok=True)
-            except OSError:
-                pass
+            if cache_path is not None:
+                logger.warning(
+                    "Corrupt or tampered cache file, removing: %s", cache_path
+                )
+                try:
+                    cache_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
             with self._lock:
                 self.misses += 1
             return None
@@ -372,6 +371,22 @@ class IntelligentCache:
             with self._lock:
                 self.misses += 1
             return None
+
+    def get(self, file_path: Path, cache_type: str = "ocr") -> Optional[Dict[str, Any]]:
+        """
+        Retrieve cached result for a file (payload only).
+
+        Args:
+            file_path: Path to the file
+            cache_type: Type of cache (ocr, table, etc.)
+
+        Returns:
+            Cached data if valid, None otherwise
+        """
+        entry = self.get_entry(file_path, cache_type)
+        if entry is None:
+            return None
+        return entry.get("data")  # type: ignore[no-any-return]
 
     def set(
         self,

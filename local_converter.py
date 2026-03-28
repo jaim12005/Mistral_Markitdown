@@ -72,6 +72,43 @@ _markitdown_lock = threading.Lock()
 _markitdown_convert_lock = threading.Lock()
 
 
+def _build_markitdown_kwargs() -> Dict[str, Any]:
+    """Constructor kwargs for ``MarkItDown`` (pin behavior to ``markitdown==0.1.5`` surface)."""
+    md_kwargs: Dict[str, Any] = {
+        "enable_plugins": config.MARKITDOWN_ENABLE_PLUGINS,
+        "enable_builtins": config.MARKITDOWN_ENABLE_BUILTINS,
+    }
+
+    if config.MARKITDOWN_KEEP_DATA_URIS:
+        md_kwargs["keep_data_uris"] = True
+
+    if config.MARKITDOWN_ENABLE_LLM_DESCRIPTIONS and config.MISTRAL_API_KEY:
+        try:
+            from openai import OpenAI
+
+            llm_client = OpenAI(
+                api_key=config.MISTRAL_API_KEY,
+                base_url=config.mistral_openai_compatible_base_url(),
+            )
+            md_kwargs["llm_client"] = llm_client
+            md_kwargs["llm_model"] = config.MARKITDOWN_LLM_MODEL
+        except ImportError:
+            logger.warning(
+                "OpenAI package not installed. LLM image descriptions disabled."
+            )
+
+    if config.MARKITDOWN_LLM_PROMPT:
+        md_kwargs["llm_prompt"] = config.MARKITDOWN_LLM_PROMPT
+
+    if config.MARKITDOWN_STYLE_MAP:
+        md_kwargs["style_map"] = config.MARKITDOWN_STYLE_MAP
+
+    if config.MARKITDOWN_EXIFTOOL_PATH:
+        md_kwargs["exiftool_path"] = config.MARKITDOWN_EXIFTOOL_PATH
+
+    return md_kwargs
+
+
 def get_markitdown_instance() -> Optional[MarkItDown]:
     """
     Create and configure a MarkItDown instance (thread-safe).
@@ -99,39 +136,7 @@ def get_markitdown_instance() -> Optional[MarkItDown]:
             return None
 
         try:
-            md_kwargs = {
-                "enable_plugins": config.MARKITDOWN_ENABLE_PLUGINS,
-                "enable_builtins": config.MARKITDOWN_ENABLE_BUILTINS,
-            }
-
-            if config.MARKITDOWN_KEEP_DATA_URIS:
-                md_kwargs["keep_data_uris"] = True
-
-            if config.MARKITDOWN_ENABLE_LLM_DESCRIPTIONS and config.MISTRAL_API_KEY:
-                try:
-                    from openai import OpenAI
-
-                    llm_client = OpenAI(
-                        api_key=config.MISTRAL_API_KEY,
-                        base_url=config.mistral_openai_compatible_base_url(),
-                    )
-                    md_kwargs["llm_client"] = llm_client
-                    md_kwargs["llm_model"] = config.MARKITDOWN_LLM_MODEL
-                except ImportError:
-                    logger.warning(
-                        "OpenAI package not installed. LLM image descriptions disabled."
-                    )
-
-            if config.MARKITDOWN_LLM_PROMPT:
-                md_kwargs["llm_prompt"] = config.MARKITDOWN_LLM_PROMPT
-
-            if config.MARKITDOWN_STYLE_MAP:
-                md_kwargs["style_map"] = config.MARKITDOWN_STYLE_MAP
-
-            if config.MARKITDOWN_EXIFTOOL_PATH:
-                md_kwargs["exiftool_path"] = config.MARKITDOWN_EXIFTOOL_PATH
-
-            _markitdown_instance = MarkItDown(**md_kwargs)
+            _markitdown_instance = MarkItDown(**_build_markitdown_kwargs())
             return _markitdown_instance
 
         except Exception as e:
@@ -265,16 +270,17 @@ def convert_stream_with_markitdown(
 
     try:
         logger.info("Converting stream with MarkItDown: %s", filename)
-        stream_info = None
-        if StreamInfo is not None:
-            stream_info = StreamInfo(
-                extension=Path(filename).suffix,
-                filename=filename,
-            )
-        if stream_info is not None:
-            result = md.convert_stream(stream, stream_info=stream_info)
-        else:
-            result = md.convert_stream(stream, file_extension=Path(filename).suffix)
+        with _markitdown_convert_lock:
+            stream_info = None
+            if StreamInfo is not None:
+                stream_info = StreamInfo(
+                    extension=Path(filename).suffix,
+                    filename=filename,
+                )
+            if stream_info is not None:
+                result = md.convert_stream(stream, stream_info=stream_info)
+            else:
+                result = md.convert_stream(stream, file_extension=Path(filename).suffix)
 
         if result and hasattr(result, "markdown"):
             return True, result.markdown, None

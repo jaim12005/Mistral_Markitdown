@@ -296,6 +296,9 @@ MISTRAL_IMAGE_MIN_SIZE = _safe_int("MISTRAL_IMAGE_MIN_SIZE", 0)
 # File size limit for Mistral OCR uploads (MB) - reject files exceeding this
 MISTRAL_OCR_MAX_FILE_SIZE_MB = _safe_int("MISTRAL_OCR_MAX_FILE_SIZE_MB", 200, min_val=1)
 
+# Increment when Mistral OCR cache metadata schema changes (invalidates old ``mistral_ocr`` entries).
+MISTRAL_OCR_CACHE_CONTRACT_VERSION = 1
+
 # Signed URL expiry (hours) - increase for large batch jobs
 MISTRAL_SIGNED_URL_EXPIRY = _safe_int("MISTRAL_SIGNED_URL_EXPIRY", 1, min_val=1)
 
@@ -442,6 +445,7 @@ RETRY_CONNECTION_ERRORS = _safe_bool("RETRY_CONNECTION_ERRORS", True)
 GENERATE_TXT_OUTPUT = _safe_bool("GENERATE_TXT_OUTPUT", True)
 INCLUDE_METADATA = _safe_bool("INCLUDE_METADATA", True)
 TABLE_OUTPUT_FORMATS = _safe_csv("TABLE_OUTPUT_FORMATS", "markdown,csv")
+# Reserved for future batch job metadata files; no code path writes them yet (``.env`` compat only).
 ENABLE_BATCH_METADATA = _safe_bool("ENABLE_BATCH_METADATA", True)
 
 # ============================================================================

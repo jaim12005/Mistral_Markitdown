@@ -15,6 +15,7 @@ The `MISTRAL_ENABLE_IMAGE_PREPROCESSING`, `MISTRAL_ENABLE_IMAGE_OPTIMIZATION`, a
 Mistral OCR works on all PDFs (scanned and text-based), but text-based PDFs sometimes score below 40 on the quality heuristics. This does not mean OCR failed -- it indicates that simpler extraction may produce better results.
 
 **Recommendation:**
+
 - Text-based PDFs: use Convert (MarkItDown) -- faster, free, often more accurate
 - Scanned documents: use Convert (Mistral OCR) or Convert (Smart)
 - When unsure: use Convert (Smart) which auto-routes by file type
@@ -32,6 +33,7 @@ POPPLER_PATH="C:/Program Files/poppler-23.08.0/Library/bin"
 - **Poppler** is required for PDF to Images mode
 
 Download links:
+
 - Poppler: https://github.com/oschwartz10612/poppler-windows/releases
 
 ---
@@ -48,7 +50,19 @@ MarkItDown plugins for audio/video are not installed by default:
 
 ### Batch job IDs are validated for safe characters
 
-When supplying a `--job-id` for batch processing, the ID must contain only alphanumeric characters, hyphens, and underscores, and be at most 128 characters. Invalid IDs are rejected with a descriptive error before processing begins.
+When supplying `--batch-job-id` for batch status or download in non-interactive mode, the ID must contain only alphanumeric characters, hyphens, and underscores, and be at most 128 characters. Invalid IDs are rejected with a descriptive error before processing begins.
+
+---
+
+### Document QnA URL validation is not a full SSRF barrier
+
+HTTPS and optional DNS checks filter obvious private-host URLs before calling Mistral, but they cannot prevent all rebinding or server-side fetch attacks. Treat URL mode as convenience-only unless you also constrain egress or use local file upload for QnA.
+
+---
+
+### Mistral OCR size limits vs generic Files API
+
+The Mistral Files API allows large uploads, but the **OCR** product enforces stricter document limits (see Mistral docs, e.g. on the order of tens of MB per document). Very large PDFs may fail at OCR time even when upload succeeds.
 
 ---
 
