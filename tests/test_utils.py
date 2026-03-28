@@ -33,9 +33,7 @@ class TestSetupLogging:
     def test_no_file_handler_when_disabled(self, monkeypatch):
         monkeypatch.setattr(config, "SAVE_PROCESSING_LOGS", False)
         logger = utils.setup_logging(log_file="/tmp/nope.log")
-        file_handlers = [
-            h for h in logger.handlers if isinstance(h, logging.FileHandler)
-        ]
+        file_handlers = [h for h in logger.handlers if isinstance(h, logging.FileHandler)]
         assert len(file_handlers) == 0
 
 
@@ -142,9 +140,7 @@ class TestIntelligentCache:
         test_file.write_text("shared-content")
 
         def _writer(i: int):
-            cache.set(
-                test_file, {"writer": i, "payload": "x" * 1000}, cache_type="test"
-            )
+            cache.set(test_file, {"writer": i, "payload": "x" * 1000}, cache_type="test")
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
             list(ex.map(_writer, range(50)))
@@ -293,9 +289,7 @@ class TestFileValidation:
         assert ok_md is False
         assert err_md and "too large" in err_md.lower()
 
-    def test_validate_file_strict_rejects_symlink_outside_input(
-        self, tmp_path, monkeypatch
-    ):
+    def test_validate_file_strict_rejects_symlink_outside_input(self, tmp_path, monkeypatch):
         inbox = tmp_path / "inbox"
         inbox.mkdir()
         monkeypatch.setattr(config, "INPUT_DIR", inbox)
@@ -311,9 +305,7 @@ class TestFileValidation:
         assert ok is False
         assert err and "input directory" in err.lower()
 
-    def test_validate_file_smart_txt_uses_markitdown_size_cap(
-        self, tmp_path, monkeypatch
-    ):
+    def test_validate_file_smart_txt_uses_markitdown_size_cap(self, tmp_path, monkeypatch):
         """Smart mode: types that only go through MarkItDown use MARKITDOWN cap, not OCR cap."""
         monkeypatch.setattr(config, "MARKITDOWN_MAX_FILE_SIZE_MB", 1)
         monkeypatch.setattr(config, "MISTRAL_OCR_MAX_FILE_SIZE_MB", 50)
@@ -537,9 +529,7 @@ class TestClearOldEntries:
         # Write a cache file with an old timestamp
         cache_file = tmp_path / "old_entry.json"
         old_time = (datetime.now() - timedelta(hours=5)).isoformat()
-        cache_file.write_text(
-            json.dumps({"timestamp": old_time, "type": "ocr", "data": {}})
-        )
+        cache_file.write_text(json.dumps({"timestamp": old_time, "type": "ocr", "data": {}}))
         removed = cache.clear_old_entries()
         assert removed == 1
         assert not cache_file.exists()
@@ -548,11 +538,7 @@ class TestClearOldEntries:
         monkeypatch.setattr(config, "CACHE_DURATION_HOURS", 24)
         cache = utils.IntelligentCache(cache_dir=tmp_path)
         cache_file = tmp_path / "fresh_entry.json"
-        cache_file.write_text(
-            json.dumps(
-                {"timestamp": datetime.now().isoformat(), "type": "ocr", "data": {}}
-            )
-        )
+        cache_file.write_text(json.dumps({"timestamp": datetime.now().isoformat(), "type": "ocr", "data": {}}))
         removed = cache.clear_old_entries()
         assert removed == 0
         assert cache_file.exists()
@@ -617,9 +603,7 @@ class TestIsPageArtifactRow:
         assert utils.is_page_artifact_row(["", ""]) is True
 
     def test_data_row_is_not_artifact(self):
-        assert (
-            utils.is_page_artifact_row(["10201", "Cash Operating", "1234.56"]) is False
-        )
+        assert utils.is_page_artifact_row(["10201", "Cash Operating", "1234.56"]) is False
 
     def test_none_input(self):
         assert utils.is_page_artifact_row([]) is False
@@ -773,9 +757,7 @@ class TestFileCacheGetExceptions:
         # The exists() check at the beginning of get() will fail, returning None from first branch
         # We need the cache path to exist for hash lookup but then fail on open
         # Let's use a different approach: patch open to raise
-        with unittest.mock.patch(
-            "builtins.open", side_effect=FileNotFoundError("gone")
-        ):
+        with unittest.mock.patch("builtins.open", side_effect=FileNotFoundError("gone")):
             # Need to also ensure _get_cache_path exists check passes
             with unittest.mock.patch.object(Path, "exists", return_value=True):
                 result = cache.get(test_file, cache_type="test")
@@ -807,9 +789,7 @@ class TestFileCacheGetExceptions:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         cache_path.write_text("NOT VALID JSON {{{")
 
-        with unittest.mock.patch.object(
-            Path, "unlink", side_effect=OSError("perm denied")
-        ):
+        with unittest.mock.patch.object(Path, "unlink", side_effect=OSError("perm denied")):
             result = cache.get(test_file, cache_type="test")
         assert result is None
         assert cache.misses == 1
@@ -857,9 +837,7 @@ class TestFileCacheSetException:
         test_file = tmp_path / "test.txt"
         test_file.write_text("content")
 
-        with unittest.mock.patch(
-            "tempfile.NamedTemporaryFile", side_effect=PermissionError("denied")
-        ):
+        with unittest.mock.patch("tempfile.NamedTemporaryFile", side_effect=PermissionError("denied")):
             cache.set(test_file, {"data": "value"}, cache_type="test")
         # Should handle exception gracefully
         # No crash = success
@@ -985,9 +963,7 @@ class TestSafeOutputStemOSError:
         test_file = tmp_path / "test.pdf"
         test_file.touch()
 
-        with unittest.mock.patch.object(
-            Path, "resolve", side_effect=OSError("bad path")
-        ):
+        with unittest.mock.patch.object(Path, "resolve", side_effect=OSError("bad path")):
             stem = utils.safe_output_stem(test_file)
         assert stem == "test"
 
@@ -997,10 +973,85 @@ class TestYAMLFrontmatterDisabled:
 
     def test_frontmatter_disabled(self, monkeypatch):
         monkeypatch.setattr(config, "INCLUDE_METADATA", False)
-        result = utils.generate_yaml_frontmatter(
-            title="Test", file_name="test.pdf", conversion_method="Method"
-        )
+        result = utils.generate_yaml_frontmatter(title="Test", file_name="test.pdf", conversion_method="Method")
         assert result == ""
+
+
+class TestSanitizeForTerminal:
+    """Tests for sanitize_for_terminal: strip ANSI escapes and control chars."""
+
+    def test_strips_ansi_escape(self):
+        result = utils.sanitize_for_terminal("\x1b[31mRed text\x1b[0m")
+        assert result == "Red text"
+
+    def test_strips_csi_sequences(self):
+        result = utils.sanitize_for_terminal("\x1b[2J\x1b[Hhello")
+        assert result == "hello"
+
+    def test_preserves_tabs_and_newlines(self):
+        result = utils.sanitize_for_terminal("line1\n\tline2\r\n")
+        assert "line1" in result
+        assert "line2" in result
+
+    def test_strips_null_bytes(self):
+        result = utils.sanitize_for_terminal("safe\x00text")
+        assert "\x00" not in result
+        assert "safe" in result and "text" in result
+
+    def test_plain_text_unchanged(self):
+        result = utils.sanitize_for_terminal("Normal text 123")
+        assert result == "Normal text 123"
+
+    def test_empty_string(self):
+        result = utils.sanitize_for_terminal("")
+        assert result == ""
+
+
+class TestAtomicWriteBinary:
+    """Tests for atomic_write_binary: temp-file + rename for binary content."""
+
+    def test_writes_binary_content(self, tmp_path):
+        dest = tmp_path / "out.bin"
+        content = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+        utils.atomic_write_binary(dest, content)
+        assert dest.read_bytes() == content
+
+    def test_overwrites_existing_file(self, tmp_path):
+        dest = tmp_path / "out.bin"
+        dest.write_bytes(b"old")
+        utils.atomic_write_binary(dest, b"new")
+        assert dest.read_bytes() == b"new"
+
+    def test_writes_to_existing_subdirectory(self, tmp_path):
+        subdir = tmp_path / "subdir"
+        subdir.mkdir()
+        dest = subdir / "out.bin"
+        utils.atomic_write_binary(dest, b"nested")
+        assert dest.read_bytes() == b"nested"
+
+
+class TestUiPrint:
+    """Tests for ui_print: thin wrapper around print."""
+
+    def test_ui_print_outputs_to_stdout(self, capsys):
+        utils.ui_print("hello world")
+        captured = capsys.readouterr()
+        assert "hello world" in captured.out
+
+    def test_ui_print_no_args(self, capsys):
+        utils.ui_print()
+        captured = capsys.readouterr()
+        assert captured.out == "\n"
+
+
+class TestReadStdinBytesLimitedNegative:
+    """Edge case: read_stdin_bytes_limited with negative max_bytes."""
+
+    def test_negative_max_bytes_returns_error(self):
+        ok, data, err = utils.read_stdin_bytes_limited(-1)
+        assert ok is False
+        assert data == b""
+        assert err is not None and "invalid" in err.lower()
 
 
 if __name__ == "__main__":

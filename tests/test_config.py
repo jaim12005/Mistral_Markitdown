@@ -57,36 +57,19 @@ class TestModelSelection:
 
     def test_mistral_openai_compatible_base_url_default(self, monkeypatch):
         monkeypatch.setattr(config, "MISTRAL_SERVER_URL", "")
-        assert (
-            config.mistral_openai_compatible_base_url() == "https://api.mistral.ai/v1"
-        )
+        assert config.mistral_openai_compatible_base_url() == "https://api.mistral.ai/v1"
 
     def test_mistral_openai_compatible_base_url_custom(self, monkeypatch):
         monkeypatch.setattr(config, "MISTRAL_SERVER_URL", "https://enterprise.example")
-        assert (
-            config.mistral_openai_compatible_base_url()
-            == "https://enterprise.example/v1"
-        )
+        assert config.mistral_openai_compatible_base_url() == "https://enterprise.example/v1"
 
     def test_mistral_openai_compatible_base_url_no_duplicate_v1(self, monkeypatch):
-        monkeypatch.setattr(
-            config, "MISTRAL_SERVER_URL", "https://enterprise.example/v1"
-        )
-        assert (
-            config.mistral_openai_compatible_base_url()
-            == "https://enterprise.example/v1"
-        )
+        monkeypatch.setattr(config, "MISTRAL_SERVER_URL", "https://enterprise.example/v1")
+        assert config.mistral_openai_compatible_base_url() == "https://enterprise.example/v1"
 
-    def test_mistral_openai_compatible_base_url_trailing_slash_before_v1(
-        self, monkeypatch
-    ):
-        monkeypatch.setattr(
-            config, "MISTRAL_SERVER_URL", "https://enterprise.example/v1/"
-        )
-        assert (
-            config.mistral_openai_compatible_base_url()
-            == "https://enterprise.example/v1"
-        )
+    def test_mistral_openai_compatible_base_url_trailing_slash_before_v1(self, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_SERVER_URL", "https://enterprise.example/v1/")
+        assert config.mistral_openai_compatible_base_url() == "https://enterprise.example/v1"
 
 
 class TestFileTypeConfiguration:
@@ -276,9 +259,7 @@ class TestValidateConfigurationBranches:
         monkeypatch.setattr(config, "MISTRAL_ENABLE_STRUCTURED_OUTPUT", False)
         monkeypatch.setattr(config, "MISTRAL_ENABLE_DOCUMENT_ANNOTATION", True)
         issues = config.validate_configuration()
-        assert any(
-            "DOCUMENT_ANNOTATION" in i and "STRUCTURED_OUTPUT" in i for i in issues
-        )
+        assert any("DOCUMENT_ANNOTATION" in i and "STRUCTURED_OUTPUT" in i for i in issues)
 
     def test_threshold_ordering_warning(self, monkeypatch):
         monkeypatch.setattr(config, "MISTRAL_API_KEY", "key")
@@ -298,9 +279,7 @@ class TestValidateConfigurationBranches:
         monkeypatch.setattr(config, "MISTRAL_API_KEY", "key")
         monkeypatch.setattr(config, "MISTRAL_DOCUMENT_SCHEMA_TYPE", "custom_invalid")
         issues = config.validate_configuration()
-        assert any(
-            "MISTRAL_DOCUMENT_SCHEMA_TYPE" in i and "invalid" in i for i in issues
-        )
+        assert any("MISTRAL_DOCUMENT_SCHEMA_TYPE" in i and "invalid" in i for i in issues)
 
     def test_invalid_table_format(self, monkeypatch):
         monkeypatch.setattr(config, "MISTRAL_API_KEY", "key")

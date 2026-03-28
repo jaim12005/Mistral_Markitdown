@@ -20,7 +20,7 @@ A document conversion system combining Microsoft **MarkItDown** (local) with **M
 ### Installation
 
 ```bash
-python -m venv env
+python3 -m venv env
 source env/bin/activate   # Windows: env\Scripts\activate
 pip install -r requirements.txt
 ```
@@ -60,9 +60,9 @@ MISTRAL_API_KEY="your_api_key_here"
 Place files in `input/`, then run:
 
 ```bash
-python main.py              # Interactive menu
-python main.py --mode smart # CLI: auto-route by file type
-python main.py --test       # Verify setup
+python3 main.py              # Interactive menu
+python3 main.py --mode smart # CLI: auto-route by file type
+python3 main.py --test       # Verify setup
 ```
 
 ## Conversion Modes
@@ -92,15 +92,15 @@ All conversion modes process multiple files concurrently when more than one is s
 ### CLI Reference
 
 ```bash
-python main.py --mode smart        # Smart auto-routing (recommended)
-python main.py --mode markitdown   # Force MarkItDown
-python main.py --mode mistral_ocr  # Force Mistral OCR
-python main.py --mode pdf_to_images
-python main.py --mode qna
-python main.py --mode batch_ocr
-python main.py --mode status
-python main.py --mode maintenance  # Clear cache and old uploads
-python main.py --no-interactive    # Process all files in input/ without prompts
+python3 main.py --mode smart        # Smart auto-routing (recommended)
+python3 main.py --mode markitdown   # Force MarkItDown
+python3 main.py --mode mistral_ocr  # Force Mistral OCR
+python3 main.py --mode pdf_to_images
+python3 main.py --mode qna
+python3 main.py --mode batch_ocr
+python3 main.py --mode status
+python3 main.py --mode maintenance  # Clear cache and old uploads
+python3 main.py --no-interactive    # Process all files in input/ without prompts
 ```
 
 ## Supported Formats
@@ -181,7 +181,7 @@ Built-in schemas for invoices, financial statements, contracts, forms, and gener
 Interactive natural language queries against document content:
 
 ```bash
-python main.py --mode qna
+python3 main.py --mode qna
 # Select a file, then ask questions interactively
 ```
 

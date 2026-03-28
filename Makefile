@@ -29,11 +29,11 @@ test:
 	./scripts/test-safe.sh tests/
 
 lint:
-	flake8 .
+	python3 -m flake8 .
 
 format:
-	black .
-	isort .
+	python3 -m black .
+	python3 -m isort .
 
 
 clean:
@@ -44,22 +44,22 @@ clean:
 	find . -type f -name "*.pyo" -delete
 
 run:
-	python main.py
+	python3 main.py
 
 check: lint test
 	@echo "All checks passed!"
 
 coverage:
-	pytest tests/ --cov=. --cov-report=html --cov-report=term-missing
+	python3 -m pytest tests/ --cov=. --cov-report=html --cov-report=term-missing
 
 security-audit:
-	pip-audit --desc
+	python3 -m pip_audit --desc
 
 dist: clean
-	python -m build
+	python3 -m build
 
 publish: dist
-	python -m twine upload dist/*
+	python3 -m twine upload dist/*
 
 # Development workflow
 dev-setup: install-dev

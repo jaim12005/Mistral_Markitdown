@@ -26,6 +26,15 @@ if errorlevel 1 (
 echo [1/5] Checking Python version...
 python --version
 
+REM Verify Python >= 3.10
+python -c "import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)" >nul 2>&1
+if errorlevel 1 (
+    echo ERROR: Python 3.10+ is required
+    echo Please install Python 3.10+ from https://www.python.org/
+    pause
+    exit /b 1
+)
+
 REM Create logs directory if it doesn't exist
 if not exist "logs" mkdir logs
 

@@ -82,9 +82,7 @@ def setup_logging(log_file: Optional[str] = None) -> logging.Logger:
     if log_file and config.SAVE_PROCESSING_LOGS:
         file_handler = logging.FileHandler(log_file, encoding="utf-8")
         file_handler.setLevel(logging.DEBUG)
-        file_format = logging.Formatter(
-            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-        )
+        file_format = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
         file_handler.setFormatter(file_format)
         logger.addHandler(file_handler)
 
@@ -128,9 +126,7 @@ def ui_print(*args, **kwargs) -> None:
     print(*args, **kwargs)
 
 
-def atomic_write_text(
-    path: Path, content: str, encoding: str = "utf-8", newline: Optional[str] = None
-) -> None:
+def atomic_write_text(path: Path, content: str, encoding: str = "utf-8", newline: Optional[str] = None) -> None:
     """Write *content* to *path* atomically via a temporary file and rename.
 
     This prevents partial / corrupt files when the process is interrupted
@@ -285,9 +281,7 @@ class IntelligentCache:
         # Include cache_type in filename to prevent collisions between different cache types
         return self.cache_dir / f"{file_hash}_{cache_type}.json"
 
-    def get_entry(
-        self, file_path: Path, cache_type: str = "ocr"
-    ) -> Optional[Dict[str, Any]]:  # noqa: C901
+    def get_entry(self, file_path: Path, cache_type: str = "ocr") -> Optional[Dict[str, Any]]:  # noqa: C901
         """
         Retrieve the full validated cache entry (``data``, ``metadata``, etc.).
 
@@ -321,9 +315,7 @@ class IntelligentCache:
                     raise ValueError("cache entry is not a dict")
                 for required_key in ("timestamp", "type", "data"):
                     if required_key not in cache_data:
-                        raise ValueError(
-                            f"cache entry missing required key: {required_key}"
-                        )
+                        raise ValueError(f"cache entry missing required key: {required_key}")
 
                 cached_time = datetime.fromisoformat(cache_data.get("timestamp", ""))
                 if cached_time.tzinfo is None:
@@ -356,9 +348,7 @@ class IntelligentCache:
             return None
         except (json.JSONDecodeError, ValueError):
             if cache_path is not None:
-                logger.warning(
-                    "Corrupt or tampered cache file, removing: %s", cache_path
-                )
+                logger.warning("Corrupt or tampered cache file, removing: %s", cache_path)
                 try:
                     cache_path.unlink(missing_ok=True)
                 except OSError:
@@ -466,9 +456,7 @@ class IntelligentCache:
                     with open(cache_file, "r", encoding="utf-8") as f:
                         cache_data = json.load(f)
 
-                    cached_time = datetime.fromisoformat(
-                        cache_data.get("timestamp", "")
-                    )
+                    cached_time = datetime.fromisoformat(cache_data.get("timestamp", ""))
                     if cached_time.tzinfo is None:
                         cached_time = cached_time.replace(tzinfo=timezone.utc)
 
@@ -477,9 +465,7 @@ class IntelligentCache:
                         removed += 1
 
                 except Exception as e:
-                    logger.debug(
-                        "Error processing cache file %s: %s", cache_file.name, e
-                    )
+                    logger.debug("Error processing cache file %s: %s", cache_file.name, e)
 
         return removed
 
@@ -516,9 +502,7 @@ cache = IntelligentCache()
 # ============================================================================
 
 
-def format_table_to_markdown(
-    data: List[List[str]], headers: Optional[List[str]] = None
-) -> str:
+def format_table_to_markdown(data: List[List[str]], headers: Optional[List[str]] = None) -> str:
     """
     Convert table data to Markdown format.
 
@@ -553,9 +537,7 @@ def format_table_to_markdown(
     for row in data:
         # Pad row to match header length
         padded_row = list(row) + [""] * (len(headers) - len(row))
-        lines.append(
-            "| " + " | ".join(str(cell) for cell in padded_row[: len(headers)]) + " |"
-        )
+        lines.append("| " + " | ".join(str(cell) for cell in padded_row[: len(headers)]) + " |")
 
     return "\n".join(lines)
 
@@ -948,9 +930,7 @@ def _resolved_path_under_input_dir(file_path: Path) -> Tuple[bool, Optional[str]
     return True, None
 
 
-def validate_file(  # noqa: C901
-    file_path: Path, mode: Optional[str] = None
-) -> Tuple[bool, Optional[str]]:
+def validate_file(file_path: Path, mode: Optional[str] = None) -> Tuple[bool, Optional[str]]:  # noqa: C901
     """
     Validate if a file can be processed.
 
@@ -1026,9 +1006,7 @@ def validate_file(  # noqa: C901
             max_mb = float(config.MARKITDOWN_MAX_FILE_SIZE_MB)
 
     if max_mb is not None and size_mb > max_mb:
-        return False, (
-            f"File too large ({size_mb:.1f} MB) for {mode or 'this'} mode (limit {int(max_mb)} MB)."
-        )
+        return False, (f"File too large ({size_mb:.1f} MB) for {mode or 'this'} mode (limit {int(max_mb)} MB).")
 
     return True, None
 
@@ -1066,9 +1044,7 @@ def safe_output_stem(file_path: Path) -> str:
         input_dir = config.INPUT_DIR.resolve()
         if resolved.parent == input_dir:
             collisions = [
-                p
-                for p in input_dir.glob(f"{stem}.*")
-                if p.is_file() and p.suffix.lower() != file_path.suffix.lower()
+                p for p in input_dir.glob(f"{stem}.*") if p.is_file() and p.suffix.lower() != file_path.suffix.lower()
             ]
             if collisions:
                 return f"{stem}_{ext}"

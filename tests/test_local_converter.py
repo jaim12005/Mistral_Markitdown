@@ -299,12 +299,8 @@ class TestConvertWithMarkItDown:
         small_file = tmp_path / "test.txt"
         small_file.write_text("content")
         # Force get_markitdown_instance to return None
-        with patch.object(
-            local_converter, "get_markitdown_instance", return_value=None
-        ):
-            success, content, error = local_converter.convert_with_markitdown(
-                small_file
-            )
+        with patch.object(local_converter, "get_markitdown_instance", return_value=None):
+            success, content, error = local_converter.convert_with_markitdown(small_file)
         assert success is False
         assert "not available" in error
 
@@ -325,9 +321,7 @@ class TestConvertWithMarkItDown:
         mock_md = MagicMock()
         mock_md.convert.return_value = mock_result
 
-        with patch.object(
-            local_converter, "get_markitdown_instance", return_value=mock_md
-        ):
+        with patch.object(local_converter, "get_markitdown_instance", return_value=mock_md):
             success, content, error = local_converter.convert_with_markitdown(test_file)
 
         assert success is True
@@ -342,9 +336,7 @@ class TestConvertWithMarkItDown:
         mock_md = MagicMock()
         mock_md.convert.side_effect = Exception("conversion error")
 
-        with patch.object(
-            local_converter, "get_markitdown_instance", return_value=mock_md
-        ):
+        with patch.object(local_converter, "get_markitdown_instance", return_value=mock_md):
             success, content, error = local_converter.convert_with_markitdown(test_file)
 
         assert success is False
@@ -363,12 +355,8 @@ class TestConvertStreamWithMarkItDown:
         import io
 
         stream = io.BytesIO(b"data")
-        with patch.object(
-            local_converter, "get_markitdown_instance", return_value=None
-        ):
-            success, content, error = local_converter.convert_stream_with_markitdown(
-                stream
-            )
+        with patch.object(local_converter, "get_markitdown_instance", return_value=None):
+            success, content, error = local_converter.convert_stream_with_markitdown(stream)
         assert success is False
         assert "not available" in error
 
@@ -377,12 +365,8 @@ class TestConvertStreamWithMarkItDown:
 
         stream = io.BytesIO(b"data")
         mock_md = MagicMock(spec=[])  # no convert_stream attribute
-        with patch.object(
-            local_converter, "get_markitdown_instance", return_value=mock_md
-        ):
-            success, content, error = local_converter.convert_stream_with_markitdown(
-                stream
-            )
+        with patch.object(local_converter, "get_markitdown_instance", return_value=mock_md):
+            success, content, error = local_converter.convert_stream_with_markitdown(stream)
         assert success is False
         assert "not available" in error
 
@@ -396,12 +380,8 @@ class TestConvertStreamWithMarkItDown:
         mock_md = MagicMock()
         mock_md.convert_stream.return_value = mock_result
 
-        with patch.object(
-            local_converter, "get_markitdown_instance", return_value=mock_md
-        ):
-            success, content, error = local_converter.convert_stream_with_markitdown(
-                stream, "test.txt"
-            )
+        with patch.object(local_converter, "get_markitdown_instance", return_value=mock_md):
+            success, content, error = local_converter.convert_stream_with_markitdown(stream, "test.txt")
 
         assert success is True
         assert "Stream Content" in content
@@ -460,9 +440,7 @@ class TestExtractTablesPdfplumberText:
 
     def test_returns_empty_when_not_installed(self, tmp_path):
         with patch.object(local_converter, "pdfplumber", None):
-            result = local_converter.extract_tables_pdfplumber_text(
-                tmp_path / "test.pdf"
-            )
+            result = local_converter.extract_tables_pdfplumber_text(tmp_path / "test.pdf")
         assert result == []
 
     def test_handles_exception(self, tmp_path):
@@ -497,9 +475,7 @@ class TestExtractTablesPdfplumberText:
 
         assert len(result) == 1
         assert result[0] == [["A", "B"], ["1", "2"]]
-        mock_page.extract_tables.assert_called_once_with(
-            {"vertical_strategy": "text", "horizontal_strategy": "text"}
-        )
+        mock_page.extract_tables.assert_called_once_with({"vertical_strategy": "text", "horizontal_strategy": "text"})
 
 
 # ============================================================================
@@ -547,9 +523,7 @@ class TestConvertPdfToImages:
 
     def test_not_installed(self, tmp_path):
         with patch.object(local_converter, "convert_from_path", None):
-            success, paths, error = local_converter.convert_pdf_to_images(
-                tmp_path / "test.pdf"
-            )
+            success, paths, error = local_converter.convert_pdf_to_images(tmp_path / "test.pdf")
         assert success is False
         assert "not installed" in error.lower() or "not available" in error.lower()
 
@@ -568,9 +542,7 @@ class TestConvertPdfToImages:
         mock_img1 = MagicMock()
         mock_img2 = MagicMock()
 
-        with patch.object(
-            local_converter, "convert_from_path", return_value=[mock_img1, mock_img2]
-        ):
+        with patch.object(local_converter, "convert_from_path", return_value=[mock_img1, mock_img2]):
             success, paths, error = local_converter.convert_pdf_to_images(pdf_file)
 
         assert success is True
@@ -613,12 +585,8 @@ class TestExtractAllTables:
         table1 = [["A", "B"], ["1", "2"]]
         table2 = [["C", "D"], ["3", "4"]]
 
-        with patch.object(
-            local_converter, "extract_tables_pdfplumber", return_value=[table1]
-        ):
-            with patch.object(
-                local_converter, "extract_tables_pdfplumber_text", return_value=[table2]
-            ):
+        with patch.object(local_converter, "extract_tables_pdfplumber", return_value=[table1]):
+            with patch.object(local_converter, "extract_tables_pdfplumber_text", return_value=[table2]):
                 result = local_converter.extract_all_tables(pdf_file)
 
         assert result["table_count"] >= 1
@@ -628,12 +596,8 @@ class TestExtractAllTables:
         pdf_file = tmp_path / "test.pdf"
         pdf_file.write_bytes(b"%PDF-1.4")
 
-        with patch.object(
-            local_converter, "extract_tables_pdfplumber", return_value=[]
-        ):
-            with patch.object(
-                local_converter, "extract_tables_pdfplumber_text", return_value=[]
-            ):
+        with patch.object(local_converter, "extract_tables_pdfplumber", return_value=[]):
+            with patch.object(local_converter, "extract_tables_pdfplumber_text", return_value=[]):
                 result = local_converter.extract_all_tables(pdf_file)
 
         assert result["table_count"] == 0
@@ -890,9 +854,7 @@ class TestConvertWithMarkItDownExceptions:
         test_file.write_text("hello")
         mock_md = MagicMock()
         mock_md.convert.side_effect = exception
-        with patch.object(
-            local_converter, "get_markitdown_instance", return_value=mock_md
-        ):
+        with patch.object(local_converter, "get_markitdown_instance", return_value=mock_md):
             return local_converter.convert_with_markitdown(test_file)
 
     def test_unsupported_format_exception(self, tmp_path, monkeypatch):
@@ -929,9 +891,7 @@ class TestConvertWithMarkItDownExceptions:
         test_file.write_text("hello")
         mock_md = MagicMock()
         mock_md.convert.return_value = None  # No result
-        with patch.object(
-            local_converter, "get_markitdown_instance", return_value=mock_md
-        ):
+        with patch.object(local_converter, "get_markitdown_instance", return_value=mock_md):
             success, content, error = local_converter.convert_with_markitdown(test_file)
         assert success is False
         assert "No content" in error
@@ -950,15 +910,9 @@ class TestConvertStreamExceptions:
         if local_converter.UnsupportedFormatException is None:
             pytest.skip("UnsupportedFormatException not available")
         mock_md = MagicMock()
-        mock_md.convert_stream.side_effect = local_converter.UnsupportedFormatException(
-            "bad"
-        )
-        with patch.object(
-            local_converter, "get_markitdown_instance", return_value=mock_md
-        ):
-            success, content, error = local_converter.convert_stream_with_markitdown(
-                io.BytesIO(b"data")
-            )
+        mock_md.convert_stream.side_effect = local_converter.UnsupportedFormatException("bad")
+        with patch.object(local_converter, "get_markitdown_instance", return_value=mock_md):
+            success, content, error = local_converter.convert_stream_with_markitdown(io.BytesIO(b"data"))
         assert success is False
         assert "Unsupported format" in error
 
@@ -967,15 +921,9 @@ class TestConvertStreamExceptions:
         if local_converter.MissingDependencyException is None:
             pytest.skip("MissingDependencyException not available")
         mock_md = MagicMock()
-        mock_md.convert_stream.side_effect = local_converter.MissingDependencyException(
-            "need dep"
-        )
-        with patch.object(
-            local_converter, "get_markitdown_instance", return_value=mock_md
-        ):
-            success, content, error = local_converter.convert_stream_with_markitdown(
-                io.BytesIO(b"data")
-            )
+        mock_md.convert_stream.side_effect = local_converter.MissingDependencyException("need dep")
+        with patch.object(local_converter, "get_markitdown_instance", return_value=mock_md):
+            success, content, error = local_converter.convert_stream_with_markitdown(io.BytesIO(b"data"))
         assert success is False
         assert "Missing dependency" in error
 
@@ -984,15 +932,9 @@ class TestConvertStreamExceptions:
         if local_converter.FileConversionException is None:
             pytest.skip("FileConversionException not available")
         mock_md = MagicMock()
-        mock_md.convert_stream.side_effect = local_converter.FileConversionException(
-            "conv fail"
-        )
-        with patch.object(
-            local_converter, "get_markitdown_instance", return_value=mock_md
-        ):
-            success, content, error = local_converter.convert_stream_with_markitdown(
-                io.BytesIO(b"data")
-            )
+        mock_md.convert_stream.side_effect = local_converter.FileConversionException("conv fail")
+        with patch.object(local_converter, "get_markitdown_instance", return_value=mock_md):
+            success, content, error = local_converter.convert_stream_with_markitdown(io.BytesIO(b"data"))
         assert success is False
         assert "Conversion failed" in error
 
@@ -1000,12 +942,8 @@ class TestConvertStreamExceptions:
         """Lines 268-276: generic exception in stream."""
         mock_md = MagicMock()
         mock_md.convert_stream.side_effect = RuntimeError("stream fail")
-        with patch.object(
-            local_converter, "get_markitdown_instance", return_value=mock_md
-        ):
-            success, content, error = local_converter.convert_stream_with_markitdown(
-                io.BytesIO(b"data")
-            )
+        with patch.object(local_converter, "get_markitdown_instance", return_value=mock_md):
+            success, content, error = local_converter.convert_stream_with_markitdown(io.BytesIO(b"data"))
         assert success is False
         assert "stream fail" in error
 
@@ -1013,23 +951,15 @@ class TestConvertStreamExceptions:
         """Stream returns no result object."""
         mock_md = MagicMock()
         mock_md.convert_stream.return_value = None
-        with patch.object(
-            local_converter, "get_markitdown_instance", return_value=mock_md
-        ):
-            success, content, error = local_converter.convert_stream_with_markitdown(
-                io.BytesIO(b"data")
-            )
+        with patch.object(local_converter, "get_markitdown_instance", return_value=mock_md):
+            success, content, error = local_converter.convert_stream_with_markitdown(io.BytesIO(b"data"))
         assert success is False
 
     def test_no_convert_stream_method(self):
         """Stream conversion when convert_stream not available."""
         mock_md = MagicMock(spec=[])  # no convert_stream attribute
-        with patch.object(
-            local_converter, "get_markitdown_instance", return_value=mock_md
-        ):
-            success, content, error = local_converter.convert_stream_with_markitdown(
-                io.BytesIO(b"data")
-            )
+        with patch.object(local_converter, "get_markitdown_instance", return_value=mock_md):
+            success, content, error = local_converter.convert_stream_with_markitdown(io.BytesIO(b"data"))
         assert success is False
         assert "not available" in error
 
@@ -1040,14 +970,10 @@ class TestConvertStreamExceptions:
         mock_result.markdown = "# Stream Content"
         mock_md.convert_stream.return_value = mock_result
 
-        with patch.object(
-            local_converter, "get_markitdown_instance", return_value=mock_md
-        ):
+        with patch.object(local_converter, "get_markitdown_instance", return_value=mock_md):
             with patch.object(local_converter, "StreamInfo", None):
-                success, content, error = (
-                    local_converter.convert_stream_with_markitdown(
-                        io.BytesIO(b"data"), filename="test.pdf"
-                    )
+                success, content, error = local_converter.convert_stream_with_markitdown(
+                    io.BytesIO(b"data"), filename="test.pdf"
                 )
         assert success is True
         assert "Stream Content" in content
@@ -1069,9 +995,7 @@ class TestExtractAllTablesTextFallback:
         table1 = [["A", "B"], ["1", "2"]]
         text_table = [["X", "Y"], ["3", "4"]]
 
-        with patch.object(
-            local_converter, "extract_tables_pdfplumber", return_value=[table1]
-        ):
+        with patch.object(local_converter, "extract_tables_pdfplumber", return_value=[table1]):
             with patch.object(
                 local_converter,
                 "extract_tables_pdfplumber_text",
@@ -1120,9 +1044,7 @@ class TestSaveTablesToCsv:
 
         tables = [[["Name", "Value"], ["A", "1"]]]
 
-        with patch(
-            "builtins.open", side_effect=[MagicMock(), PermissionError("denied")]
-        ):
+        with patch("builtins.open", side_effect=[MagicMock(), PermissionError("denied")]):
             # First open for markdown, second for CSV raises
             local_converter.save_tables_to_files(pdf_file, tables)
         # Should not crash
@@ -1149,9 +1071,7 @@ class TestConvertPdfToImagesPng:
 
         mock_img = MagicMock()
 
-        with patch.object(
-            local_converter, "convert_from_path", return_value=[mock_img]
-        ):
+        with patch.object(local_converter, "convert_from_path", return_value=[mock_img]):
             success, paths, error = local_converter.convert_pdf_to_images(pdf_file)
 
         assert success is True
@@ -1174,9 +1094,7 @@ class TestConvertPdfToImagesPng:
 
         mock_img = MagicMock()
 
-        with patch.object(
-            local_converter, "convert_from_path", return_value=[mock_img]
-        ):
+        with patch.object(local_converter, "convert_from_path", return_value=[mock_img]):
             success, paths, error = local_converter.convert_pdf_to_images(pdf_file)
 
         assert success is True
@@ -1339,12 +1257,8 @@ class TestExtractAllTablesCoalescing:
         table1 = [["Name", "Value"], ["A", "1"]]
         table2 = [["Name", "Value"], ["B", "2"]]
 
-        with patch.object(
-            local_converter, "extract_tables_pdfplumber", return_value=[table1, table2]
-        ):
-            with patch.object(
-                local_converter, "extract_tables_pdfplumber_text", return_value=[]
-            ):
+        with patch.object(local_converter, "extract_tables_pdfplumber", return_value=[table1, table2]):
+            with patch.object(local_converter, "extract_tables_pdfplumber_text", return_value=[]):
                 result = local_converter.extract_all_tables(pdf_file)
 
         # They should be coalesced into one table
@@ -1401,9 +1315,7 @@ class TestConvertPdfToImagesOtherFormat:
 
         mock_img = MagicMock()
 
-        with patch.object(
-            local_converter, "convert_from_path", return_value=[mock_img]
-        ):
+        with patch.object(local_converter, "convert_from_path", return_value=[mock_img]):
             success, paths, error = local_converter.convert_pdf_to_images(pdf_file)
 
         assert success is True

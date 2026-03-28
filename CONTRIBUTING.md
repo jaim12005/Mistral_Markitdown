@@ -49,13 +49,10 @@ make check
 make test
 
 # Run specific test file
-pytest tests/test_utils.py -v
+python3 -m pytest tests/test_utils.py -v
 
 # Run tests with coverage
-pytest tests/ --cov=. --cov-report=html
-
-# View coverage report
-open htmlcov/index.html
+python3 -m pytest tests/ --cov=. --cov-report=html --cov-report=term-missing
 ```
 
 ### Code Quality
@@ -216,7 +213,9 @@ Mistral_Markitdown/
 │
 ├── .github/workflows/       # CI/CD automation
 │   ├── test.yml             # Multi-platform testing
-│   └── lint.yml             # Code quality checks
+│   ├── lint.yml             # Code quality checks
+│   ├── security.yml         # Security audit (pip-audit, bandit)
+│   └── publish.yml          # PyPI publishing on version tags
 │
 ├── input/                   # Place files to convert here
 ├── output_md/               # Markdown output
@@ -256,13 +255,13 @@ Mistral_Markitdown/
 
 ```bash
 # Run with debug logging
-LOG_LEVEL=DEBUG python main.py
+LOG_LEVEL=DEBUG python3 main.py
 
 # Use ipdb for interactive debugging
 import ipdb; ipdb.set_trace()
 
 # Run specific test with output
-pytest tests/test_utils.py::TestClassName::test_method_name -v -s
+python3 -m pytest tests/test_utils.py::TestClassName::test_method_name -v -s
 ```
 
 ### Updating Dependencies
@@ -280,17 +279,27 @@ make check
 
 ### GitHub Actions
 
-Two workflows run automatically:
+Four workflows run automatically:
 
 1. **Lint** (`lint.yml`)
    - Runs on every push and PR
-   - Checks code formatting
+   - Checks code formatting (flake8, black, isort)
    - Fast feedback (~2 minutes)
 
 2. **Test** (`test.yml`)
    - Runs on every push and PR
-   - Tests on multiple OS and Python versions
-   - Comprehensive checks (~10 minutes)
+   - Tests on 9 matrix combinations (3 OS x 3 Python versions)
+   - Includes coverage upload (~10 minutes)
+
+3. **Security** (`security.yml`)
+   - Runs on every push/PR and weekly (Monday 8am UTC)
+   - Runs pip-audit for dependency vulnerabilities
+   - Runs bandit for Python security linting
+
+4. **Publish** (`publish.yml`)
+   - Triggers on `v*` tags
+   - Runs full test suite before publishing
+   - Publishes to PyPI via trusted publishing
 
 ### Pre-commit Hooks
 

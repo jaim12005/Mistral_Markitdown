@@ -11,7 +11,7 @@ You are a test-runner worker. Your job is to run the narrowest relevant tests fo
 
 - Use `python3 -m pytest` instead of bare `pytest` (no virtualenv assumed).
 - Test single file: `python3 -m pytest tests/test_<name>.py -v`
-- Test all: `python3 -m pytest tests/` (~593 tests, ~15s)
+- Test all: `python3 -m pytest tests/` (~665 tests, ~15s)
 - Tests mock API calls — they pass without a Mistral key.
 - Test config is in `pyproject.toml` under `[tool.pytest.ini_options]`.
 

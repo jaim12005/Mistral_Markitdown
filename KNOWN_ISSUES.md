@@ -93,6 +93,7 @@ The split-header repair heuristic (`_fix_split_headers`) intentionally skips mer
 
 ### "Mistral OCR returned empty text"
 
+- The error message now includes parse error details when available -- read the full message.
 - Verify your API key has OCR access
 - Check that the document is valid and not corrupted
 - Try Convert (MarkItDown) as an alternative

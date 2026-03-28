@@ -12,10 +12,10 @@ Interactive CLI for document conversion with 8 modes:
 8. Maintenance           - Clear cache, clean up old uploads
 
 Usage:
-    python main.py                      # Interactive menu
-    python main.py --mode smart         # Smart auto-routing
-    python main.py --mode markitdown    # Force MarkItDown
-    python main.py --test               # Test mode
+    python3 main.py                      # Interactive menu
+    python3 main.py --mode smart         # Smart auto-routing
+    python3 main.py --mode markitdown    # Force MarkItDown
+    python3 main.py --test               # Test mode
 
 Documentation references:
 - MarkItDown: https://github.com/microsoft/markitdown
@@ -115,11 +115,7 @@ def _process_files_concurrently(
                 successful += 1
             else:
                 failed += 1
-                err = (
-                    result[2]
-                    if isinstance(result, tuple) and len(result) > 2
-                    else "unknown error"
-                )
+                err = result[2] if isinstance(result, tuple) and len(result) > 2 else "unknown error"
                 logger.error("Failed: %s - %s", file_paths[0].name, err)
         except Exception as e:
             failed += 1
@@ -137,11 +133,7 @@ def _process_files_concurrently(
                         successful += 1
                     else:
                         failed += 1
-                        err = (
-                            result[2]
-                            if isinstance(result, tuple) and len(result) > 2
-                            else "unknown error"
-                        )
+                        err = result[2] if isinstance(result, tuple) and len(result) > 2 else "unknown error"
                         logger.error("Failed: %s - %s", file_path.name, err)
                 except Exception as e:
                     failed += 1
@@ -227,6 +219,29 @@ def _route_label_cached(file_path: Path, use_ocr: bool) -> str:
     return label
 
 
+def _extract_pdf_tables(file_path: Path) -> None:
+    """Run pdfplumber table extraction for a PDF and save sidecar files.
+
+    Skips silently when the PDF exceeds the heavy-work size cap.
+    Logs but does not raise on extraction failures.
+    """
+    too_large, size_err = utils.pdf_exceeds_heavy_work_limit(file_path)
+    if too_large:
+        logger.warning("Skipping table extraction for %s: %s", file_path.name, size_err)
+        return
+    try:
+        table_result = local_converter.extract_all_tables(file_path)
+        if table_result["table_count"] > 0:
+            local_converter.save_tables_to_files(file_path, table_result["tables"])
+            logger.info(
+                "Extracted %d tables from %s",
+                table_result["table_count"],
+                file_path.name,
+            )
+    except Exception as e:
+        logger.warning("Table extraction failed for %s: %s", file_path.name, e)
+
+
 def _process_single_smart(
     file_path: Path, *, use_ocr: Optional[bool] = None
 ) -> Tuple[bool, Optional[Path], Optional[str]]:
@@ -239,27 +254,9 @@ def _process_single_smart(
     """
     ext = file_path.suffix.lower().lstrip(".")
 
-    # PDF table extraction runs regardless of engine choice (skip if PDF exceeds heavy-work cap)
+    # PDF table extraction runs regardless of engine choice
     if ext == "pdf":
-        too_large, size_err = utils.pdf_exceeds_heavy_work_limit(file_path)
-        if too_large:
-            logger.warning(
-                "Skipping table extraction for %s: %s", file_path.name, size_err
-            )
-        else:
-            try:
-                table_result = local_converter.extract_all_tables(file_path)
-                if table_result["table_count"] > 0:
-                    local_converter.save_tables_to_files(
-                        file_path, table_result["tables"]
-                    )
-                    logger.info(
-                        "Extracted %d tables from %s",
-                        table_result["table_count"],
-                        file_path.name,
-                    )
-            except Exception as e:
-                logger.warning("Table extraction failed for %s: %s", file_path.name, e)
+        _extract_pdf_tables(file_path)
 
     if use_ocr is None:
         use_ocr = _should_use_ocr(file_path)
@@ -268,11 +265,7 @@ def _process_single_smart(
         return mistral_converter.convert_with_mistral_ocr(file_path)
     else:
         success, content, error = local_converter.convert_with_markitdown(file_path)
-        output_path = (
-            config.OUTPUT_MD_DIR / f"{utils.safe_output_stem(file_path)}.md"
-            if success
-            else None
-        )
+        output_path = config.OUTPUT_MD_DIR / f"{utils.safe_output_stem(file_path)}.md" if success else None
         return success, output_path, error
 
 
@@ -303,21 +296,17 @@ def mode_convert_smart(file_paths: List[Path]) -> Tuple[bool, str]:
     # Show routing plan
     utils.ui_print("\nRouting plan:")
     if not config.MISTRAL_API_KEY:
-        utils.ui_print(
-            "  NOTE: No MISTRAL_API_KEY set. All files will use MarkItDown (local).\n"
-        )
+        utils.ui_print("  NOTE: No MISTRAL_API_KEY set. All files will use MarkItDown (local).\n")
 
     for fp in file_paths:
         label = _route_label_cached(fp, routing_cache[fp])
-        utils.ui_print(f"  {fp.name:<40} -> {label}")
+        utils.ui_print(f"  {utils.sanitize_for_terminal(fp.name):<40} -> {label}")
     utils.ui_print()
 
     def _process_fn(file_path: Path) -> Tuple[bool, Optional[Path], Optional[str]]:
         return _process_single_smart(file_path, use_ocr=routing_cache[file_path])
 
-    successful, failed = _process_files_concurrently(
-        file_paths, _process_fn, "Converting files"
-    )
+    successful, failed = _process_files_concurrently(file_paths, _process_fn, "Converting files")
 
     total = len(file_paths)
     return failed == 0, f"Processed {successful}/{total} files successfully"
@@ -332,27 +321,8 @@ def _process_single_markitdown_with_pdf_tables(
     file_path: Path,
 ) -> Tuple[bool, Optional[str], Optional[str]]:
     """MarkItDown conversion with pdfplumber table sidecars for PDFs (smart-mode parity)."""
-    ext = file_path.suffix.lower().lstrip(".")
-    if ext == "pdf":
-        too_large, size_err = utils.pdf_exceeds_heavy_work_limit(file_path)
-        if too_large:
-            logger.warning(
-                "Skipping table extraction for %s: %s", file_path.name, size_err
-            )
-        else:
-            try:
-                table_result = local_converter.extract_all_tables(file_path)
-                if table_result["table_count"] > 0:
-                    local_converter.save_tables_to_files(
-                        file_path, table_result["tables"]
-                    )
-                    logger.info(
-                        "Extracted %d tables from %s",
-                        table_result["table_count"],
-                        file_path.name,
-                    )
-            except Exception as e:
-                logger.warning("Table extraction failed for %s: %s", file_path.name, e)
+    if file_path.suffix.lower().lstrip(".") == "pdf":
+        _extract_pdf_tables(file_path)
     return local_converter.convert_with_markitdown(file_path)
 
 
@@ -378,9 +348,7 @@ def mode_markitdown_stdin(stdin_bytes: bytes, filename_hint: str) -> Tuple[bool,
     logger.info("MARKITDOWN STDIN: %s (%d bytes)", base, len(stdin_bytes))
 
     stream = io.BytesIO(stdin_bytes)
-    success, markdown, error = local_converter.convert_stream_with_markitdown(
-        stream, filename=base
-    )
+    success, markdown, error = local_converter.convert_stream_with_markitdown(stream, filename=base)
     if not success or not markdown:
         return False, error or "MarkItDown stream conversion failed"
 
@@ -463,20 +431,14 @@ def mode_pdf_to_images(file_paths: List[Path]) -> Tuple[bool, str]:
 
     # Cap Poppler threads per PDF when the outer pool also runs in parallel.
     if len(pdf_files) > 1:
-        inner_threads = max(
-            1, config.PDF_IMAGE_THREAD_COUNT // max(1, config.MAX_CONCURRENT_FILES)
-        )
+        inner_threads = max(1, config.PDF_IMAGE_THREAD_COUNT // max(1, config.MAX_CONCURRENT_FILES))
     else:
         inner_threads = config.PDF_IMAGE_THREAD_COUNT
 
     def _convert_one_pdf(pdf_path: Path) -> Tuple[bool, List[Path], Optional[str]]:
-        return local_converter.convert_pdf_to_images(
-            pdf_path, thread_count=inner_threads
-        )
+        return local_converter.convert_pdf_to_images(pdf_path, thread_count=inner_threads)
 
-    successful, failed = _process_files_concurrently(
-        pdf_files, _convert_one_pdf, "Converting PDFs"
-    )
+    successful, failed = _process_files_concurrently(pdf_files, _convert_one_pdf, "Converting PDFs")
 
     return failed == 0, f"Converted {successful} PDFs"
 
@@ -488,9 +450,7 @@ def mode_pdf_to_images(file_paths: List[Path]) -> Tuple[bool, str]:
 
 def _qna_print_stream(document_url: str, question: str) -> Tuple[bool, str]:
     """Run streaming QnA and print to stdout; returns (ok, message)."""
-    success, stream, error = mistral_converter.query_document_stream(
-        document_url, question
-    )
+    success, stream, error = mistral_converter.query_document_stream(document_url, question)
     if success and stream is not None:
         utils.ui_print("\nAnswer: ", end="", flush=True)
         emitted_any = False
@@ -498,9 +458,7 @@ def _qna_print_stream(document_url: str, question: str) -> Tuple[bool, str]:
             for chunk in stream:
                 if chunk.data.choices and chunk.data.choices[0].delta.content:
                     emitted_any = True
-                    safe_text = utils.sanitize_for_terminal(
-                        chunk.data.choices[0].delta.content
-                    )
+                    safe_text = utils.sanitize_for_terminal(chunk.data.choices[0].delta.content)
                     utils.ui_print(safe_text, end="", flush=True)
         except Exception as e:
             utils.ui_print(f"\n\nStream error: {e}")
@@ -589,11 +547,7 @@ def mode_document_qna(
         return signed_url
 
     if not _get_document_url():
-        return False, (
-            f"Failed to upload {file_path.name} for QnA"
-            if file_path
-            else "No document URL available"
-        )
+        return False, (f"Failed to upload {file_path.name} for QnA" if file_path else "No document URL available")
 
     utils.ui_print(f"\nQuerying: {display_name}")
     utils.ui_print(f"Model: {config.MISTRAL_DOCUMENT_QNA_MODEL}")
@@ -661,6 +615,115 @@ def _validate_job_id(job_id: str) -> bool:
     return bool(_JOB_ID_RE.match(job_id))
 
 
+def _batch_submit(file_paths: List[Path], *, non_interactive: bool) -> Tuple[bool, str]:
+    """Batch sub-action: submit a new batch OCR job."""
+    submit_paths = list(file_paths)
+    if not submit_paths:
+        if non_interactive:
+            return (
+                False,
+                "Batch submit requires files in input/ (use interactive mode to pick files).",
+            )
+        picked = select_files()
+        if not picked:
+            return False, "No files selected"
+        submit_paths = _filter_valid_files(picked, mode="batch_ocr")
+        if not submit_paths:
+            return False, "No valid files to process for batch OCR."
+
+    if config.MAX_BATCH_FILES > 0 and len(submit_paths) > config.MAX_BATCH_FILES:
+        return False, (
+            f"Batch size ({len(submit_paths)}) exceeds MAX_BATCH_FILES ({config.MAX_BATCH_FILES}). "
+            "Increase the limit or split into smaller batches."
+        )
+
+    if len(submit_paths) < config.MISTRAL_BATCH_MIN_FILES:
+        utils.ui_print(f"\nNote: Batch processing is most cost-effective with {config.MISTRAL_BATCH_MIN_FILES}+ files.")
+        utils.ui_print(f"You selected {len(submit_paths)} file(s). Proceeding anyway.\n")
+
+    batch_file: Optional[Path] = None
+    try:
+        fd, batch_path_str = tempfile.mkstemp(
+            suffix=".jsonl",
+            prefix="batch_ocr_",
+            dir=str(config.CACHE_DIR),
+        )
+        os.close(fd)
+        batch_file = Path(batch_path_str)
+        utils.ui_print(f"\nCreating batch file for {len(submit_paths)} document(s)...")
+
+        success, batch_path, error = mistral_converter.create_batch_ocr_file(submit_paths, batch_file)
+        if not success or batch_path is None:
+            return False, f"Failed to create batch file: {error}"
+
+        utils.ui_print("Submitting batch job...")
+        success, job_id, error = mistral_converter.submit_batch_ocr_job(batch_path)
+        if success:
+            utils.ui_print(f"\nBatch job submitted: {job_id}")
+            utils.ui_print("Use option 2 to check status, option 4 to download results when complete.")
+            return True, f"Batch job submitted: {job_id}"
+        return False, f"Failed to submit batch job: {error}"
+    finally:
+        if batch_file is not None:
+            batch_file.unlink(missing_ok=True)
+
+
+def _batch_status(*, batch_job_id: Optional[str], non_interactive: bool) -> Tuple[bool, str]:
+    """Batch sub-action: check job status."""
+    if non_interactive:
+        job_id = (batch_job_id or "").strip()
+        if not job_id:
+            return False, "Non-interactive batch status requires --batch-job-id"
+    else:
+        job_id = input("Enter job ID: ").strip()
+        if not job_id:
+            return False, "No job ID provided"
+    if not _validate_job_id(job_id):
+        return False, "Invalid job ID format"
+    success, status, error = mistral_converter.get_batch_job_status(job_id)
+    if success and status is not None:
+        utils.ui_print(f"\nJob: {job_id}")
+        utils.ui_print(f"  Status: {status['status']}")
+        utils.ui_print(f"  Progress: {status['progress_percent']}%")
+        utils.ui_print(f"  Succeeded: {status['succeeded_requests']}")
+        utils.ui_print(f"  Failed: {status['failed_requests']}")
+        return True, f"Job {job_id}: {status['status']}"
+    return False, f"Error: {error}"
+
+
+def _batch_list() -> Tuple[bool, str]:
+    """Batch sub-action: list all batch jobs."""
+    success, jobs, error = mistral_converter.list_batch_jobs()
+    if success and jobs:
+        utils.ui_print(f"\n{len(jobs)} batch job(s):\n")
+        for job in jobs:
+            utils.ui_print(f"  {job['id']} | {job['status']} | {job['total_requests']} requests | {job['created_at']}")
+        return True, f"Listed {len(jobs)} batch jobs"
+    elif success:
+        utils.ui_print("\nNo batch jobs found.")
+        return True, "No batch jobs"
+    return False, f"Error: {error}"
+
+
+def _batch_download(*, batch_job_id: Optional[str], non_interactive: bool) -> Tuple[bool, str]:
+    """Batch sub-action: download batch results."""
+    if non_interactive:
+        job_id = (batch_job_id or "").strip()
+        if not job_id:
+            return False, "Non-interactive batch download requires --batch-job-id"
+    else:
+        job_id = input("Enter job ID: ").strip()
+        if not job_id:
+            return False, "No job ID provided"
+    if not _validate_job_id(job_id):
+        return False, "Invalid job ID format"
+    success, path, error = mistral_converter.download_batch_results(job_id)
+    if success:
+        utils.ui_print(f"\nResults saved to: {path}")
+        return True, f"Results downloaded: {path}"
+    return False, f"Error: {error}"
+
+
 def mode_batch_ocr(
     file_paths: List[Path],
     *,
@@ -704,122 +767,15 @@ def mode_batch_ocr(
     if choice == "0":
         return False, "Cancelled"
 
-    if choice == "1":
-        submit_paths = list(file_paths)
-        if not submit_paths:
-            if non_interactive:
-                return (
-                    False,
-                    "Batch submit requires files in input/ (use interactive mode to pick files).",
-                )
-            picked = select_files()
-            if not picked:
-                return False, "No files selected"
-            submit_paths = _filter_valid_files(picked, mode="batch_ocr")
-            if not submit_paths:
-                return False, "No valid files to process for batch OCR."
-
-        if config.MAX_BATCH_FILES > 0 and len(submit_paths) > config.MAX_BATCH_FILES:
-            return False, (
-                f"Batch size ({len(submit_paths)}) exceeds MAX_BATCH_FILES ({config.MAX_BATCH_FILES}). "
-                "Increase the limit or split into smaller batches."
-            )
-
-        if len(submit_paths) < config.MISTRAL_BATCH_MIN_FILES:
-            utils.ui_print(
-                f"\nNote: Batch processing is most cost-effective with {config.MISTRAL_BATCH_MIN_FILES}+ files."
-            )
-            utils.ui_print(
-                f"You selected {len(submit_paths)} file(s). Proceeding anyway.\n"
-            )
-
-        batch_file: Optional[Path] = None
-        try:
-            fd, batch_path_str = tempfile.mkstemp(
-                suffix=".jsonl",
-                prefix="batch_ocr_",
-                dir=str(config.CACHE_DIR),
-            )
-            os.close(fd)
-            batch_file = Path(batch_path_str)
-            utils.ui_print(
-                f"\nCreating batch file for {len(submit_paths)} document(s)..."
-            )
-
-            success, batch_path, error = mistral_converter.create_batch_ocr_file(
-                submit_paths, batch_file
-            )
-            if not success or batch_path is None:
-                return False, f"Failed to create batch file: {error}"
-
-            utils.ui_print("Submitting batch job...")
-            success, job_id, error = mistral_converter.submit_batch_ocr_job(batch_path)
-            if success:
-                utils.ui_print(f"\nBatch job submitted: {job_id}")
-                utils.ui_print(
-                    "Use option 2 to check status, option 4 to download results when complete."
-                )
-                return True, f"Batch job submitted: {job_id}"
-            return False, f"Failed to submit batch job: {error}"
-        finally:
-            if batch_file is not None:
-                batch_file.unlink(missing_ok=True)
-
-    elif choice == "2":
-        if non_interactive:
-            job_id = (batch_job_id or "").strip()
-            if not job_id:
-                return False, "Non-interactive batch status requires --batch-job-id"
-        else:
-            job_id = input("Enter job ID: ").strip()
-            if not job_id:
-                return False, "No job ID provided"
-        if not _validate_job_id(job_id):
-            return False, "Invalid job ID format"
-        success, status, error = mistral_converter.get_batch_job_status(job_id)
-        if success and status is not None:
-            utils.ui_print(f"\nJob: {job_id}")
-            utils.ui_print(f"  Status: {status['status']}")
-            utils.ui_print(f"  Progress: {status['progress_percent']}%")
-            utils.ui_print(f"  Succeeded: {status['succeeded_requests']}")
-            utils.ui_print(f"  Failed: {status['failed_requests']}")
-            return True, f"Job {job_id}: {status['status']}"
-        else:
-            return False, f"Error: {error}"
-
-    elif choice == "3":
-        success, jobs, error = mistral_converter.list_batch_jobs()
-        if success and jobs:
-            utils.ui_print(f"\n{len(jobs)} batch job(s):\n")
-            for job in jobs:
-                utils.ui_print(
-                    f"  {job['id']} | {job['status']} | {job['total_requests']} requests | {job['created_at']}"
-                )
-            return True, f"Listed {len(jobs)} batch jobs"
-        elif success:
-            utils.ui_print("\nNo batch jobs found.")
-            return True, "No batch jobs"
-        else:
-            return False, f"Error: {error}"
-
-    elif choice == "4":
-        if non_interactive:
-            job_id = (batch_job_id or "").strip()
-            if not job_id:
-                return False, "Non-interactive batch download requires --batch-job-id"
-        else:
-            job_id = input("Enter job ID: ").strip()
-            if not job_id:
-                return False, "No job ID provided"
-        if not _validate_job_id(job_id):
-            return False, "Invalid job ID format"
-        success, path, error = mistral_converter.download_batch_results(job_id)
-        if success:
-            utils.ui_print(f"\nResults saved to: {path}")
-            return True, f"Results downloaded: {path}"
-        else:
-            return False, f"Error: {error}"
-
+    _dispatch = {
+        "1": lambda: _batch_submit(file_paths, non_interactive=non_interactive),
+        "2": lambda: _batch_status(batch_job_id=batch_job_id, non_interactive=non_interactive),
+        "3": _batch_list,
+        "4": lambda: _batch_download(batch_job_id=batch_job_id, non_interactive=non_interactive),
+    }
+    action = _dispatch.get(choice)
+    if action:
+        return action()
     return False, "Cancelled"
 
 
@@ -843,22 +799,14 @@ def mode_system_status() -> Tuple[bool, str]:
     out(
         f"  * Mistral API base: {config.MISTRAL_SERVER_URL or 'default (api.mistral.ai)'}",
     )
-    llm_status = (
-        f"Enabled ({config.MARKITDOWN_LLM_MODEL})"
-        if config.MARKITDOWN_ENABLE_LLM_DESCRIPTIONS
-        else "Disabled"
-    )
+    llm_status = f"Enabled ({config.MARKITDOWN_LLM_MODEL})" if config.MARKITDOWN_ENABLE_LLM_DESCRIPTIONS else "Disabled"
     out(f"  * LLM Descriptions: {llm_status}")
     out(f"  * Cache Duration: {config.CACHE_DURATION_HOURS} hours")
     out(f"  * Max Concurrent Files: {config.MAX_CONCURRENT_FILES}")
     out(f"  * Mistral OCR Model: {config.get_ocr_model()}")
     out(f"  * Table Format: {config.MISTRAL_TABLE_FORMAT or 'API default (unset)'}")
-    out(
-        f"  * Extract Headers/Footers: {config.MISTRAL_EXTRACT_HEADER}/{config.MISTRAL_EXTRACT_FOOTER}"
-    )
-    out(
-        f"  * ExifTool: {'Set' if config.MARKITDOWN_EXIFTOOL_PATH else 'Not configured'}"
-    )
+    out(f"  * Extract Headers/Footers: {config.MISTRAL_EXTRACT_HEADER}/{config.MISTRAL_EXTRACT_FOOTER}")
+    out(f"  * ExifTool: {'Set' if config.MARKITDOWN_EXIFTOOL_PATH else 'Not configured'}")
     out(f"  * Style Map: {'Set' if config.MARKITDOWN_STYLE_MAP else 'Not configured'}")
     out()
 
@@ -899,9 +847,7 @@ def mode_system_status() -> Tuple[bool, str]:
         recommendations.append("! Set MISTRAL_API_KEY to enable OCR features")
 
     if cache_stats["total_entries"] > 100:
-        recommendations.append(
-            "* Consider running Maintenance (option 8) to clear old cache entries"
-        )
+        recommendations.append("* Consider running Maintenance (option 8) to clear old cache entries")
 
     if not recommendations:
         recommendations.append("  All systems operational")
@@ -989,17 +935,19 @@ def select_files() -> List[Path]:
     out(f"\nFound {len(input_files)} file(s) in input directory:\n")
 
     for i, file_path in enumerate(input_files, 1):
-        file_size = file_path.stat().st_size / 1024
-        out(f"  {i}. {file_path.name} ({file_size:.1f} KB)")
+        try:
+            file_size = file_path.stat().st_size / 1024
+            size_str = f"({file_size:.1f} KB)"
+        except OSError:
+            size_str = "(size unavailable)"
+        out(f"  {i}. {utils.sanitize_for_terminal(file_path.name)} {size_str}")
 
     out(f"\n  {len(input_files) + 1}. Process ALL files")
     out("  0. Cancel\n")
 
     while True:
         try:
-            choice = input(
-                "Select file(s) to process (comma-separated or single number): "
-            ).strip()
+            choice = input("Select file(s) to process (comma-separated or single number): ").strip()
 
             if choice == "0":
                 return []
@@ -1081,9 +1029,7 @@ MODE_DISPATCH: Dict[str, Tuple[str, Any]] = {
 }
 
 # Reverse lookup: cli mode name -> handler
-_CLI_MODE_DISPATCH = {
-    cli_name: handler for _, (cli_name, handler) in MODE_DISPATCH.items()
-}
+_CLI_MODE_DISPATCH = {cli_name: handler for _, (cli_name, handler) in MODE_DISPATCH.items()}
 
 
 def interactive_menu():
@@ -1118,9 +1064,7 @@ def interactive_menu():
                 continue
 
             if choice not in MODE_DISPATCH:
-                utils.ui_print(
-                    "\nInvalid choice. Please enter a number between 0 and 8.\n"
-                )
+                utils.ui_print("\nInvalid choice. Please enter a number between 0 and 8.\n")
                 continue
 
             files = select_files()
@@ -1159,6 +1103,125 @@ def interactive_menu():
 # ============================================================================
 
 
+def _validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    """Reject invalid CLI argument combinations."""
+    if args.stdin and args.mode != "markitdown":
+        parser.error("--stdin can only be used with --mode markitdown")
+    if args.stdin and not args.no_interactive:
+        parser.error("--stdin requires --no-interactive")
+    if args.stdin_filename and not args.stdin:
+        parser.error("--stdin-filename requires --stdin")
+    if args.qna_question and args.mode != "qna":
+        parser.error("--qna-question can only be used with --mode qna")
+    if args.qna_document_url and args.mode != "qna":
+        parser.error("--qna-document-url can only be used with --mode qna")
+    if args.qna_document_url and not args.no_interactive:
+        parser.error("--qna-document-url requires --no-interactive")
+    if args.qna_no_stream and args.mode != "qna":
+        parser.error("--qna-no-stream can only be used with --mode qna")
+    if args.batch_action and args.mode != "batch_ocr":
+        parser.error("--batch-action can only be used with --mode batch_ocr")
+    if args.batch_job_id and args.mode != "batch_ocr":
+        parser.error("--batch-job-id can only be used with --mode batch_ocr")
+
+
+def _run_stdin_mode(args: argparse.Namespace) -> None:
+    """Handle --mode markitdown --stdin pipeline."""
+    if not args.stdin_filename:
+        utils.ui_print("--stdin requires --stdin-filename (e.g. report.pdf)")
+        sys.exit(1)
+    max_stdin_bytes = int(config.MARKITDOWN_MAX_FILE_SIZE_MB * 1024 * 1024)
+    ok_stdin, stdin_data, stdin_err = utils.read_stdin_bytes_limited(max_stdin_bytes)
+    if not ok_stdin:
+        utils.ui_print(stdin_err or "Stdin read failed")
+        sys.exit(1)
+    start_time = time.time()
+    success, message = mode_markitdown_stdin(stdin_data, args.stdin_filename)
+    utils.ui_print(f"\n{message}")
+    elapsed = time.time() - start_time
+    utils.ui_print(f"\nTotal processing time: {elapsed:.2f} seconds")
+    sys.exit(0 if success else 1)
+
+
+def _collect_files_non_interactive(args: argparse.Namespace) -> List[Path]:
+    """Gather input files for non-interactive direct-mode execution."""
+    qna_url = (args.qna_document_url or "").strip()
+
+    if args.mode == "qna" and qna_url:
+        utils.ui_print("Non-interactive QnA using --qna-document-url (no input/ files).")
+        return []
+
+    if args.mode == "batch_ocr":
+        ba = (args.batch_action or "").lower().strip()
+        if ba in ("status", "list", "download"):
+            utils.ui_print(f"Non-interactive batch: --batch-action {ba} (no input/ files required).")
+            return []
+
+    files = _list_input_files()
+    if not files:
+        utils.ui_print(f"No files found in {config.INPUT_DIR}")
+        sys.exit(1)
+    utils.ui_print(f"Non-interactive mode: Processing {len(files)} files from input directory")
+    return files
+
+
+def _run_direct_mode(args: argparse.Namespace) -> None:
+    """Execute a specific mode non-interactively or with file picker."""
+    if args.mode == "markitdown" and args.stdin:
+        _run_stdin_mode(args)
+        return
+
+    if args.no_interactive:
+        files = _collect_files_non_interactive(args)
+    else:
+        files = select_files()
+        if not files:
+            return
+
+    # Validate and filter files (skip for modes that don't need them)
+    qna_url = (args.qna_document_url or "").strip()
+    needs_files = not (args.mode == "qna" and qna_url)
+    batch_no_files = (
+        args.mode == "batch_ocr"
+        and args.no_interactive
+        and (args.batch_action or "").lower().strip() in ("status", "list", "download")
+    )
+    if needs_files and not batch_no_files:
+        files = _filter_valid_files(files, mode=args.mode)
+        if not files:
+            utils.ui_print("No valid files to process.")
+            sys.exit(1)
+
+    start_time = time.time()
+    handler = _CLI_MODE_DISPATCH.get(args.mode)
+    if handler is None:
+        utils.ui_print(f"Unknown mode: {args.mode}")
+        sys.exit(1)
+    if args.mode == "qna":
+        success, message = mode_document_qna(
+            files,
+            initial_question=args.qna_question,
+            non_interactive=args.no_interactive,
+            qna_document_url=args.qna_document_url,
+            qna_use_stream=not args.qna_no_stream,
+        )
+    elif args.mode == "batch_ocr":
+        success, message = mode_batch_ocr(
+            files,
+            batch_action=args.batch_action,
+            batch_job_id=args.batch_job_id,
+            non_interactive=args.no_interactive,
+        )
+    else:
+        success, message = handler(files)
+    utils.ui_print(f"\n{message}")
+
+    elapsed = time.time() - start_time
+    utils.ui_print(f"\nTotal processing time: {elapsed:.2f} seconds")
+
+    sys.exit(0 if success else 1)
+
+
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
@@ -1166,16 +1229,16 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python main.py                     # Interactive menu
-  python main.py --mode smart        # Smart auto-routing
-  python main.py --mode markitdown   # Force MarkItDown
-  python main.py --mode mistral_ocr  # Force Mistral OCR
-  python main.py --mode qna --no-interactive --qna-question "Summary?"
-  python main.py --mode qna --no-interactive --qna-document-url "https://example.com/doc.pdf" --qna-question "Summary?"
-  python main.py --mode qna --no-interactive --qna-no-stream --qna-question "Summary?"
-  python main.py --mode markitdown --no-interactive --stdin --stdin-filename report.pdf < report.pdf
-  python main.py --mode batch_ocr --no-interactive --batch-action submit
-  python main.py --test              # Test mode
+  python3 main.py                     # Interactive menu
+  python3 main.py --mode smart        # Smart auto-routing
+  python3 main.py --mode markitdown   # Force MarkItDown
+  python3 main.py --mode mistral_ocr  # Force Mistral OCR
+  python3 main.py --mode qna --no-interactive --qna-question "Summary?"
+  python3 main.py --mode qna --no-interactive --qna-document-url "https://example.com/doc.pdf" --qna-question "Summary?"
+  python3 main.py --mode qna --no-interactive --qna-no-stream --qna-question "Summary?"
+  python3 main.py --mode markitdown --no-interactive --stdin --stdin-filename report.pdf < report.pdf
+  python3 main.py --mode batch_ocr --no-interactive --batch-action submit
+  python3 main.py --test              # Test mode
         """,
     )
 
@@ -1240,6 +1303,7 @@ Examples:
     )
 
     args = parser.parse_args()
+    _validate_args(parser, args)
 
     # Print header
     utils.ui_print("\n" + "=" * 60)
@@ -1263,120 +1327,22 @@ Examples:
     if args.test:
         logger.info("Running in test mode...")
         mode_system_status()
-        return
+        sys.exit(0)
 
-    # Status mode doesn't need file selection
+    # Status/maintenance modes don't need file selection
     if args.mode == "status":
         mode_system_status()
-        return
+        sys.exit(0)
 
     if args.mode == "maintenance":
-        mode_maintenance()
-        return
+        success, message = mode_maintenance()
+        utils.ui_print(f"\n{message}")
+        sys.exit(0 if success else 1)
 
     # Direct mode execution
     if args.mode:
-        qna_url = (args.qna_document_url or "").strip()
-        if qna_url and not args.no_interactive:
-            utils.ui_print("--qna-document-url requires --no-interactive")
-            sys.exit(1)
-
-        if args.mode == "markitdown" and args.stdin:
-            if not args.no_interactive:
-                utils.ui_print("MarkItDown stdin conversion requires --no-interactive")
-                sys.exit(1)
-            if not args.stdin_filename:
-                utils.ui_print("--stdin requires --stdin-filename (e.g. report.pdf)")
-                sys.exit(1)
-            max_stdin_bytes = int(config.MARKITDOWN_MAX_FILE_SIZE_MB * 1024 * 1024)
-            ok_stdin, stdin_data, stdin_err = utils.read_stdin_bytes_limited(
-                max_stdin_bytes
-            )
-            if not ok_stdin:
-                utils.ui_print(stdin_err or "Stdin read failed")
-                sys.exit(1)
-            start_time = time.time()
-            success, message = mode_markitdown_stdin(stdin_data, args.stdin_filename)
-            utils.ui_print(f"\n{message}")
-            elapsed = time.time() - start_time
-            utils.ui_print(f"\nTotal processing time: {elapsed:.2f} seconds")
-            sys.exit(0 if success else 1)
-
-        if args.no_interactive:
-            if args.mode == "qna" and qna_url:
-                files = []
-                utils.ui_print(
-                    "Non-interactive QnA using --qna-document-url (no input/ files)."
-                )
-            elif args.mode == "batch_ocr":
-                ba = (args.batch_action or "").lower().strip()
-                if ba in ("status", "list", "download"):
-                    files = []
-                    utils.ui_print(
-                        f"Non-interactive batch: --batch-action {ba} (no input/ files required)."
-                    )
-                else:
-                    files = _list_input_files()
-                    if not files:
-                        utils.ui_print(f"No files found in {config.INPUT_DIR}")
-                        return
-                    utils.ui_print(
-                        f"Non-interactive mode: Processing {len(files)} files from input directory"
-                    )
-            else:
-                files = _list_input_files()
-                if not files:
-                    utils.ui_print(f"No files found in {config.INPUT_DIR}")
-                    return
-                utils.ui_print(
-                    f"Non-interactive mode: Processing {len(files)} files from input directory"
-                )
-        else:
-            files = select_files()
-            if not files:
-                return
-
-        if not (args.mode == "qna" and qna_url):
-            _batch_no_files = (
-                args.mode == "batch_ocr"
-                and args.no_interactive
-                and (args.batch_action or "").lower().strip()
-                in ("status", "list", "download")
-            )
-            if not _batch_no_files:
-                files = _filter_valid_files(files, mode=args.mode)
-                if not files:
-                    utils.ui_print("No valid files to process.")
-                    sys.exit(1)
-
-        start_time = time.time()
-        handler = _CLI_MODE_DISPATCH.get(args.mode)
-        if handler is None:
-            utils.ui_print(f"Unknown mode: {args.mode}")
-            sys.exit(1)
-        if args.mode == "qna":
-            success, message = mode_document_qna(
-                files,
-                initial_question=args.qna_question,
-                non_interactive=args.no_interactive,
-                qna_document_url=args.qna_document_url,
-                qna_use_stream=not args.qna_no_stream,
-            )
-        elif args.mode == "batch_ocr":
-            success, message = mode_batch_ocr(
-                files,
-                batch_action=args.batch_action,
-                batch_job_id=args.batch_job_id,
-                non_interactive=args.no_interactive,
-            )
-        else:
-            success, message = handler(files)
-        utils.ui_print(f"\n{message}")
-
-        elapsed = time.time() - start_time
-        utils.ui_print(f"\nTotal processing time: {elapsed:.2f} seconds")
-
-        sys.exit(0 if success else 1)
+        _run_direct_mode(args)
+        return
 
     # Interactive menu
     interactive_menu()

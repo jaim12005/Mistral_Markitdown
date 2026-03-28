@@ -11,9 +11,19 @@ Documentation references:
 - JSON Schema: https://json-schema.org/
 """
 
+import logging
 from typing import Any, Dict, List, Optional, Type
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+logger = logging.getLogger("document_converter")
+
+
+class _BaseSchema(BaseModel):
+    """Shared configuration for all schema models."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
+
 
 __all__ = [
     "ImageAnnotation",
@@ -54,7 +64,7 @@ __all__ = [
 # ============================================================================
 
 
-class ImageAnnotation(BaseModel):
+class ImageAnnotation(_BaseSchema):
     """Pydantic model for image/bbox annotation extraction."""
 
     image_type: str = Field(..., description="The type of the image (chart, diagram, photo, table, figure, etc.)")
@@ -62,18 +72,18 @@ class ImageAnnotation(BaseModel):
     summary: str = Field(..., description="A detailed summary of the image including key information and data points.")
 
 
-class TableAnnotation(BaseModel):
+class TableAnnotation(_BaseSchema):
     """Pydantic model for table bbox annotation extraction."""
 
     table_type: str = Field(..., description="The type of table (data, financial, comparison, schedule, etc.)")
     caption: Optional[str] = Field(None, description="Table caption or title if present.")
-    rows: int = Field(..., description="Number of rows in the table.")
-    columns: int = Field(..., description="Number of columns in the table.")
+    rows: int = Field(..., ge=1, description="Number of rows in the table.")
+    columns: int = Field(..., ge=1, description="Number of columns in the table.")
     has_header: bool = Field(..., description="Whether the table has a header row.")
     content_summary: str = Field(..., description="Summary of the table's content and purpose.")
 
 
-class ChartAnnotation(BaseModel):
+class ChartAnnotation(_BaseSchema):
     """Pydantic model for chart/graph bbox annotation extraction."""
 
     chart_type: str = Field(..., description="The type of chart (bar, line, pie, scatter, histogram, etc.)")
@@ -83,7 +93,7 @@ class ChartAnnotation(BaseModel):
     data_summary: str = Field(..., description="Summary of the data trends and key insights from the chart.")
 
 
-class BBoxStructuredAnnotation(BaseModel):
+class BBoxStructuredAnnotation(_BaseSchema):
     """Comprehensive Pydantic model for bounding box annotation."""
 
     bbox_type: str = Field(
@@ -96,7 +106,7 @@ class BBoxStructuredAnnotation(BaseModel):
 
 
 # Document-level Pydantic models
-class VendorInfo(BaseModel):
+class VendorInfo(_BaseSchema):
     """Vendor information for invoice extraction."""
 
     name: str = Field(..., description="Vendor name")
@@ -105,7 +115,7 @@ class VendorInfo(BaseModel):
     contact: Optional[str] = Field(None, description="Contact information")
 
 
-class CustomerInfo(BaseModel):
+class CustomerInfo(_BaseSchema):
     """Customer information for invoice extraction."""
 
     name: Optional[str] = Field(None, description="Customer name")
@@ -113,7 +123,7 @@ class CustomerInfo(BaseModel):
     tax_id: Optional[str] = Field(None, description="Tax ID or VAT number")
 
 
-class InvoiceDetails(BaseModel):
+class InvoiceDetails(_BaseSchema):
     """Invoice details for extraction."""
 
     invoice_number: str = Field(..., description="Invoice number")
@@ -122,7 +132,7 @@ class InvoiceDetails(BaseModel):
     purchase_order: Optional[str] = Field(None, description="PO number if applicable")
 
 
-class LineItem(BaseModel):
+class LineItem(_BaseSchema):
     """Line item for invoice extraction."""
 
     description: str = Field(..., description="Item description")
@@ -132,7 +142,7 @@ class LineItem(BaseModel):
     tax_rate: Optional[float] = Field(None, description="Tax rate if applicable")
 
 
-class InvoiceTotals(BaseModel):
+class InvoiceTotals(_BaseSchema):
     """Invoice totals for extraction."""
 
     subtotal: Optional[float] = Field(None, description="Subtotal before tax")
@@ -141,7 +151,7 @@ class InvoiceTotals(BaseModel):
     currency: Optional[str] = Field(None, description="Currency code (USD, EUR, etc.)")
 
 
-class InvoiceDocument(BaseModel):
+class InvoiceDocument(_BaseSchema):
     """Complete invoice document extraction model."""
 
     document_type: str = Field(..., description="Type of financial document: invoice, receipt, bill")
@@ -154,15 +164,15 @@ class InvoiceDocument(BaseModel):
     notes: Optional[str] = Field(None, description="Additional notes or comments")
 
 
-class DocumentSection(BaseModel):
+class DocumentSection(_BaseSchema):
     """Document section for generic extraction."""
 
     heading: str = Field(..., description="Section heading")
-    level: Optional[int] = Field(None, description="Heading level (1-6)")
+    level: Optional[int] = Field(None, ge=1, le=6, description="Heading level (1-6)")
     content_summary: Optional[str] = Field(None, description="Brief summary of section content")
 
 
-class GenericDocument(BaseModel):
+class GenericDocument(_BaseSchema):
     """Generic document extraction model."""
 
     document_type: str = Field(..., description="Type or category of document")
@@ -174,7 +184,7 @@ class GenericDocument(BaseModel):
 
 
 # Financial statement models
-class CompanyInfo(BaseModel):
+class CompanyInfo(_BaseSchema):
     """Company information for financial statement extraction."""
 
     name: str = Field(..., description="Company name")
@@ -182,7 +192,7 @@ class CompanyInfo(BaseModel):
     address: Optional[str] = Field(None, description="Company address")
 
 
-class StatementPeriod(BaseModel):
+class StatementPeriod(_BaseSchema):
     """Reporting period for financial statement extraction."""
 
     start_date: Optional[str] = Field(None, description="Period start (ISO format)")
@@ -190,7 +200,7 @@ class StatementPeriod(BaseModel):
     fiscal_year: Optional[int] = Field(None, description="Fiscal year")
 
 
-class AccountEntry(BaseModel):
+class AccountEntry(_BaseSchema):
     """Individual account line in a financial statement."""
 
     account_number: Optional[str] = Field(None, description="Account number")
@@ -201,7 +211,7 @@ class AccountEntry(BaseModel):
     balance: Optional[float] = Field(None, description="Account balance")
 
 
-class StatementTotals(BaseModel):
+class StatementTotals(_BaseSchema):
     """Aggregate totals for financial statement extraction."""
 
     total_assets: Optional[float] = Field(None, description="Total assets")
@@ -212,7 +222,7 @@ class StatementTotals(BaseModel):
     net_income: Optional[float] = Field(None, description="Net income")
 
 
-class FinancialStatementDocument(BaseModel):
+class FinancialStatementDocument(_BaseSchema):
     """Complete financial statement extraction model."""
 
     statement_type: str = Field(..., description="Type: balance_sheet, income_statement, cash_flow, trial_balance")
@@ -226,7 +236,7 @@ class FinancialStatementDocument(BaseModel):
 
 
 # Contract document models
-class ContractParty(BaseModel):
+class ContractParty(_BaseSchema):
     """Party to a contract."""
 
     name: str = Field(..., description="Party name (individual or organization)")
@@ -236,7 +246,7 @@ class ContractParty(BaseModel):
     title: Optional[str] = Field(None, description="Representative title or position")
 
 
-class ContractDates(BaseModel):
+class ContractDates(_BaseSchema):
     """Key dates in a contract."""
 
     effective_date: Optional[str] = Field(None, description="Date the contract takes effect (ISO format)")
@@ -245,7 +255,7 @@ class ContractDates(BaseModel):
     renewal_date: Optional[str] = Field(None, description="Next renewal date if applicable (ISO format)")
 
 
-class ContractClause(BaseModel):
+class ContractClause(_BaseSchema):
     """A clause or section within a contract."""
 
     clause_number: Optional[str] = Field(None, description="Clause or section number")
@@ -253,7 +263,7 @@ class ContractClause(BaseModel):
     summary: Optional[str] = Field(None, description="Brief summary of the clause content")
 
 
-class ContractDocument(BaseModel):
+class ContractDocument(_BaseSchema):
     """Complete contract document extraction model."""
 
     contract_type: str = Field(
@@ -272,7 +282,7 @@ class ContractDocument(BaseModel):
 
 
 # Form document models
-class FormField(BaseModel):
+class FormField(_BaseSchema):
     """Individual field in a form document."""
 
     field_name: str = Field(..., description="Field label or name")
@@ -281,7 +291,7 @@ class FormField(BaseModel):
     is_filled: Optional[bool] = Field(None, description="Whether the field has been filled in")
 
 
-class FormSignature(BaseModel):
+class FormSignature(_BaseSchema):
     """Signature field in a form document."""
 
     signer_name: Optional[str] = Field(None, description="Name of the signer")
@@ -290,7 +300,7 @@ class FormSignature(BaseModel):
     is_signed: Optional[bool] = Field(None, description="Whether the field has been signed")
 
 
-class FormDates(BaseModel):
+class FormDates(_BaseSchema):
     """Key dates in a form document."""
 
     submission_date: Optional[str] = Field(None, description="Date submitted")
@@ -298,7 +308,7 @@ class FormDates(BaseModel):
     expiration_date: Optional[str] = Field(None, description="Date of expiration")
 
 
-class FormDocument(BaseModel):
+class FormDocument(_BaseSchema):
     """Complete form document extraction model."""
 
     form_type: Optional[str] = Field(None, description="Type of form: application, survey, contract, etc.")
@@ -351,6 +361,8 @@ def get_document_schema(schema_type: str = "generic") -> Dict[str, Any]:
     Returns:
         Schema definition dictionary with name, schema, and description keys
     """
+    if schema_type not in _DOCUMENT_MODEL_MAP:
+        logger.warning("Unknown document schema type %r, falling back to 'generic'", schema_type)
     model = _DOCUMENT_MODEL_MAP.get(schema_type, GenericDocument)
     return {
         "name": f"{schema_type}_extraction",
@@ -369,6 +381,8 @@ def get_bbox_schema(schema_type: str = "structured") -> Dict[str, Any]:
     Returns:
         Schema definition dictionary with name, schema, and description keys
     """
+    if schema_type not in _BBOX_MODEL_MAP:
+        logger.warning("Unknown bbox schema type %r, falling back to 'structured'", schema_type)
     model = _BBOX_MODEL_MAP.get(schema_type, BBoxStructuredAnnotation)
     return {
         "name": f"bbox_{schema_type}_extraction",
@@ -384,7 +398,7 @@ def get_bbox_schema(schema_type: str = "structured") -> Dict[str, Any]:
 # ============================================================================
 
 
-def get_bbox_pydantic_model(annotation_type: str = "structured") -> Type:
+def get_bbox_pydantic_model(annotation_type: str = "structured") -> Type[BaseModel]:
     """
     Get a Pydantic model class for bounding box annotation.
 
@@ -398,10 +412,12 @@ def get_bbox_pydantic_model(annotation_type: str = "structured") -> Type:
     Returns:
         Pydantic model class
     """
+    if annotation_type not in _BBOX_MODEL_MAP:
+        logger.warning("Unknown bbox annotation type %r, falling back to 'structured'", annotation_type)
     return _BBOX_MODEL_MAP.get(annotation_type, BBoxStructuredAnnotation)
 
 
-def get_document_pydantic_model(doc_type: str = "generic") -> Type:
+def get_document_pydantic_model(doc_type: str = "generic") -> Type[BaseModel]:
     """
     Get a Pydantic model class for document-level annotation.
 
@@ -416,4 +432,6 @@ def get_document_pydantic_model(doc_type: str = "generic") -> Type:
     Returns:
         Pydantic model class
     """
+    if doc_type not in _DOCUMENT_MODEL_MAP:
+        logger.warning("Unknown document type %r, falling back to 'generic'", doc_type)
     return _DOCUMENT_MODEL_MAP.get(doc_type, GenericDocument)

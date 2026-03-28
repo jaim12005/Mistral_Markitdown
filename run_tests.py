@@ -9,6 +9,7 @@ Usage:
 
 When no arguments are given, runs ``tests/`` (matches ``scripts/test-safe.sh``).
 """
+
 from __future__ import annotations
 
 import os
@@ -105,9 +106,7 @@ def _bootstrap_pip_in_venv() -> None:
 def _install_deps() -> None:
     _bootstrap_pip_in_venv()
     subprocess.check_call([str(VENV_PYTHON), "-m", "pip", "install", "-q", "--upgrade", "pip"])
-    subprocess.check_call(
-        [str(VENV_PYTHON), "-m", "pip", "install", "-q", "-r", str(REQ_MAIN), "-r", str(REQ_DEV)]
-    )
+    subprocess.check_call([str(VENV_PYTHON), "-m", "pip", "install", "-q", "-r", str(REQ_MAIN), "-r", str(REQ_DEV)])
 
 
 def main() -> int:

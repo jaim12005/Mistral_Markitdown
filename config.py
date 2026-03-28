@@ -66,7 +66,7 @@ def _safe_int(env_var: str, default: int, min_val: int = 0) -> int:
             )
             return default
         return value
-    except (ValueError, TypeError):
+    except ValueError:
         logging.getLogger("document_converter").warning(
             "Invalid integer for %s=%r, using default %d", env_var, raw, default
         )
@@ -94,7 +94,7 @@ def _safe_float(env_var: str, default: float, min_val: float = 0.0) -> float:
             )
             return default
         return value
-    except (ValueError, TypeError):
+    except ValueError:
         logging.getLogger("document_converter").warning(
             "Invalid float for %s=%r, using default %s", env_var, raw, default
         )
@@ -133,11 +133,7 @@ def _safe_csv(env_var: str, default: str) -> List[str]:
     if not raw.strip():
         return [item.strip() for item in default.split(",") if item.strip()]
     values = [item.strip() for item in raw.split(",") if item.strip()]
-    return (
-        values
-        if values
-        else [item.strip() for item in default.split(",") if item.strip()]
-    )
+    return values if values else [item.strip() for item in default.split(",") if item.strip()]
 
 
 # ============================================================================
@@ -198,10 +194,13 @@ def ensure_directories() -> None:
     ]
 
     for directory in directories:
-        if _mode is not None:
-            directory.mkdir(parents=True, exist_ok=True, mode=_mode)
-        else:
-            directory.mkdir(parents=True, exist_ok=True)
+        try:
+            if _mode is not None:
+                directory.mkdir(parents=True, exist_ok=True, mode=_mode)
+            else:
+                directory.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            logging.getLogger("document_converter").error("Cannot create directory %s: %s", directory, e)
 
 
 # ============================================================================
@@ -231,9 +230,7 @@ MISTRAL_OCR_MODEL = os.getenv("MISTRAL_OCR_MODEL", "mistral-ocr-latest")
 
 # Document QnA model (for querying documents with natural language)
 # Supports: mistral-small-latest, mistral-medium-latest, etc.
-MISTRAL_DOCUMENT_QNA_MODEL = os.getenv(
-    "MISTRAL_DOCUMENT_QNA_MODEL", "mistral-small-latest"
-).strip()
+MISTRAL_DOCUMENT_QNA_MODEL = os.getenv("MISTRAL_DOCUMENT_QNA_MODEL", "mistral-small-latest").strip()
 
 # OCR options
 MISTRAL_INCLUDE_IMAGES = _safe_bool("MISTRAL_INCLUDE_IMAGES", True)
@@ -266,17 +263,13 @@ MISTRAL_ENABLE_STRUCTURED_OUTPUT = _safe_bool("MISTRAL_ENABLE_STRUCTURED_OUTPUT"
 
 # Schema selection for structured extraction
 # Options: invoice, financial_statement, contract, form, generic, auto
-MISTRAL_DOCUMENT_SCHEMA_TYPE = (
-    os.getenv("MISTRAL_DOCUMENT_SCHEMA_TYPE", "auto").strip().lower()
-)
+MISTRAL_DOCUMENT_SCHEMA_TYPE = os.getenv("MISTRAL_DOCUMENT_SCHEMA_TYPE", "auto").strip().lower()
 
 # Enable bounding box structured extraction
 MISTRAL_ENABLE_BBOX_ANNOTATION = _safe_bool("MISTRAL_ENABLE_BBOX_ANNOTATION", False)
 
 # Enable document-level structured extraction
-MISTRAL_ENABLE_DOCUMENT_ANNOTATION = _safe_bool(
-    "MISTRAL_ENABLE_DOCUMENT_ANNOTATION", False
-)
+MISTRAL_ENABLE_DOCUMENT_ANNOTATION = _safe_bool("MISTRAL_ENABLE_DOCUMENT_ANNOTATION", False)
 
 # OCR 3 (mistral-ocr-2512) features
 # Table output format: "markdown" (default) or "html" (gives colspan/rowspan for merged cells)
@@ -303,16 +296,10 @@ MISTRAL_OCR_CACHE_CONTRACT_VERSION = 1
 MISTRAL_SIGNED_URL_EXPIRY = _safe_int("MISTRAL_SIGNED_URL_EXPIRY", 1, min_val=1)
 
 # Image optimization
-MISTRAL_ENABLE_IMAGE_OPTIMIZATION = _safe_bool(
-    "MISTRAL_ENABLE_IMAGE_OPTIMIZATION", True
-)
-MISTRAL_ENABLE_IMAGE_PREPROCESSING = _safe_bool(
-    "MISTRAL_ENABLE_IMAGE_PREPROCESSING", False
-)
+MISTRAL_ENABLE_IMAGE_OPTIMIZATION = _safe_bool("MISTRAL_ENABLE_IMAGE_OPTIMIZATION", True)
+MISTRAL_ENABLE_IMAGE_PREPROCESSING = _safe_bool("MISTRAL_ENABLE_IMAGE_PREPROCESSING", False)
 MISTRAL_MAX_IMAGE_DIMENSION = _safe_int("MISTRAL_MAX_IMAGE_DIMENSION", 2048, min_val=1)
-MISTRAL_IMAGE_QUALITY_THRESHOLD = _safe_int(
-    "MISTRAL_IMAGE_QUALITY_THRESHOLD", 70, min_val=1
-)
+MISTRAL_IMAGE_QUALITY_THRESHOLD = _safe_int("MISTRAL_IMAGE_QUALITY_THRESHOLD", 70, min_val=1)
 
 # ============================================================================
 # MarkItDown Configuration
@@ -320,9 +307,7 @@ MISTRAL_IMAGE_QUALITY_THRESHOLD = _safe_int(
 
 # LLM integration - uses Mistral's OpenAI-compatible endpoint (no separate API key)
 # Set to true to enable LLM-powered image descriptions in MarkItDown conversions
-MARKITDOWN_ENABLE_LLM_DESCRIPTIONS = _safe_bool(
-    "MARKITDOWN_ENABLE_LLM_DESCRIPTIONS", False
-)
+MARKITDOWN_ENABLE_LLM_DESCRIPTIONS = _safe_bool("MARKITDOWN_ENABLE_LLM_DESCRIPTIONS", False)
 # Vision-capable model for image descriptions (pixtral-large-latest recommended)
 MARKITDOWN_LLM_MODEL = os.getenv("MARKITDOWN_LLM_MODEL", "pixtral-large-latest").strip()
 # Custom prompt for LLM image descriptions (empty = MarkItDown default)
@@ -404,15 +389,9 @@ MAX_BATCH_FILES = _safe_int("MAX_BATCH_FILES", 100)
 MAX_PAGES_PER_SESSION = _safe_int("MAX_PAGES_PER_SESSION", 1000)
 
 # Document QnA configuration
-MISTRAL_QNA_SYSTEM_PROMPT = os.getenv(
-    "MISTRAL_QNA_SYSTEM_PROMPT", ""
-)  # Custom system prompt for QnA
-MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT = _safe_int(
-    "MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT", 0
-)  # 0 = API default (8)
-MISTRAL_QNA_DOCUMENT_PAGE_LIMIT = _safe_int(
-    "MISTRAL_QNA_DOCUMENT_PAGE_LIMIT", 0
-)  # 0 = API default (64)
+MISTRAL_QNA_SYSTEM_PROMPT = os.getenv("MISTRAL_QNA_SYSTEM_PROMPT", "")  # Custom system prompt for QnA
+MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT = _safe_int("MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT", 0)  # 0 = API default (8)
+MISTRAL_QNA_DOCUMENT_PAGE_LIMIT = _safe_int("MISTRAL_QNA_DOCUMENT_PAGE_LIMIT", 0)  # 0 = API default (64)
 MISTRAL_QNA_MAX_FILE_SIZE_MB = _safe_int("MISTRAL_QNA_MAX_FILE_SIZE_MB", 50, min_val=1)
 # When true, QnA document URLs must pass local DNS resolution (fail closed on lookup/timeout errors)
 MISTRAL_DOCUMENT_URL_STRICT_DNS = _safe_bool("MISTRAL_DOCUMENT_URL_STRICT_DNS", False)
@@ -603,21 +582,15 @@ def validate_configuration() -> List[str]:
 
     # Check required API key
     if not MISTRAL_API_KEY:
-        issues.append(
-            "WARNING: MISTRAL_API_KEY not set. Mistral OCR features will not work."
-        )
+        issues.append("WARNING: MISTRAL_API_KEY not set. Mistral OCR features will not work.")
 
     # Check LLM configuration (uses Mistral's OpenAI-compatible endpoint)
     if MARKITDOWN_ENABLE_LLM_DESCRIPTIONS and not MISTRAL_API_KEY:
-        issues.append(
-            "WARNING: MARKITDOWN_ENABLE_LLM_DESCRIPTIONS is true but MISTRAL_API_KEY not set."
-        )
+        issues.append("WARNING: MARKITDOWN_ENABLE_LLM_DESCRIPTIONS is true but MISTRAL_API_KEY not set.")
 
     # Check Poppler on Windows
     if sys.platform == "win32" and not POPPLER_PATH:
-        issues.append(
-            "INFO: POPPLER_PATH not set. PDF to image conversion may not work on Windows."
-        )
+        issues.append("INFO: POPPLER_PATH not set. PDF to image conversion may not work on Windows.")
 
     # Check for structured output flag conflicts
     if not MISTRAL_ENABLE_STRUCTURED_OUTPUT:
@@ -633,11 +606,7 @@ def validate_configuration() -> List[str]:
             )
 
     # Check OCR quality threshold ordering
-    if not (
-        OCR_QUALITY_THRESHOLD_EXCELLENT
-        >= OCR_QUALITY_THRESHOLD_GOOD
-        >= OCR_QUALITY_THRESHOLD_ACCEPTABLE
-    ):
+    if not (OCR_QUALITY_THRESHOLD_EXCELLENT >= OCR_QUALITY_THRESHOLD_GOOD >= OCR_QUALITY_THRESHOLD_ACCEPTABLE):
         issues.append(
             f"WARNING: OCR quality thresholds are not in descending order "
             f"(excellent={OCR_QUALITY_THRESHOLD_EXCELLENT}, good={OCR_QUALITY_THRESHOLD_GOOD}, "
@@ -646,9 +615,7 @@ def validate_configuration() -> List[str]:
 
     # LOG_LEVEL is normalized at import; keep a defensive check if monkeypatched.
     if LOG_LEVEL not in _valid_log_levels:
-        issues.append(
-            f"WARNING: LOG_LEVEL={LOG_LEVEL!r} is invalid. Use one of {sorted(_valid_log_levels)}."
-        )
+        issues.append(f"WARNING: LOG_LEVEL={LOG_LEVEL!r} is invalid. Use one of {sorted(_valid_log_levels)}.")
 
     # Validate MISTRAL_DOCUMENT_SCHEMA_TYPE
     valid_schema_types = {
@@ -669,8 +636,7 @@ def validate_configuration() -> List[str]:
     valid_mistral_table_formats = {"", "markdown", "html"}
     if MISTRAL_TABLE_FORMAT not in valid_mistral_table_formats:
         issues.append(
-            f"WARNING: MISTRAL_TABLE_FORMAT={MISTRAL_TABLE_FORMAT!r} is invalid. "
-            "Use '', 'markdown', or 'html'."
+            f"WARNING: MISTRAL_TABLE_FORMAT={MISTRAL_TABLE_FORMAT!r} is invalid. " "Use '', 'markdown', or 'html'."
         )
 
     # Validate TABLE_OUTPUT_FORMATS
@@ -680,6 +646,31 @@ def validate_configuration() -> List[str]:
             f"WARNING: Unsupported TABLE_OUTPUT_FORMATS={sorted(invalid_table_output_formats)}. "
             "Supported values: ['csv', 'markdown']."
         )
+
+    # Validate MISTRAL_SERVER_URL
+    if MISTRAL_SERVER_URL:
+        if not MISTRAL_SERVER_URL.startswith(("https://", "http://")):
+            issues.append(
+                f"WARNING: MISTRAL_SERVER_URL={MISTRAL_SERVER_URL!r} does not start with "
+                "https:// or http://. API calls may fail."
+            )
+
+    # Validate PDF_IMAGE_FORMAT
+    valid_image_formats = {"png", "jpeg", "jpg", "tiff", "ppm"}
+    if PDF_IMAGE_FORMAT not in valid_image_formats:
+        issues.append(
+            f"WARNING: PDF_IMAGE_FORMAT={PDF_IMAGE_FORMAT!r} is not a recognized format. "
+            f"Use one of {sorted(valid_image_formats)}."
+        )
+
+    # Validate MARKITDOWN_EXIFTOOL_PATH
+    if MARKITDOWN_EXIFTOOL_PATH:
+        _exif_path = Path(MARKITDOWN_EXIFTOOL_PATH)
+        if not _exif_path.is_absolute():
+            issues.append(
+                f"WARNING: MARKITDOWN_EXIFTOOL_PATH={MARKITDOWN_EXIFTOOL_PATH!r} "
+                "is not an absolute path. Use an absolute path for security."
+            )
 
     # Security-relevant configuration warnings
     if MARKITDOWN_ENABLE_PLUGINS:

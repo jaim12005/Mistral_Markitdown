@@ -34,9 +34,7 @@ class TestValidateDocumentUrl:
             "socket.getaddrinfo",
             return_value=[(None, None, None, None, ("93.184.216.34", 0))],
         ):
-            ok, err = mistral_converter._validate_document_url(
-                "https://example.com/doc.pdf"
-            )
+            ok, err = mistral_converter._validate_document_url("https://example.com/doc.pdf")
         assert ok is True
         assert err is None
 
@@ -45,9 +43,7 @@ class TestValidateDocumentUrl:
             "socket.getaddrinfo",
             return_value=[(None, None, None, None, ("127.0.0.1", 0))],
         ):
-            ok, err = mistral_converter._validate_document_url(
-                "https://localtest.me/doc.pdf"
-            )
+            ok, err = mistral_converter._validate_document_url("https://localtest.me/doc.pdf")
         assert ok is False
         assert "internal" in err.lower()
 
@@ -87,15 +83,11 @@ class TestValidateDocumentUrl:
         assert ok is False
 
     def test_rejects_cloud_metadata(self):
-        ok, err = mistral_converter._validate_document_url(
-            "https://169.254.169.254/latest/meta-data/"
-        )
+        ok, err = mistral_converter._validate_document_url("https://169.254.169.254/latest/meta-data/")
         assert ok is False
 
     def test_rejects_embedded_credentials(self):
-        ok, err = mistral_converter._validate_document_url(
-            "https://user:pass@example.com/doc.pdf"
-        )
+        ok, err = mistral_converter._validate_document_url("https://user:pass@example.com/doc.pdf")
         assert ok is False
         assert "credentials" in err.lower()
 
@@ -112,9 +104,7 @@ class TestValidateDocumentUrl:
         assert ok is False
 
     def test_rejects_ipv4_mapped_ipv6_loopback(self):
-        ok, err = mistral_converter._validate_document_url(
-            "https://[::ffff:127.0.0.1]/"
-        )
+        ok, err = mistral_converter._validate_document_url("https://[::ffff:127.0.0.1]/")
         assert ok is False
 
     def test_rejects_link_local(self):
@@ -129,9 +119,7 @@ class TestValidateDocumentUrl:
             "socket.getaddrinfo",
             side_effect=socket.gaierror(8, "nodename nor servname"),
         ):
-            ok, err = mistral_converter._validate_document_url(
-                "https://example.com/doc.pdf"
-            )
+            ok, err = mistral_converter._validate_document_url("https://example.com/doc.pdf")
         assert ok is True
         assert err is None
 
@@ -143,9 +131,7 @@ class TestValidateDocumentUrl:
             "socket.getaddrinfo",
             side_effect=socket.gaierror(8, "nodename nor servname"),
         ):
-            ok, err = mistral_converter._validate_document_url(
-                "https://example.com/doc.pdf"
-            )
+            ok, err = mistral_converter._validate_document_url("https://example.com/doc.pdf")
         assert ok is False
         assert err and "strict" in err.lower()
 
@@ -321,9 +307,7 @@ class TestClientCacheInvalidation:
         monkeypatch.setattr(config, "MISTRAL_API_KEY", "")
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
-            results = list(
-                pool.map(lambda _: mistral_converter.get_mistral_client(), range(8))
-            )
+            results = list(pool.map(lambda _: mistral_converter.get_mistral_client(), range(8)))
 
         assert all(r is None for r in results)
 
@@ -341,10 +325,7 @@ class TestIsWeakPageDigitRatio:
         monkeypatch.setattr(config, "OCR_MIN_TEXT_LENGTH", 10)
 
         # Text with few digits — should NOT be flagged
-        text = (
-            "This is text with very few digits 12 and some more unique words here now. "
-            * 3
-        )
+        text = "This is text with very few digits 12 and some more unique words here now. " * 3
         assert mistral_converter._is_weak_page(text) is False
 
     def test_sufficient_digits_not_flagged(self, monkeypatch):
@@ -387,21 +368,11 @@ class TestSaveExtractedImages:
             # IHDR
             ihdr_data = struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)
             ihdr_crc = zlib.crc32(b"IHDR" + ihdr_data) & 0xFFFFFFFF
-            ihdr = (
-                struct.pack(">I", 13)
-                + b"IHDR"
-                + ihdr_data
-                + struct.pack(">I", ihdr_crc)
-            )
+            ihdr = struct.pack(">I", 13) + b"IHDR" + ihdr_data + struct.pack(">I", ihdr_crc)
             # IDAT
             raw_data = zlib.compress(b"\x00\xff\x00\x00")
             idat_crc = zlib.crc32(b"IDAT" + raw_data) & 0xFFFFFFFF
-            idat = (
-                struct.pack(">I", len(raw_data))
-                + b"IDAT"
-                + raw_data
-                + struct.pack(">I", idat_crc)
-            )
+            idat = struct.pack(">I", len(raw_data)) + b"IDAT" + raw_data + struct.pack(">I", idat_crc)
             # IEND
             iend_crc = zlib.crc32(b"IEND") & 0xFFFFFFFF
             iend = struct.pack(">I", 0) + b"IEND" + struct.pack(">I", iend_crc)
@@ -450,16 +421,11 @@ class TestOcrSessionPageDelta:
         assert delta == 4
 
     def test_falls_back_to_one_when_only_full_text(self):
-        delta = mistral_converter._ocr_session_page_delta(
-            {"pages": [], "full_text": "hello"}
-        )
+        delta = mistral_converter._ocr_session_page_delta({"pages": [], "full_text": "hello"})
         assert delta == 1
 
     def test_zero_when_empty(self):
-        assert (
-            mistral_converter._ocr_session_page_delta({"pages": [], "full_text": ""})
-            == 0
-        )
+        assert mistral_converter._ocr_session_page_delta({"pages": [], "full_text": ""}) == 0
 
 
 class TestCommitSessionPages:
@@ -918,9 +884,7 @@ class TestValidateDocumentUrlAdditional:
     """Additional URL validation edge cases."""
 
     def test_rejects_data_url(self):
-        ok, err = mistral_converter._validate_document_url(
-            "data:text/html,<h1>bad</h1>"
-        )
+        ok, err = mistral_converter._validate_document_url("data:text/html,<h1>bad</h1>")
         assert ok is False
 
     def test_rejects_javascript_url(self):
@@ -968,19 +932,13 @@ class TestQueryDocument:
     """Test document querying with mocks."""
 
     def test_rejects_invalid_url(self):
-        with patch.object(
-            mistral_converter, "get_mistral_client", return_value=MagicMock()
-        ):
-            ok, answer, err = mistral_converter.query_document(
-                "http://insecure.com/doc.pdf", "what?"
-            )
+        with patch.object(mistral_converter, "get_mistral_client", return_value=MagicMock()):
+            ok, answer, err = mistral_converter.query_document("http://insecure.com/doc.pdf", "what?")
         assert ok is False
         assert "HTTPS" in err or "https" in err.lower()
 
     def test_rejects_private_url(self):
-        ok, answer, err = mistral_converter.query_document(
-            "https://192.168.1.1/doc.pdf", "what?"
-        )
+        ok, answer, err = mistral_converter.query_document("https://192.168.1.1/doc.pdf", "what?")
         assert ok is False
 
     def test_no_client_available(self, monkeypatch):
@@ -990,9 +948,7 @@ class TestQueryDocument:
             "socket.getaddrinfo",
             return_value=[(None, None, None, None, ("93.184.216.34", 0))],
         ):
-            ok, answer, err = mistral_converter.query_document(
-                "https://example.com/doc.pdf", "what?"
-            )
+            ok, answer, err = mistral_converter.query_document("https://example.com/doc.pdf", "what?")
         assert ok is False
         mistral_converter.reset_mistral_client()
 
@@ -1006,9 +962,7 @@ class TestQueryDocumentStream:
     """Test streaming document querying."""
 
     def test_rejects_invalid_url(self):
-        ok, stream, err = mistral_converter.query_document_stream(
-            "http://bad.com/doc.pdf", "what?"
-        )
+        ok, stream, err = mistral_converter.query_document_stream("http://bad.com/doc.pdf", "what?")
         assert ok is False
 
     def test_no_client_available(self, monkeypatch):
@@ -1018,9 +972,7 @@ class TestQueryDocumentStream:
             "socket.getaddrinfo",
             return_value=[(None, None, None, None, ("93.184.216.34", 0))],
         ):
-            ok, stream, err = mistral_converter.query_document_stream(
-                "https://example.com/doc.pdf", "what?"
-            )
+            ok, stream, err = mistral_converter.query_document_stream("https://example.com/doc.pdf", "what?")
         assert ok is False
         mistral_converter.reset_mistral_client()
 
@@ -1036,17 +988,13 @@ class TestSaveExtractedImagesAdditional:
     def test_images_disabled(self, tmp_path, monkeypatch):
         monkeypatch.setattr(config, "MISTRAL_INCLUDE_IMAGES", False)
         ocr_result = {"pages": [{"page_number": 1, "images": [{"base64": "abc"}]}]}
-        saved = mistral_converter.save_extracted_images(
-            ocr_result, tmp_path / "test.pdf"
-        )
+        saved = mistral_converter.save_extracted_images(ocr_result, tmp_path / "test.pdf")
         assert saved == []
 
     def test_no_images_in_result(self, tmp_path, monkeypatch):
         monkeypatch.setattr(config, "MISTRAL_INCLUDE_IMAGES", True)
         ocr_result = {"pages": [{"page_number": 1, "images": []}]}
-        saved = mistral_converter.save_extracted_images(
-            ocr_result, tmp_path / "test.pdf"
-        )
+        saved = mistral_converter.save_extracted_images(ocr_result, tmp_path / "test.pdf")
         assert saved == []
 
 
@@ -1168,11 +1116,7 @@ class TestPreprocessImage:
             mock_pil.open.return_value = mock_img
             with patch.dict(
                 "sys.modules",
-                {
-                    "PIL.ImageEnhance": MagicMock(
-                        Contrast=mock_enhance_cls, Sharpness=mock_enhance_cls
-                    )
-                },
+                {"PIL.ImageEnhance": MagicMock(Contrast=mock_enhance_cls, Sharpness=mock_enhance_cls)},
             ):
                 result = mistral_converter.preprocess_image(img_path)
 
@@ -1204,9 +1148,7 @@ class TestCleanupUploadedFiles:
 
         old_file = MagicMock()
         old_file.id = "file_old"
-        old_file.created_at = (
-            datetime.now(timezone.utc) - __import__("datetime").timedelta(days=30)
-        ).isoformat()
+        old_file.created_at = (datetime.now(timezone.utc) - __import__("datetime").timedelta(days=30)).isoformat()
 
         mock_client = MagicMock()
         files_response = MagicMock()
@@ -1268,9 +1210,7 @@ class TestUploadFileForOcr:
 
         mock_client = MagicMock()
         mock_client.files.upload.return_value = MagicMock(id="file_123")
-        mock_client.files.get_signed_url.return_value = MagicMock(
-            url="https://signed.url/doc"
-        )
+        mock_client.files.get_signed_url.return_value = MagicMock(url="https://signed.url/doc")
 
         result = mistral_converter.upload_file_for_ocr(mock_client, pdf_file)
         assert result == "https://signed.url/doc"
@@ -1287,9 +1227,7 @@ class TestUploadFileForOcr:
 
         mock_client = MagicMock()
         mock_client.files.upload.return_value = MagicMock(id="file_456")
-        mock_client.files.get_signed_url.return_value = MagicMock(
-            url="https://signed.url/img"
-        )
+        mock_client.files.get_signed_url.return_value = MagicMock(url="https://signed.url/img")
 
         with patch.object(mistral_converter, "preprocess_image", return_value=img_file):
             result = mistral_converter.upload_file_for_ocr(mock_client, img_file)
@@ -1317,9 +1255,7 @@ class TestUploadFileForOcr:
 
         mock_client = MagicMock()
         mock_client.files.upload.return_value = MagicMock(id="file_789")
-        mock_client.files.get_signed_url.return_value = MagicMock(
-            spec=[]
-        )  # No 'url' attr
+        mock_client.files.get_signed_url.return_value = MagicMock(spec=[])  # No 'url' attr
 
         result = mistral_converter.upload_file_for_ocr(mock_client, pdf_file)
         assert result is None
@@ -1379,20 +1315,14 @@ class TestProcessWithOcr:
             return_value="https://signed.url/doc",
         ):
             with patch.object(mistral_converter, "get_retry_config", return_value=None):
-                with patch.object(
-                    mistral_converter, "get_bbox_annotation_format", return_value=None
-                ):
+                with patch.object(mistral_converter, "get_bbox_annotation_format", return_value=None):
                     with patch.object(
                         mistral_converter,
                         "get_document_annotation_format",
                         return_value=None,
                     ):
-                        with patch.object(
-                            mistral_converter, "DocumentURLChunk", MagicMock()
-                        ):
-                            success, result, error = mistral_converter.process_with_ocr(
-                                mock_client, pdf_file
-                            )
+                        with patch.object(mistral_converter, "DocumentURLChunk", MagicMock()):
+                            success, result, error = mistral_converter.process_with_ocr(mock_client, pdf_file)
 
         assert success is True
         assert result is not None
@@ -1407,9 +1337,7 @@ class TestProcessWithOcr:
         mock_client = MagicMock()
 
         with patch.object(mistral_converter, "upload_file_for_ocr", return_value=None):
-            success, result, error = mistral_converter.process_with_ocr(
-                mock_client, pdf_file
-            )
+            success, result, error = mistral_converter.process_with_ocr(mock_client, pdf_file)
 
         assert success is False
         assert "Failed to upload" in error
@@ -1436,20 +1364,14 @@ class TestProcessWithOcr:
             return_value="https://signed.url/doc",
         ):
             with patch.object(mistral_converter, "get_retry_config", return_value=None):
-                with patch.object(
-                    mistral_converter, "get_bbox_annotation_format", return_value=None
-                ):
+                with patch.object(mistral_converter, "get_bbox_annotation_format", return_value=None):
                     with patch.object(
                         mistral_converter,
                         "get_document_annotation_format",
                         return_value=None,
                     ):
-                        with patch.object(
-                            mistral_converter, "DocumentURLChunk", MagicMock()
-                        ):
-                            success, result, error = mistral_converter.process_with_ocr(
-                                mock_client, pdf_file
-                            )
+                        with patch.object(mistral_converter, "DocumentURLChunk", MagicMock()):
+                            success, result, error = mistral_converter.process_with_ocr(mock_client, pdf_file)
 
         assert success is False
         assert "Empty response" in error
@@ -1476,20 +1398,14 @@ class TestProcessWithOcr:
             return_value="https://signed.url/doc",
         ):
             with patch.object(mistral_converter, "get_retry_config", return_value=None):
-                with patch.object(
-                    mistral_converter, "get_bbox_annotation_format", return_value=None
-                ):
+                with patch.object(mistral_converter, "get_bbox_annotation_format", return_value=None):
                     with patch.object(
                         mistral_converter,
                         "get_document_annotation_format",
                         return_value=None,
                     ):
-                        with patch.object(
-                            mistral_converter, "DocumentURLChunk", MagicMock()
-                        ):
-                            success, result, error = mistral_converter.process_with_ocr(
-                                mock_client, pdf_file
-                            )
+                        with patch.object(mistral_converter, "DocumentURLChunk", MagicMock()):
+                            success, result, error = mistral_converter.process_with_ocr(mock_client, pdf_file)
 
         assert success is False
         assert "authentication" in error.lower() or "401" in error
@@ -1525,20 +1441,14 @@ class TestProcessWithOcr:
             return_value="https://signed.url/img",
         ):
             with patch.object(mistral_converter, "get_retry_config", return_value=None):
-                with patch.object(
-                    mistral_converter, "get_bbox_annotation_format", return_value=None
-                ):
+                with patch.object(mistral_converter, "get_bbox_annotation_format", return_value=None):
                     with patch.object(
                         mistral_converter,
                         "get_document_annotation_format",
                         return_value=None,
                     ):
-                        with patch.object(
-                            mistral_converter, "ImageURLChunk", mock_image_chunk
-                        ):
-                            success, result, error = mistral_converter.process_with_ocr(
-                                mock_client, img_file
-                            )
+                        with patch.object(mistral_converter, "ImageURLChunk", mock_image_chunk):
+                            success, result, error = mistral_converter.process_with_ocr(mock_client, img_file)
 
         assert success is True
         mock_image_chunk.assert_called_once()
@@ -1606,9 +1516,7 @@ class TestDownloadBatchResults:
             mock_client.files.download.return_value = b'{"result": "data"}\n'
             mock_get.return_value = mock_client
 
-            ok, path, err = mistral_converter.download_batch_results(
-                "job_ok", output_dir=tmp_path
-            )
+            ok, path, err = mistral_converter.download_batch_results("job_ok", output_dir=tmp_path)
 
         assert ok is True
         assert path.exists()
@@ -1742,9 +1650,7 @@ class TestConvertWithMistralOcr:
         contract = mistral_converter.build_mistral_ocr_cache_contract_metadata()
         cache_entry = {"data": cached_result, "metadata": contract}
 
-        with patch.object(
-            mistral_converter, "get_mistral_client", return_value=MagicMock()
-        ):
+        with patch.object(mistral_converter, "get_mistral_client", return_value=MagicMock()):
             with patch("utils.cache.get_entry", return_value=cache_entry):
                 with patch.object(
                     mistral_converter,
@@ -1753,9 +1659,7 @@ class TestConvertWithMistralOcr:
                 ):
                     with patch.object(mistral_converter, "_save_structured_outputs"):
                         with patch.object(mistral_converter, "save_extracted_images"):
-                            ok, path, err = mistral_converter.convert_with_mistral_ocr(
-                                pdf, use_cache=True
-                            )
+                            ok, path, err = mistral_converter.convert_with_mistral_ocr(pdf, use_cache=True)
 
         assert ok is True
 
@@ -1775,9 +1679,7 @@ class TestConvertWithMistralOcr:
 
         fresh = {"full_text": "new", "pages": [{"text": "new", "page_number": 1}]}
 
-        with patch.object(
-            mistral_converter, "get_mistral_client", return_value=MagicMock()
-        ):
+        with patch.object(mistral_converter, "get_mistral_client", return_value=MagicMock()):
             with patch("utils.cache.get_entry", return_value=bad_entry):
                 with patch.object(
                     mistral_converter,
@@ -1789,17 +1691,9 @@ class TestConvertWithMistralOcr:
                         "_create_markdown_output",
                         return_value=tmp_path / "out.md",
                     ):
-                        with patch.object(
-                            mistral_converter, "_save_structured_outputs"
-                        ):
-                            with patch.object(
-                                mistral_converter, "save_extracted_images"
-                            ):
-                                ok, path, err = (
-                                    mistral_converter.convert_with_mistral_ocr(
-                                        pdf, use_cache=True
-                                    )
-                                )
+                        with patch.object(mistral_converter, "_save_structured_outputs"):
+                            with patch.object(mistral_converter, "save_extracted_images"):
+                                ok, path, err = mistral_converter.convert_with_mistral_ocr(pdf, use_cache=True)
 
         assert ok is True
         mock_pw.assert_called_once()
@@ -1808,9 +1702,7 @@ class TestConvertWithMistralOcr:
         pdf = tmp_path / "test.pdf"
         pdf.write_bytes(b"%PDF")
 
-        with patch.object(
-            mistral_converter, "get_mistral_client", return_value=MagicMock()
-        ):
+        with patch.object(mistral_converter, "get_mistral_client", return_value=MagicMock()):
             with patch("utils.cache.get_entry", return_value=None):
                 with patch.object(
                     mistral_converter,
@@ -1837,12 +1729,8 @@ class TestOcrRequestHelpers:
         monkeypatch.setattr(config, "MISTRAL_EXTRACT_HEADER", True)
         monkeypatch.setattr(config, "MISTRAL_EXTRACT_FOOTER", True)
 
-        with patch.object(
-            mistral_converter, "get_bbox_annotation_format", return_value=None
-        ):
-            with patch.object(
-                mistral_converter, "get_document_annotation_format", return_value=None
-            ):
+        with patch.object(mistral_converter, "get_bbox_annotation_format", return_value=None):
+            with patch.object(mistral_converter, "get_document_annotation_format", return_value=None):
                 body = mistral_converter.build_ocr_process_kwargs(
                     document={"type": "document_url", "document_url": "https://x"},
                     model="mistral-ocr-latest",
@@ -1860,12 +1748,8 @@ class TestOcrRequestHelpers:
         monkeypatch.setattr(config, "MISTRAL_EXTRACT_HEADER", True)
         monkeypatch.setattr(config, "MISTRAL_EXTRACT_FOOTER", True)
 
-        with patch.object(
-            mistral_converter, "get_bbox_annotation_format", return_value=None
-        ):
-            with patch.object(
-                mistral_converter, "get_document_annotation_format", return_value=None
-            ):
+        with patch.object(mistral_converter, "get_bbox_annotation_format", return_value=None):
+            with patch.object(mistral_converter, "get_document_annotation_format", return_value=None):
                 body = mistral_converter.build_ocr_process_kwargs(
                     document={"type": "document_url", "document_url": "https://x"},
                     model="mistral-ocr-latest",
@@ -1902,9 +1786,7 @@ class TestQueryDocumentFile:
         pdf = tmp_path / "test.pdf"
         pdf.write_bytes(b"x" * ((cap + 1) * 1024 * 1024))
 
-        with patch.object(
-            mistral_converter, "get_mistral_client", return_value=MagicMock()
-        ):
+        with patch.object(mistral_converter, "get_mistral_client", return_value=MagicMock()):
             ok, answer, err = mistral_converter.query_document_file(pdf, "what?")
         assert ok is False
         assert "too large" in err.lower()
@@ -1913,12 +1795,8 @@ class TestQueryDocumentFile:
         pdf = tmp_path / "test.pdf"
         pdf.write_bytes(b"%PDF small file")
 
-        with patch.object(
-            mistral_converter, "get_mistral_client", return_value=MagicMock()
-        ):
-            with patch.object(
-                mistral_converter, "upload_file_for_ocr", return_value=None
-            ):
+        with patch.object(mistral_converter, "get_mistral_client", return_value=MagicMock()):
+            with patch.object(mistral_converter, "upload_file_for_ocr", return_value=None):
                 ok, answer, err = mistral_converter.query_document_file(pdf, "what?")
         assert ok is False
         assert "upload" in err.lower()
@@ -1927,9 +1805,7 @@ class TestQueryDocumentFile:
         pdf = tmp_path / "test.pdf"
         pdf.write_bytes(b"%PDF small content")
 
-        with patch.object(
-            mistral_converter, "get_mistral_client", return_value=MagicMock()
-        ):
+        with patch.object(mistral_converter, "get_mistral_client", return_value=MagicMock()):
             with patch.object(
                 mistral_converter,
                 "upload_file_for_ocr",
@@ -1940,9 +1816,7 @@ class TestQueryDocumentFile:
                     "query_document",
                     return_value=(True, "The answer is 42", None),
                 ):
-                    ok, answer, err = mistral_converter.query_document_file(
-                        pdf, "what?"
-                    )
+                    ok, answer, err = mistral_converter.query_document_file(pdf, "what?")
         assert ok is True
         assert answer == "The answer is 42"
 
@@ -1957,9 +1831,7 @@ class TestSubmitBatchOcrJob:
 
     def test_no_client(self, tmp_path):
         with patch.object(mistral_converter, "get_mistral_client", return_value=None):
-            ok, job_id, err = mistral_converter.submit_batch_ocr_job(
-                tmp_path / "batch.jsonl"
-            )
+            ok, job_id, err = mistral_converter.submit_batch_ocr_job(tmp_path / "batch.jsonl")
         assert ok is False
 
     def test_successful_submission(self, tmp_path):
@@ -2002,9 +1874,7 @@ class TestSubmitBatchOcrJob:
         with patch.object(mistral_converter, "get_mistral_client") as mock_get:
             mock_client = MagicMock()
             mock_client.files.upload.return_value = mock_upload
-            mock_client.batch.jobs.create.side_effect = RuntimeError(
-                "batch create failed"
-            )
+            mock_client.batch.jobs.create.side_effect = RuntimeError("batch create failed")
             mock_get.return_value = mock_client
 
             ok, job_id, err = mistral_converter.submit_batch_ocr_job(batch_file)
@@ -2049,10 +1919,8 @@ class TestProcessOcrResultPipeline:
                 with patch.object(mistral_converter, "save_extracted_images"):
                     with patch.object(mistral_converter, "_save_structured_outputs"):
                         with patch("utils.cache.set"):
-                            ok, path, err = (
-                                mistral_converter._process_ocr_result_pipeline(
-                                    MagicMock(), pdf, ocr_result, True, False, False
-                                )
+                            ok, path, err = mistral_converter._process_ocr_result_pipeline(
+                                MagicMock(), pdf, ocr_result, True, False, False
                             )
 
         assert ok is True
@@ -2109,9 +1977,7 @@ class TestGetMistralClientInit:
         mock_mistral_class.return_value = mock_instance
 
         with patch.object(mistral_converter, "Mistral", mock_mistral_class):
-            with patch.object(
-                mistral_converter, "get_retry_config", return_value=mock_retry
-            ):
+            with patch.object(mistral_converter, "get_retry_config", return_value=mock_retry):
                 result = mistral_converter.get_mistral_client()
 
         assert result is mock_instance
@@ -2143,9 +2009,7 @@ class TestGetMistralClientInit:
         mistral_converter.reset_mistral_client()
         monkeypatch.setattr(config, "MISTRAL_API_KEY", "test-key")
 
-        with patch.object(
-            mistral_converter, "Mistral", side_effect=Exception("connection refused")
-        ):
+        with patch.object(mistral_converter, "Mistral", side_effect=Exception("connection refused")):
             with patch.object(mistral_converter, "get_retry_config", return_value=None):
                 result = mistral_converter.get_mistral_client()
 
@@ -2736,12 +2600,8 @@ class TestUploadFileForOcrFull:
         mock_client.files.upload.return_value = mock_upload_resp
         mock_client.files.get_signed_url.return_value = mock_signed_resp
 
-        with patch.object(
-            mistral_converter, "preprocess_image", return_value=preprocessed
-        ):
-            with patch.object(
-                mistral_converter, "optimize_image", return_value=optimized
-            ):
+        with patch.object(mistral_converter, "preprocess_image", return_value=preprocessed):
+            with patch.object(mistral_converter, "optimize_image", return_value=optimized):
                 result = mistral_converter.upload_file_for_ocr(mock_client, img)
 
         assert result == "https://signed.example.com/img"
@@ -2803,9 +2663,7 @@ class TestProcessWithOcrAdditional:
     def _setup_monkeypatch(self, monkeypatch):
         monkeypatch.setattr(config, "IMAGE_EXTENSIONS", {"png", "jpg", "jpeg"})
         monkeypatch.setattr(config, "MISTRAL_INCLUDE_IMAGES", True)
-        monkeypatch.setattr(
-            config, "MISTRAL_DOCUMENT_ANNOTATION_PROMPT", "Extract data"
-        )
+        monkeypatch.setattr(config, "MISTRAL_DOCUMENT_ANNOTATION_PROMPT", "Extract data")
         monkeypatch.setattr(config, "MISTRAL_TABLE_FORMAT", "markdown")
         monkeypatch.setattr(config, "MISTRAL_EXTRACT_HEADER", True)
         monkeypatch.setattr(config, "MISTRAL_EXTRACT_FOOTER", False)
@@ -2852,9 +2710,7 @@ class TestProcessWithOcrAdditional:
             "upload_file_for_ocr",
             return_value="https://signed.url/doc",
         ):
-            with patch.object(
-                mistral_converter, "get_retry_config", return_value=MagicMock()
-            ):
+            with patch.object(mistral_converter, "get_retry_config", return_value=MagicMock()):
                 with patch.object(
                     mistral_converter,
                     "get_bbox_annotation_format",
@@ -2914,9 +2770,7 @@ class TestProcessWithOcrAdditional:
                     "get_document_annotation_format",
                     return_value=None,
                 ):
-                    with patch.object(
-                        mistral_converter, "DocumentURLChunk", MagicMock()
-                    ):
+                    with patch.object(mistral_converter, "DocumentURLChunk", MagicMock()):
                         success, result, error = mistral_converter.process_with_ocr(
                             mock_client,
                             pdf,
@@ -3023,9 +2877,7 @@ class TestProcessWithOcrAdditional:
                         return_value=None,
                     ):
                         with patch.object(mistral_converter, "ImageURLChunk", None):
-                            success, result, error = mistral_converter.process_with_ocr(
-                                mock_client, img
-                            )
+                            success, result, error = mistral_converter.process_with_ocr(mock_client, img)
 
         assert success is True
 
@@ -3048,9 +2900,7 @@ class TestImproveWeakPages:
             "equivalents of $3,456,789.01.\n"
         )
         ocr_result = {"pages": [{"text": page_text, "page_number": 1}]}
-        result = mistral_converter.improve_weak_pages(
-            MagicMock(), Path("test.pdf"), ocr_result, "model"
-        )
+        result = mistral_converter.improve_weak_pages(MagicMock(), Path("test.pdf"), ocr_result, "model")
         assert result == ocr_result
 
     def test_improves_weak_page(self, monkeypatch):
@@ -3087,9 +2937,7 @@ class TestImproveWeakPages:
                 "process_with_ocr",
                 return_value=(True, {"pages": [improved_page]}, None),
             ):
-                result = mistral_converter.improve_weak_pages(
-                    mock_client, Path("test.pdf"), ocr_result, "model"
-                )
+                result = mistral_converter.improve_weak_pages(mock_client, Path("test.pdf"), ocr_result, "model")
 
         assert result["pages"][0]["text"] == good_text
 
@@ -3098,9 +2946,7 @@ class TestImproveWeakPages:
         monkeypatch.setattr(config, "MAX_CONCURRENT_FILES", 1)
         monkeypatch.setattr(config, "MISTRAL_SIGNED_URL_EXPIRY", 24)
 
-        weak_text = (
-            "x" * 200
-        )  # long enough to not be weak? Actually "x"*200 might be weak due to uniqueness
+        weak_text = "x" * 200  # long enough to not be weak? Actually "x"*200 might be weak due to uniqueness
         # Use repetitive weak short - use "short" which is weak
         weak_text = "short"
         ocr_result = {
@@ -3114,17 +2960,13 @@ class TestImproveWeakPages:
         }
         improved = {"text": "much longer improved text " * 20, "page_number": 3}
         mock_client = MagicMock()
-        with patch.object(
-            mistral_converter, "upload_file_for_ocr", return_value="https://u"
-        ):
+        with patch.object(mistral_converter, "upload_file_for_ocr", return_value="https://u"):
             with patch.object(
                 mistral_converter,
                 "process_with_ocr",
                 return_value=(True, {"pages": [improved]}, None),
             ) as m_ocr:
-                mistral_converter.improve_weak_pages(
-                    mock_client, Path("doc.pdf"), ocr_result, "mistral-ocr-latest"
-                )
+                mistral_converter.improve_weak_pages(mock_client, Path("doc.pdf"), ocr_result, "mistral-ocr-latest")
         kwargs = m_ocr.call_args[1]
         assert kwargs.get("pages") == [2]
 
@@ -3147,9 +2989,7 @@ class TestImproveWeakPages:
                 "process_with_ocr",
                 return_value=(False, None, "OCR failed"),
             ):
-                result = mistral_converter.improve_weak_pages(
-                    mock_client, Path("test.pdf"), ocr_result, "model"
-                )
+                result = mistral_converter.improve_weak_pages(mock_client, Path("test.pdf"), ocr_result, "model")
 
         assert result["pages"][0]["text"] == weak_text
 
@@ -3168,9 +3008,7 @@ class TestImproveWeakPages:
                 "process_with_ocr",
                 return_value=(False, None, "no url"),
             ):
-                result = mistral_converter.improve_weak_pages(
-                    mock_client, Path("test.pdf"), ocr_result, "model"
-                )
+                result = mistral_converter.improve_weak_pages(mock_client, Path("test.pdf"), ocr_result, "model")
 
         assert result["pages"][0]["text"] == weak_text
 
@@ -3216,19 +3054,15 @@ class TestProcessOcrResultPipelineImprovement:
                     return_value=tmp_path / "out.md",
                 ):
                     with patch.object(mistral_converter, "save_extracted_images"):
-                        with patch.object(
-                            mistral_converter, "_save_structured_outputs"
-                        ):
+                        with patch.object(mistral_converter, "_save_structured_outputs"):
                             with patch("utils.cache.set"):
-                                ok, path, err = (
-                                    mistral_converter._process_ocr_result_pipeline(
-                                        MagicMock(),
-                                        pdf,
-                                        ocr_result,
-                                        True,
-                                        True,
-                                        False,
-                                    )
+                                ok, path, err = mistral_converter._process_ocr_result_pipeline(
+                                    MagicMock(),
+                                    pdf,
+                                    ocr_result,
+                                    True,
+                                    True,
+                                    False,
                                 )
 
         assert ok is True
@@ -3275,9 +3109,7 @@ class TestQueryDocumentFull:
     """Test query_document with all parameter paths."""
 
     def test_successful_query_with_limits(self, monkeypatch):
-        monkeypatch.setattr(
-            config, "MISTRAL_DOCUMENT_QNA_MODEL", "mistral-small-latest"
-        )
+        monkeypatch.setattr(config, "MISTRAL_DOCUMENT_QNA_MODEL", "mistral-small-latest")
         monkeypatch.setattr(config, "MISTRAL_QNA_SYSTEM_PROMPT", "You are helpful.")
         monkeypatch.setattr(config, "MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT", 5)
         monkeypatch.setattr(config, "MISTRAL_QNA_DOCUMENT_PAGE_LIMIT", 10)
@@ -3290,9 +3122,7 @@ class TestQueryDocumentFull:
         mock_client = MagicMock()
         mock_client.chat.complete.return_value = mock_response
 
-        with patch.object(
-            mistral_converter, "get_mistral_client", return_value=mock_client
-        ):
+        with patch.object(mistral_converter, "get_mistral_client", return_value=mock_client):
             with patch.object(
                 mistral_converter,
                 "get_retry_config",
@@ -3302,9 +3132,7 @@ class TestQueryDocumentFull:
                     "socket.getaddrinfo",
                     return_value=[(None, None, None, None, ("93.184.216.34", 0))],
                 ):
-                    ok, answer, err = mistral_converter.query_document(
-                        "https://example.com/doc.pdf", "What is 6*7?"
-                    )
+                    ok, answer, err = mistral_converter.query_document("https://example.com/doc.pdf", "What is 6*7?")
 
         assert ok is True
         assert answer == "The answer is 42"
@@ -3313,9 +3141,7 @@ class TestQueryDocumentFull:
         assert call_kwargs["document_page_limit"] == 10
 
     def test_empty_response(self, monkeypatch):
-        monkeypatch.setattr(
-            config, "MISTRAL_DOCUMENT_QNA_MODEL", "mistral-small-latest"
-        )
+        monkeypatch.setattr(config, "MISTRAL_DOCUMENT_QNA_MODEL", "mistral-small-latest")
         monkeypatch.setattr(config, "MISTRAL_QNA_SYSTEM_PROMPT", "")
         monkeypatch.setattr(config, "MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT", 0)
         monkeypatch.setattr(config, "MISTRAL_QNA_DOCUMENT_PAGE_LIMIT", 0)
@@ -3326,25 +3152,19 @@ class TestQueryDocumentFull:
         mock_client = MagicMock()
         mock_client.chat.complete.return_value = mock_response
 
-        with patch.object(
-            mistral_converter, "get_mistral_client", return_value=mock_client
-        ):
+        with patch.object(mistral_converter, "get_mistral_client", return_value=mock_client):
             with patch.object(mistral_converter, "get_retry_config", return_value=None):
                 with patch(
                     "socket.getaddrinfo",
                     return_value=[(None, None, None, None, ("93.184.216.34", 0))],
                 ):
-                    ok, answer, err = mistral_converter.query_document(
-                        "https://example.com/doc.pdf", "What?"
-                    )
+                    ok, answer, err = mistral_converter.query_document("https://example.com/doc.pdf", "What?")
 
         assert ok is False
         assert "empty" in err.lower()
 
     def test_api_exception(self, monkeypatch):
-        monkeypatch.setattr(
-            config, "MISTRAL_DOCUMENT_QNA_MODEL", "mistral-small-latest"
-        )
+        monkeypatch.setattr(config, "MISTRAL_DOCUMENT_QNA_MODEL", "mistral-small-latest")
         monkeypatch.setattr(config, "MISTRAL_QNA_SYSTEM_PROMPT", "")
         monkeypatch.setattr(config, "MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT", 0)
         monkeypatch.setattr(config, "MISTRAL_QNA_DOCUMENT_PAGE_LIMIT", 0)
@@ -3352,17 +3172,13 @@ class TestQueryDocumentFull:
         mock_client = MagicMock()
         mock_client.chat.complete.side_effect = Exception("timeout")
 
-        with patch.object(
-            mistral_converter, "get_mistral_client", return_value=mock_client
-        ):
+        with patch.object(mistral_converter, "get_mistral_client", return_value=mock_client):
             with patch.object(mistral_converter, "get_retry_config", return_value=None):
                 with patch(
                     "socket.getaddrinfo",
                     return_value=[(None, None, None, None, ("93.184.216.34", 0))],
                 ):
-                    ok, answer, err = mistral_converter.query_document(
-                        "https://example.com/doc.pdf", "What?"
-                    )
+                    ok, answer, err = mistral_converter.query_document("https://example.com/doc.pdf", "What?")
 
         assert ok is False
         assert "timeout" in err.lower()
@@ -3377,9 +3193,7 @@ class TestQueryDocumentStreamFull:
     """Test streaming document QnA."""
 
     def test_successful_stream(self, monkeypatch):
-        monkeypatch.setattr(
-            config, "MISTRAL_DOCUMENT_QNA_MODEL", "mistral-small-latest"
-        )
+        monkeypatch.setattr(config, "MISTRAL_DOCUMENT_QNA_MODEL", "mistral-small-latest")
         monkeypatch.setattr(config, "MISTRAL_QNA_SYSTEM_PROMPT", "Be helpful.")
         monkeypatch.setattr(config, "MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT", 3)
         monkeypatch.setattr(config, "MISTRAL_QNA_DOCUMENT_PAGE_LIMIT", 5)
@@ -3388,9 +3202,7 @@ class TestQueryDocumentStreamFull:
         mock_client = MagicMock()
         mock_client.chat.stream.return_value = mock_stream
 
-        with patch.object(
-            mistral_converter, "get_mistral_client", return_value=mock_client
-        ):
+        with patch.object(mistral_converter, "get_mistral_client", return_value=mock_client):
             with patch.object(
                 mistral_converter,
                 "get_retry_config",
@@ -3411,9 +3223,7 @@ class TestQueryDocumentStreamFull:
         assert call_kwargs["document_page_limit"] == 5
 
     def test_stream_no_system_prompt(self, monkeypatch):
-        monkeypatch.setattr(
-            config, "MISTRAL_DOCUMENT_QNA_MODEL", "mistral-small-latest"
-        )
+        monkeypatch.setattr(config, "MISTRAL_DOCUMENT_QNA_MODEL", "mistral-small-latest")
         monkeypatch.setattr(config, "MISTRAL_QNA_SYSTEM_PROMPT", "")
         monkeypatch.setattr(config, "MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT", 0)
         monkeypatch.setattr(config, "MISTRAL_QNA_DOCUMENT_PAGE_LIMIT", 0)
@@ -3422,41 +3232,29 @@ class TestQueryDocumentStreamFull:
         mock_client = MagicMock()
         mock_client.chat.stream.return_value = mock_stream
 
-        with patch.object(
-            mistral_converter, "get_mistral_client", return_value=mock_client
-        ):
+        with patch.object(mistral_converter, "get_mistral_client", return_value=mock_client):
             with patch.object(mistral_converter, "get_retry_config", return_value=None):
                 with patch(
                     "socket.getaddrinfo",
                     return_value=[(None, None, None, None, ("93.184.216.34", 0))],
                 ):
-                    ok, stream, err = mistral_converter.query_document_stream(
-                        "https://example.com/doc.pdf", "What?"
-                    )
+                    ok, stream, err = mistral_converter.query_document_stream("https://example.com/doc.pdf", "What?")
 
         assert ok is True
 
     def test_stream_invalid_url(self):
-        with patch.object(
-            mistral_converter, "get_mistral_client", return_value=MagicMock()
-        ):
-            ok, stream, err = mistral_converter.query_document_stream(
-                "http://example.com/doc.pdf", "What?"
-            )
+        with patch.object(mistral_converter, "get_mistral_client", return_value=MagicMock()):
+            ok, stream, err = mistral_converter.query_document_stream("http://example.com/doc.pdf", "What?")
         assert ok is False
         assert "HTTPS" in err
 
     def test_stream_no_client(self):
         with patch.object(mistral_converter, "get_mistral_client", return_value=None):
-            ok, stream, err = mistral_converter.query_document_stream(
-                "https://example.com/doc.pdf", "What?"
-            )
+            ok, stream, err = mistral_converter.query_document_stream("https://example.com/doc.pdf", "What?")
         assert ok is False
 
     def test_stream_api_exception(self, monkeypatch):
-        monkeypatch.setattr(
-            config, "MISTRAL_DOCUMENT_QNA_MODEL", "mistral-small-latest"
-        )
+        monkeypatch.setattr(config, "MISTRAL_DOCUMENT_QNA_MODEL", "mistral-small-latest")
         monkeypatch.setattr(config, "MISTRAL_QNA_SYSTEM_PROMPT", "")
         monkeypatch.setattr(config, "MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT", 0)
         monkeypatch.setattr(config, "MISTRAL_QNA_DOCUMENT_PAGE_LIMIT", 0)
@@ -3464,17 +3262,13 @@ class TestQueryDocumentStreamFull:
         mock_client = MagicMock()
         mock_client.chat.stream.side_effect = Exception("stream error")
 
-        with patch.object(
-            mistral_converter, "get_mistral_client", return_value=mock_client
-        ):
+        with patch.object(mistral_converter, "get_mistral_client", return_value=mock_client):
             with patch.object(mistral_converter, "get_retry_config", return_value=None):
                 with patch(
                     "socket.getaddrinfo",
                     return_value=[(None, None, None, None, ("93.184.216.34", 0))],
                 ):
-                    ok, stream, err = mistral_converter.query_document_stream(
-                        "https://example.com/doc.pdf", "What?"
-                    )
+                    ok, stream, err = mistral_converter.query_document_stream("https://example.com/doc.pdf", "What?")
 
         assert ok is False
         assert "stream error" in err.lower()
@@ -3490,9 +3284,7 @@ class TestQueryDocumentFileFull:
 
     def test_file_not_readable(self, tmp_path):
         pdf = tmp_path / "nonexistent.pdf"
-        with patch.object(
-            mistral_converter, "get_mistral_client", return_value=MagicMock()
-        ):
+        with patch.object(mistral_converter, "get_mistral_client", return_value=MagicMock()):
             ok, answer, err = mistral_converter.query_document_file(pdf, "what?")
         assert ok is False
 
@@ -3500,9 +3292,7 @@ class TestQueryDocumentFileFull:
         pdf = tmp_path / "test.pdf"
         pdf.write_bytes(b"%PDF small")
 
-        with patch.object(
-            mistral_converter, "get_mistral_client", return_value=MagicMock()
-        ):
+        with patch.object(mistral_converter, "get_mistral_client", return_value=MagicMock()):
             with patch.object(
                 mistral_converter,
                 "upload_file_for_ocr",
@@ -3533,9 +3323,7 @@ class TestCreateBatchOcrFileFull:
         pdf2.write_bytes(b"%PDF")
         output = tmp_path / "batch.jsonl"
 
-        with patch.object(
-            mistral_converter, "get_mistral_client", return_value=MagicMock()
-        ):
+        with patch.object(mistral_converter, "get_mistral_client", return_value=MagicMock()):
             with patch.object(
                 mistral_converter,
                 "_upload_file_for_ocr_pair",
@@ -3554,9 +3342,7 @@ class TestCreateBatchOcrFileFull:
                         "get_document_annotation_format",
                         return_value=None,
                     ):
-                        ok, path, err = mistral_converter.create_batch_ocr_file(
-                            [pdf1, pdf2], output
-                        )
+                        ok, path, err = mistral_converter.create_batch_ocr_file([pdf1, pdf2], output)
 
         assert ok is True
         assert path == output
@@ -3586,9 +3372,7 @@ class TestCreateBatchOcrFileFull:
         mock_bbox = {"type": "json_schema", "json_schema": {}}
         mock_doc = {"type": "json_schema", "json_schema": {}}
 
-        with patch.object(
-            mistral_converter, "get_mistral_client", return_value=MagicMock()
-        ):
+        with patch.object(mistral_converter, "get_mistral_client", return_value=MagicMock()):
             with patch.object(
                 mistral_converter,
                 "_upload_file_for_ocr_pair",
@@ -3604,9 +3388,7 @@ class TestCreateBatchOcrFileFull:
                         "get_document_annotation_format",
                         return_value=mock_doc,
                     ):
-                        ok, path, err = mistral_converter.create_batch_ocr_file(
-                            [img], output
-                        )
+                        ok, path, err = mistral_converter.create_batch_ocr_file([img], output)
 
         assert ok is True
         import json
@@ -3626,9 +3408,7 @@ class TestCreateBatchOcrFileFull:
         pdf.write_bytes(b"%PDF")
         output = tmp_path / "batch.jsonl"
 
-        with patch.object(
-            mistral_converter, "get_mistral_client", return_value=MagicMock()
-        ):
+        with patch.object(mistral_converter, "get_mistral_client", return_value=MagicMock()):
             with patch.object(
                 mistral_converter,
                 "_upload_file_for_ocr_pair",
@@ -3644,18 +3424,14 @@ class TestCreateBatchOcrFileFull:
                         "get_document_annotation_format",
                         return_value=None,
                     ):
-                        ok, path, err = mistral_converter.create_batch_ocr_file(
-                            [pdf], output
-                        )
+                        ok, path, err = mistral_converter.create_batch_ocr_file([pdf], output)
 
         assert ok is False
         assert "no files" in err.lower()
 
     def test_no_client(self, tmp_path):
         with patch.object(mistral_converter, "get_mistral_client", return_value=None):
-            ok, path, err = mistral_converter.create_batch_ocr_file(
-                [tmp_path / "doc.pdf"], tmp_path / "batch.jsonl"
-            )
+            ok, path, err = mistral_converter.create_batch_ocr_file([tmp_path / "doc.pdf"], tmp_path / "batch.jsonl")
         assert ok is False
 
     def test_exception(self, tmp_path, monkeypatch):
@@ -3664,9 +3440,7 @@ class TestCreateBatchOcrFileFull:
         monkeypatch.setattr(config, "MISTRAL_SIGNED_URL_EXPIRY", 24)
         monkeypatch.setattr(config, "MISTRAL_BATCH_TIMEOUT_HOURS", 24)
 
-        with patch.object(
-            mistral_converter, "get_mistral_client", return_value=MagicMock()
-        ):
+        with patch.object(mistral_converter, "get_mistral_client", return_value=MagicMock()):
             with patch.object(
                 mistral_converter,
                 "_upload_file_for_ocr_pair",
@@ -3698,9 +3472,7 @@ class TestCreateBatchOcrFileFull:
                 return ("https://signed/1", "file-1")
             return None
 
-        with patch.object(
-            mistral_converter, "get_mistral_client", return_value=mock_client
-        ):
+        with patch.object(mistral_converter, "get_mistral_client", return_value=mock_client):
             with patch.object(
                 mistral_converter,
                 "_upload_file_for_ocr_pair",
@@ -3716,9 +3488,7 @@ class TestCreateBatchOcrFileFull:
                         "get_document_annotation_format",
                         return_value=None,
                     ):
-                        ok, path_out, err = mistral_converter.create_batch_ocr_file(
-                            [pdf1, pdf2], output
-                        )
+                        ok, path_out, err = mistral_converter.create_batch_ocr_file([pdf1, pdf2], output)
 
         assert ok is False
         assert path_out is None
@@ -3749,9 +3519,7 @@ class TestBatchOperationsAdditional:
             mock_get.return_value = mock_client
 
             with patch.object(config, "MISTRAL_BATCH_TIMEOUT_HOURS", 24):
-                ok, job_id, err = mistral_converter.submit_batch_ocr_job(
-                    batch_file, metadata={"type": "test"}
-                )
+                ok, job_id, err = mistral_converter.submit_batch_ocr_job(batch_file, metadata={"type": "test"})
 
         assert ok is True
         create_kwargs = mock_client.batch.jobs.create.call_args[1]
@@ -3837,9 +3605,7 @@ class TestConvertWithMistralOcrPaths:
             "pages": [{"text": "Converted text", "page_number": 1}],
         }
 
-        with patch.object(
-            mistral_converter, "get_mistral_client", return_value=MagicMock()
-        ):
+        with patch.object(mistral_converter, "get_mistral_client", return_value=MagicMock()):
             with patch.object(
                 mistral_converter,
                 "process_with_ocr",
@@ -3851,15 +3617,9 @@ class TestConvertWithMistralOcrPaths:
                     return_value=tmp_path / "out.md",
                 ):
                     with patch.object(mistral_converter, "save_extracted_images"):
-                        with patch.object(
-                            mistral_converter, "_save_structured_outputs"
-                        ):
+                        with patch.object(mistral_converter, "_save_structured_outputs"):
                             with patch("utils.cache.set"):
-                                ok, path, err = (
-                                    mistral_converter.convert_with_mistral_ocr(
-                                        pdf, use_cache=False
-                                    )
-                                )
+                                ok, path, err = mistral_converter.convert_with_mistral_ocr(pdf, use_cache=False)
 
         assert ok is True
 
@@ -4352,9 +4112,7 @@ class TestProcessWithOcrDocChunkFallback:
                     ):
                         # Set DocumentURLChunk to None to trigger dict fallback
                         with patch.object(mistral_converter, "DocumentURLChunk", None):
-                            success, result, error = mistral_converter.process_with_ocr(
-                                mock_client, pdf
-                            )
+                            success, result, error = mistral_converter.process_with_ocr(mock_client, pdf)
 
         assert success is True
         # Verify the dict fallback was used
@@ -4401,12 +4159,8 @@ class TestProcessWithOcrAuthError:
                             "DocumentURLChunk",
                             MagicMock(),
                         ):
-                            mock_client.ocr.process.side_effect = Exception(
-                                "401 Unauthorized"
-                            )
-                            success, result, error = mistral_converter.process_with_ocr(
-                                mock_client, pdf
-                            )
+                            mock_client.ocr.process.side_effect = Exception("401 Unauthorized")
+                            success, result, error = mistral_converter.process_with_ocr(mock_client, pdf)
 
         assert success is False
         assert "401" in error or "Unauthorized" in error
@@ -4449,9 +4203,7 @@ class TestProcessWithOcrAuthError:
                             "DocumentURLChunk",
                             MagicMock(),
                         ):
-                            success, result, error = mistral_converter.process_with_ocr(
-                                mock_client, pdf
-                            )
+                            success, result, error = mistral_converter.process_with_ocr(mock_client, pdf)
 
         assert success is False
         assert "Empty response" in error
@@ -4648,9 +4400,7 @@ class TestParseOcrResponseBranches:
         response = MagicMock()
         response.bbox_annotations = MagicMock()
         # __iter__ will raise during list comprehension
-        response.bbox_annotations.__iter__ = MagicMock(
-            side_effect=TypeError("not iterable")
-        )
+        response.bbox_annotations.__iter__ = MagicMock(side_effect=TypeError("not iterable"))
         response.pages = None
 
         result = mistral_converter._parse_ocr_response(response, Path("test.pdf"))
@@ -4693,10 +4443,7 @@ class TestIsWeakPageBranches:
         monkeypatch.setattr(config, "OCR_MAX_PHRASE_REPETITIONS", 2)
         monkeypatch.setattr(config, "OCR_MIN_AVG_LINE_LENGTH", 0)
 
-        text = (
-            "Page 1 content here Page 2 more content "
-            "Page 3 and Page 4 references Page 5"
-        )
+        text = "Page 1 content here Page 2 more content " "Page 3 and Page 4 references Page 5"
         assert mistral_converter._is_weak_page(text) is True
 
     def test_short_average_line_length(self, monkeypatch):
@@ -4721,9 +4468,7 @@ class TestImproveWeakPagesEdgeCases:
 
     def test_no_pages_key(self):
         """Line 1294: empty pages list."""
-        result = mistral_converter.improve_weak_pages(
-            MagicMock(), Path("test.pdf"), {"pages": []}, "model"
-        )
+        result = mistral_converter.improve_weak_pages(MagicMock(), Path("test.pdf"), {"pages": []}, "model")
         assert result == {"pages": []}
 
     def test_url_refresh_on_expiry(self, monkeypatch):
@@ -4749,9 +4494,7 @@ class TestImproveWeakPagesEdgeCases:
             upload_count[0] += 1
             return f"https://signed.url/{upload_count[0]}"
 
-        with patch.object(
-            mistral_converter, "upload_file_for_ocr", side_effect=mock_upload
-        ):
+        with patch.object(mistral_converter, "upload_file_for_ocr", side_effect=mock_upload):
             with patch.object(
                 mistral_converter,
                 "process_with_ocr",
@@ -4898,15 +4641,13 @@ class TestPipelineJsonSaveError:
                             "builtins.open",
                             side_effect=PermissionError("no write"),
                         ):
-                            ok, path, err = (
-                                mistral_converter._process_ocr_result_pipeline(
-                                    MagicMock(),
-                                    pdf,
-                                    ocr_result,
-                                    True,
-                                    True,
-                                    False,
-                                )
+                            ok, path, err = mistral_converter._process_ocr_result_pipeline(
+                                MagicMock(),
+                                pdf,
+                                ocr_result,
+                                True,
+                                True,
+                                False,
                             )
 
         # Pipeline should still succeed (JSON save is non-fatal)
@@ -4937,9 +4678,7 @@ class TestValidateDocumentUrlSSRFEdges:
                 )
             ],
         ):
-            valid, err = mistral_converter._validate_document_url(
-                "https://example.com/doc.pdf"
-            )
+            valid, err = mistral_converter._validate_document_url("https://example.com/doc.pdf")
         assert valid is False
         assert "private" in err.lower() or "internal" in err.lower()
 
@@ -4949,9 +4688,7 @@ class TestValidateDocumentUrlSSRFEdges:
             "socket.getaddrinfo",
             side_effect=OSError("DNS service unavailable"),
         ):
-            valid, err = mistral_converter._validate_document_url(
-                "https://example.com/doc.pdf"
-            )
+            valid, err = mistral_converter._validate_document_url("https://example.com/doc.pdf")
         # Should pass validation (defers to upstream)
         assert valid is True
 
@@ -4963,9 +4700,7 @@ class TestValidateDocumentUrlSSRFEdges:
             "socket.getaddrinfo",
             side_effect=socket.gaierror("Name resolution failed"),
         ):
-            valid, err = mistral_converter._validate_document_url(
-                "https://example.com/doc.pdf"
-            )
+            valid, err = mistral_converter._validate_document_url("https://example.com/doc.pdf")
         # Should pass validation (defers to upstream)
         assert valid is True
 
@@ -4982,9 +4717,7 @@ class TestQueryDocumentDNS:
         """DNS resolution fails -> defers to Mistral."""
         import socket
 
-        monkeypatch.setattr(
-            config, "MISTRAL_DOCUMENT_QNA_MODEL", "mistral-small-latest"
-        )
+        monkeypatch.setattr(config, "MISTRAL_DOCUMENT_QNA_MODEL", "mistral-small-latest")
         monkeypatch.setattr(config, "MISTRAL_QNA_SYSTEM_PROMPT", "")
         monkeypatch.setattr(config, "MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT", 0)
         monkeypatch.setattr(config, "MISTRAL_QNA_DOCUMENT_PAGE_LIMIT", 0)
@@ -4997,17 +4730,13 @@ class TestQueryDocumentDNS:
         mock_client = MagicMock()
         mock_client.chat.complete.return_value = mock_response
 
-        with patch.object(
-            mistral_converter, "get_mistral_client", return_value=mock_client
-        ):
+        with patch.object(mistral_converter, "get_mistral_client", return_value=mock_client):
             with patch.object(mistral_converter, "get_retry_config", return_value=None):
                 with patch(
                     "socket.getaddrinfo",
                     side_effect=socket.gaierror("fail"),
                 ):
-                    ok, answer, err = mistral_converter.query_document(
-                        "https://example.com/doc.pdf", "What?"
-                    )
+                    ok, answer, err = mistral_converter.query_document("https://example.com/doc.pdf", "What?")
 
         assert ok is True
         assert answer == "Answer"
@@ -5140,9 +4869,7 @@ class TestCleanupOuterException:
         mock_client = MagicMock()
 
         # Pass a string that timedelta can't use -> outer except fires
-        count = mistral_converter.cleanup_uploaded_files(
-            mock_client, days_old="invalid"
-        )
+        count = mistral_converter.cleanup_uploaded_files(mock_client, days_old="invalid")
         assert count == 0
 
 
@@ -5178,12 +4905,8 @@ class TestProcessWithOcr403Error:
                             "DocumentURLChunk",
                             MagicMock(),
                         ):
-                            mock_client.ocr.process.side_effect = Exception(
-                                "403 Forbidden"
-                            )
-                            success, result, error = mistral_converter.process_with_ocr(
-                                mock_client, pdf
-                            )
+                            mock_client.ocr.process.side_effect = Exception("403 Forbidden")
+                            success, result, error = mistral_converter.process_with_ocr(mock_client, pdf)
 
         assert success is False
         assert "403" in error or "Forbidden" in error
@@ -5236,9 +4959,7 @@ class TestProcessWithOcrEmptyText:
                                 "_parse_ocr_response",
                                 return_value=empty_result,
                             ):
-                                ok, result, err = mistral_converter.process_with_ocr(
-                                    mock_client, pdf
-                                )
+                                ok, result, err = mistral_converter.process_with_ocr(mock_client, pdf)
 
         assert ok is False
         assert "empty text" in err.lower()
@@ -5313,9 +5034,7 @@ class TestImproveWeakPagesUrlRefreshFail:
     def test_url_refresh_succeeds(self, monkeypatch):
         """Lines 1332-1335: URL refresh triggers and succeeds."""
         monkeypatch.setattr(config, "MAX_CONCURRENT_FILES", 1)
-        monkeypatch.setattr(
-            config, "MISTRAL_SIGNED_URL_EXPIRY", 0
-        )  # 0 hours = instant expiry
+        monkeypatch.setattr(config, "MISTRAL_SIGNED_URL_EXPIRY", 0)  # 0 hours = instant expiry
 
         weak_text = "x"
         ocr_result = {"pages": [{"text": weak_text, "page_number": 1}]}
@@ -5349,8 +5068,7 @@ class TestImproveWeakPagesUrlRefreshFail:
                         "pages": [
                             {
                                 "text": (
-                                    "Better OCR text with numbers 123456 and "
-                                    "real content for verification purposes."
+                                    "Better OCR text with numbers 123456 and " "real content for verification purposes."
                                 ),
                                 "page_number": 1,
                             }
@@ -5399,10 +5117,7 @@ class TestImproveWeakPagesUrlRefreshFail:
                     {
                         "pages": [
                             {
-                                "text": (
-                                    "Better OCR text with some content "
-                                    "and numbers 789012 for test."
-                                ),
+                                "text": ("Better OCR text with some content " "and numbers 789012 for test."),
                                 "page_number": 1,
                             }
                         ]
@@ -5474,13 +5189,9 @@ class TestValidateUrlIpv6MappedMocked:
         with patch("ipaddress.ip_address", side_effect=custom_ip_address):
             with patch(
                 "socket.getaddrinfo",
-                return_value=[
-                    (socket.AF_INET6, None, None, None, ("::ffff:10.0.0.1", 0))
-                ],
+                return_value=[(socket.AF_INET6, None, None, None, ("::ffff:10.0.0.1", 0))],
             ):
-                valid, err = mistral_converter._validate_document_url(
-                    "https://example.com/doc.pdf"
-                )
+                valid, err = mistral_converter._validate_document_url("https://example.com/doc.pdf")
 
         assert valid is False
         assert "private" in err.lower() or "internal" in err.lower()
@@ -5494,9 +5205,7 @@ class TestValidateUrlParseException:
             "urllib.parse.urlparse",
             side_effect=Exception("parse error"),
         ):
-            valid, err = mistral_converter._validate_document_url(
-                "https://example.com/doc.pdf"
-            )
+            valid, err = mistral_converter._validate_document_url("https://example.com/doc.pdf")
 
         assert valid is False
         assert "Invalid URL format" in err

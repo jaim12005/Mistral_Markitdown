@@ -93,9 +93,7 @@ def _build_markitdown_kwargs() -> Dict[str, Any]:
             md_kwargs["llm_client"] = llm_client
             md_kwargs["llm_model"] = config.MARKITDOWN_LLM_MODEL
         except ImportError:
-            logger.warning(
-                "OpenAI package not installed. LLM image descriptions disabled."
-            )
+            logger.warning("OpenAI package not installed. LLM image descriptions disabled.")
 
     if config.MARKITDOWN_LLM_PROMPT:
         md_kwargs["llm_prompt"] = config.MARKITDOWN_LLM_PROMPT
@@ -129,9 +127,7 @@ def get_markitdown_instance() -> Optional[MarkItDown]:
             return _markitdown_instance  # pragma: no cover
 
         if MarkItDown is None:
-            logger.error(
-                "MarkItDown not installed. Install with: pip install markitdown"
-            )
+            logger.error("MarkItDown not installed. Install with: pip install markitdown")
             _markitdown_instance = None
             return None
 
@@ -170,10 +166,7 @@ def convert_with_markitdown(
         return (
             False,
             None,
-            (
-                f"File too large ({file_size_mb:.1f} MB). "
-                f"Maximum allowed: {config.MARKITDOWN_MAX_FILE_SIZE_MB} MB"
-            ),
+            (f"File too large ({file_size_mb:.1f} MB). " f"Maximum allowed: {config.MARKITDOWN_MAX_FILE_SIZE_MB} MB"),
         )
 
     md = get_markitdown_instance()
@@ -212,9 +205,7 @@ def convert_with_markitdown(
             full_content = frontmatter + markdown_content
 
             # Save output
-            output_path = (
-                config.OUTPUT_MD_DIR / f"{utils.safe_output_stem(file_path)}.md"
-            )
+            output_path = config.OUTPUT_MD_DIR / f"{utils.safe_output_stem(file_path)}.md"
             utils.atomic_write_text(output_path, full_content)
 
             # Save text version
@@ -387,9 +378,7 @@ def extract_tables_pdfplumber_text(pdf_path: Path) -> List[List[List[str]]]:
     return tables
 
 
-def _fix_split_headers(
-    table: List[List[str]], max_header_rows: int = 3
-) -> List[List[str]]:
+def _fix_split_headers(table: List[List[str]], max_header_rows: int = 3) -> List[List[str]]:
     """
     Rejoin header text that split_text=True split across column boundaries.
 
@@ -465,9 +454,7 @@ def _fix_merged_currency_cells(table: List[List[str]]) -> List[List[str]]:
     """
     # Pattern 1: Two dollar-sign values in one cell
     # Matches: "$ 1,234.56 $ 5,678.90" or "$ (1,234.56) $ (5,678.90)"
-    double_currency_pattern = re.compile(
-        r"(\$\s*[\(\-]?[\d,]+\.?\d*[\)]?)\s+(\$\s*[\(\-]?[\d,]+\.?\d*[\)]?)"
-    )
+    double_currency_pattern = re.compile(r"(\$\s*[\(\-]?[\d,]+\.?\d*[\)]?)\s+(\$\s*[\(\-]?[\d,]+\.?\d*[\)]?)")
 
     # Pattern 2: Two bare numbers in one cell (no $ sign)
     # Matches pairs like:
@@ -587,10 +574,7 @@ def extract_all_tables(pdf_path: Path) -> Dict[str, Any]:
     if coalesced_count > 0:
         logger.info("Coalesced %d split table(s) across pages", coalesced_count)
 
-    result["tables"] = [
-        _fix_split_headers(_fix_merged_currency_cells(table))
-        for table in result["tables"]
-    ]
+    result["tables"] = [_fix_split_headers(_fix_merged_currency_cells(table)) for table in result["tables"]]
 
     result["table_count"] = len(result["tables"])
 
@@ -753,9 +737,7 @@ def convert_pdf_to_images(
     try:
         # Set output directory (unique stem when same basename in different dirs)
         if output_dir is None:
-            output_dir = (
-                config.OUTPUT_IMAGES_DIR / f"{utils.safe_output_stem(pdf_path)}_pages"
-            )
+            output_dir = config.OUTPUT_IMAGES_DIR / f"{utils.safe_output_stem(pdf_path)}_pages"
 
         output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -774,9 +756,7 @@ def convert_pdf_to_images(
         )
 
         # Configure poppler path for Windows
-        poppler_path = (
-            (config.POPPLER_PATH or None) if sys.platform == "win32" else None
-        )
+        poppler_path = (config.POPPLER_PATH or None) if sys.platform == "win32" else None
 
         # Build conversion parameters
         convert_params = {
@@ -794,18 +774,14 @@ def convert_pdf_to_images(
 
         # Save images
         image_paths = []
-        file_extension = (
-            "jpg" if config.PDF_IMAGE_FORMAT == "jpeg" else config.PDF_IMAGE_FORMAT
-        )
+        file_extension = "jpg" if config.PDF_IMAGE_FORMAT == "jpeg" else config.PDF_IMAGE_FORMAT
 
         for i, image in enumerate(images, 1):
             image_path = output_dir / f"page_{i:03d}.{file_extension}"
 
             # Save with format-specific options
             if config.PDF_IMAGE_FORMAT == "jpeg":
-                image.save(
-                    str(image_path), "JPEG", quality=85, optimize=True, progressive=True
-                )
+                image.save(str(image_path), "JPEG", quality=85, optimize=True, progressive=True)
             elif config.PDF_IMAGE_FORMAT == "png":
                 image.save(str(image_path), "PNG", optimize=True)
             else:
@@ -911,9 +887,7 @@ def _analyze_pdf_text_layer_pypdf(file_path: Path, analysis: Dict[str, Any]) -> 
                 text_pages += 1
 
         if sampled_pages:
-            analysis["is_text_based"] = text_pages >= max(
-                1, (len(sampled_pages) + 1) // 2
-            )
+            analysis["is_text_based"] = text_pages >= max(1, (len(sampled_pages) + 1) // 2)
 
         analysis["is_complex"] = (
             analysis["is_complex"]
@@ -969,9 +943,7 @@ def analyze_file_content(file_path: Path) -> Dict[str, Any]:
 
                     # Text-based if majority of sampled pages have text
                     if sampled_pages:
-                        analysis["is_text_based"] = text_pages >= max(
-                            1, (len(sampled_pages) + 1) // 2
-                        )
+                        analysis["is_text_based"] = text_pages >= max(1, (len(sampled_pages) + 1) // 2)
 
                     # Complex if: multi-page with images OR text-less with tables/images
                     analysis["is_complex"] = (
@@ -984,9 +956,7 @@ def analyze_file_content(file_path: Path) -> Dict[str, Any]:
                 logger.debug("Error analyzing PDF with pdfplumber: %s", e)
                 _analyze_pdf_text_layer_pypdf(file_path, analysis)
         else:
-            logger.debug(
-                "pdfplumber unavailable; using pypdf for smart-routing text-layer probe when possible"
-            )
+            logger.debug("pdfplumber unavailable; using pypdf for smart-routing text-layer probe when possible")
             _analyze_pdf_text_layer_pypdf(file_path, analysis)
 
     # Image files

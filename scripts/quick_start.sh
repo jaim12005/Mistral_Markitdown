@@ -29,6 +29,16 @@ fi
 echo "[1/5] Checking Python version..."
 python3 --version
 
+# Verify Python >= 3.10
+py_version=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+py_major=$(echo "$py_version" | cut -d. -f1)
+py_minor=$(echo "$py_version" | cut -d. -f2)
+if [ "$py_major" -lt 3 ] || { [ "$py_major" -eq 3 ] && [ "$py_minor" -lt 10 ]; }; then
+    echo "ERROR: Python 3.10+ is required (found $py_version)"
+    echo "Please install Python 3.10+ from https://www.python.org/"
+    exit 1
+fi
+
 mkdir -p logs
 
 if [ ! -d "env" ]; then
@@ -97,7 +107,7 @@ fi
 
 echo ""
 echo "Running smoke test..."
-python main.py --test
+python3 main.py --test
 
 echo ""
 echo "============================================================"
@@ -105,7 +115,7 @@ echo "  Smoke test complete!"
 echo ""
 echo "  To run the converter:"
 echo "    source env/bin/activate"
-echo "    python main.py"
+echo "    python3 main.py"
 echo ""
 echo "  Or simply run: ./scripts/quick_start.sh"
 echo "============================================================"
