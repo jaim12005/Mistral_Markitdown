@@ -157,32 +157,59 @@ def _process_files_concurrently(
 # ============================================================================
 
 
+def _content_prefers_mistral_ocr(file_path: Path) -> bool:
+    """Content-based routing only (ignores per-engine size limits).
+
+    - Images -> OCR
+    - Scanned / image-only PDFs -> OCR
+    - Text-based PDFs -> MarkItDown
+    - Office docs, etc. -> MarkItDown
+    """
+    ext = file_path.suffix.lower().lstrip(".")
+
+    if ext in config.IMAGE_EXTENSIONS:
+        return True
+
+    if ext == "pdf":
+        analysis = local_converter.analyze_file_content(file_path)
+        if analysis.get("is_text_based"):
+            return False
+        return True
+
+    return False
+
+
 def _should_use_ocr(file_path: Path) -> bool:
     """Decide whether a file should be routed to Mistral OCR or MarkItDown.
 
-    - Images (no text layer) -> OCR
-    - Scanned / image-only PDFs -> OCR
-    - Text-based PDFs -> MarkItDown (faster, free)
-    - Office docs (DOCX, PPTX, XLSX) -> MarkItDown (text is directly extractable)
-    - Everything else -> MarkItDown
+    Uses content heuristics, then adjusts for per-engine size caps so smart mode
+    does not send an oversized file to the wrong engine (e.g. text PDF that
+    exceeds MarkItDown's limit but fits Mistral OCR).
     """
     if not config.MISTRAL_API_KEY:
         return False
 
-    ext = file_path.suffix.lower().lstrip(".")
+    content_wants_ocr = _content_prefers_mistral_ocr(file_path)
 
-    # Images always need OCR -- there's no text layer to extract
-    if ext in config.IMAGE_EXTENSIONS:
+    try:
+        size_mb = file_path.stat().st_size / (1024 * 1024)
+    except OSError:
+        return content_wants_ocr
+
+    md_ok = size_mb <= float(config.MARKITDOWN_MAX_FILE_SIZE_MB)
+    ocr_ok = size_mb <= float(config.MISTRAL_OCR_MAX_FILE_SIZE_MB)
+
+    if content_wants_ocr:
+        if ocr_ok:
+            return True
+        if md_ok:
+            return False
         return True
 
-    # PDFs: check whether they have an extractable text layer
-    if ext == "pdf":
-        analysis = local_converter.analyze_file_content(file_path)
-        if analysis.get("is_text_based"):
-            return False  # Text-based PDF: MarkItDown is better
-        return True  # Scanned / image-only PDF: needs OCR
-
-    # Everything else (DOCX, PPTX, XLSX, CSV, HTML, TXT, etc.): MarkItDown
+    if md_ok:
+        return False
+    if ocr_ok:
+        return True
     return False
 
 
@@ -208,7 +235,7 @@ def _process_single_smart(
     Args:
         file_path: File to process.
         use_ocr: Pre-computed routing decision.  When *None* (legacy callers),
-                 ``_should_use_ocr`` is called on the fly.
+                 routing is decided on the fly (same rules as ``_should_use_ocr``).
     """
     ext = file_path.suffix.lower().lstrip(".")
 
@@ -601,39 +628,17 @@ def mode_document_qna(
                 continue
 
             if qna_use_stream:
-                success, stream, error = mistral_converter.query_document_stream(
-                    document_url,
-                    question,
-                )
-                if success and stream is not None:
-                    utils.ui_print("\nAnswer: ", end="", flush=True)
-                    try:
-                        for chunk in stream:
-                            if (
-                                chunk.data.choices
-                                and chunk.data.choices[0].delta.content
-                            ):
-                                safe_text = utils.sanitize_for_terminal(
-                                    chunk.data.choices[0].delta.content
-                                )
-                                utils.ui_print(safe_text, end="", flush=True)
-                    except Exception as e:
-                        utils.ui_print(f"\n\nStream error: {e}")
-                    utils.ui_print("\n")
+                ok, qmsg = _qna_print_stream(document_url, question)
+                if ok:
                     questions_asked += 1
                 else:
-                    utils.ui_print(f"\nError: {error}\n")
+                    utils.ui_print(f"\nError: {qmsg}\n")
             else:
-                success, answer, error = mistral_converter.query_document(
-                    document_url, question
-                )
-                if success and answer:
-                    utils.ui_print("\nAnswer:\n")
-                    utils.ui_print(utils.sanitize_for_terminal(answer))
-                    utils.ui_print("\n")
+                ok, qmsg = _qna_print_complete(document_url, question)
+                if ok:
                     questions_asked += 1
                 else:
-                    utils.ui_print(f"\nError: {error}\n")
+                    utils.ui_print(f"\nError: {qmsg}\n")
 
         except KeyboardInterrupt:
             break

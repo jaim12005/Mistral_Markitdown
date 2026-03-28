@@ -1323,6 +1323,22 @@ class TestUploadFileForOcr:
 
         result = mistral_converter.upload_file_for_ocr(mock_client, pdf_file)
         assert result is None
+        mock_client.files.delete.assert_called_once_with(file_id="file_789")
+
+    def test_signed_url_exception_deletes_upload(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_SIGNED_URL_EXPIRY", 24)
+        monkeypatch.setattr(config, "IMAGE_EXTENSIONS", {"png", "jpg", "jpeg"})
+
+        pdf_file = tmp_path / "test.pdf"
+        pdf_file.write_bytes(b"%PDF-1.4")
+
+        mock_client = MagicMock()
+        mock_client.files.upload.return_value = MagicMock(id="orphan_candidate")
+        mock_client.files.get_signed_url.side_effect = RuntimeError("API down")
+
+        result = mistral_converter.upload_file_for_ocr(mock_client, pdf_file)
+        assert result is None
+        mock_client.files.delete.assert_called_once_with(file_id="orphan_candidate")
 
 
 # ============================================================================
@@ -3522,8 +3538,11 @@ class TestCreateBatchOcrFileFull:
         ):
             with patch.object(
                 mistral_converter,
-                "upload_file_for_ocr",
-                return_value="https://signed.url",
+                "_upload_file_for_ocr_pair",
+                side_effect=[
+                    ("https://signed.url", "id-a"),
+                    ("https://signed.url", "id-b"),
+                ],
             ):
                 with patch.object(
                     mistral_converter,
@@ -3572,8 +3591,8 @@ class TestCreateBatchOcrFileFull:
         ):
             with patch.object(
                 mistral_converter,
-                "upload_file_for_ocr",
-                return_value="https://signed.url",
+                "_upload_file_for_ocr_pair",
+                return_value=("https://signed.url", "id-img"),
             ):
                 with patch.object(
                     mistral_converter,
@@ -3612,7 +3631,7 @@ class TestCreateBatchOcrFileFull:
         ):
             with patch.object(
                 mistral_converter,
-                "upload_file_for_ocr",
+                "_upload_file_for_ocr_pair",
                 return_value=None,
             ):
                 with patch.object(
@@ -3650,13 +3669,62 @@ class TestCreateBatchOcrFileFull:
         ):
             with patch.object(
                 mistral_converter,
-                "upload_file_for_ocr",
+                "_upload_file_for_ocr_pair",
                 side_effect=Exception("boom"),
             ):
                 ok, path, err = mistral_converter.create_batch_ocr_file(
                     [tmp_path / "doc.pdf"], tmp_path / "batch.jsonl"
                 )
         assert ok is False
+
+    def test_strict_mode_deletes_partial_uploads(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_INCLUDE_IMAGES", False)
+        monkeypatch.setattr(config, "IMAGE_EXTENSIONS", {"png", "jpg", "jpeg"})
+        monkeypatch.setattr(config, "MISTRAL_SIGNED_URL_EXPIRY", 24)
+        monkeypatch.setattr(config, "MISTRAL_BATCH_TIMEOUT_HOURS", 24)
+        monkeypatch.setattr(config, "MISTRAL_BATCH_STRICT", True)
+        monkeypatch.setattr(config, "MISTRAL_DOCUMENT_ANNOTATION_PROMPT", "")
+
+        pdf1 = tmp_path / "ok.pdf"
+        pdf1.write_bytes(b"%PDF")
+        pdf2 = tmp_path / "bad.pdf"
+        pdf2.write_bytes(b"%PDF")
+        output = tmp_path / "batch.jsonl"
+
+        mock_client = MagicMock()
+
+        def _pair_side_effect(client, path, expiry_hours=None):
+            if path.name == "ok.pdf":
+                return ("https://signed/1", "file-1")
+            return None
+
+        with patch.object(
+            mistral_converter, "get_mistral_client", return_value=mock_client
+        ):
+            with patch.object(
+                mistral_converter,
+                "_upload_file_for_ocr_pair",
+                side_effect=_pair_side_effect,
+            ):
+                with patch.object(
+                    mistral_converter,
+                    "get_bbox_annotation_format",
+                    return_value=None,
+                ):
+                    with patch.object(
+                        mistral_converter,
+                        "get_document_annotation_format",
+                        return_value=None,
+                    ):
+                        ok, path_out, err = mistral_converter.create_batch_ocr_file(
+                            [pdf1, pdf2], output
+                        )
+
+        assert ok is False
+        assert path_out is None
+        assert "strict" in err.lower()
+        mock_client.files.delete.assert_called_once_with(file_id="file-1")
+        assert not output.exists()
 
 
 # ============================================================================

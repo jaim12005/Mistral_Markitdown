@@ -97,6 +97,44 @@ class TestModeConvertSmart:
         assert success is True
         mock_local.convert_with_markitdown.assert_called_once_with(pdf_file)
 
+    @patch("main.mistral_converter")
+    @patch("main.local_converter")
+    def test_oversized_text_pdf_routes_to_ocr_when_markitdown_cap_exceeded(
+        self, mock_local, mock_mistral, tmp_path, monkeypatch
+    ):
+        """Text-based PDF over MarkItDown size limit but within OCR limit uses Mistral."""
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        monkeypatch.setattr(config, "MAX_BATCH_FILES", 0)
+        monkeypatch.setattr(config, "MAX_CONCURRENT_FILES", 1)
+        monkeypatch.setattr(config, "OUTPUT_MD_DIR", tmp_path)
+        monkeypatch.setattr(config, "MARKITDOWN_MAX_FILE_SIZE_MB", 1)
+        monkeypatch.setattr(config, "MISTRAL_OCR_MAX_FILE_SIZE_MB", 50)
+
+        pdf_file = tmp_path / "big_text.pdf"
+        pdf_file.write_bytes(b"%PDF-1.4\n" + b"\x00" * (2 * 1024 * 1024))
+
+        mock_local.analyze_file_content.return_value = {
+            "is_text_based": True,
+            "file_type": "pdf",
+            "page_count": 5,
+        }
+        mock_local.extract_all_tables.return_value = {
+            "tables": [],
+            "table_count": 0,
+            "methods_used": [],
+        }
+        mock_mistral.convert_with_mistral_ocr.return_value = (
+            True,
+            tmp_path / "out.md",
+            None,
+        )
+
+        success, _ = main.mode_convert_smart([pdf_file])
+
+        assert success is True
+        mock_mistral.convert_with_mistral_ocr.assert_called_once_with(pdf_file)
+        mock_local.convert_with_markitdown.assert_not_called()
+
     @patch("main.local_converter")
     def test_docx_always_routes_to_markitdown(self, mock_local, tmp_path, monkeypatch):
         """DOCX should always use MarkItDown, even with API key set."""

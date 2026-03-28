@@ -523,7 +523,10 @@ def get_ocr_model() -> str:
 def mistral_openai_compatible_base_url() -> str:
     """Base URL for OpenAI-compatible Mistral chat (MarkItDown LLM descriptions)."""
     if MISTRAL_SERVER_URL:
-        return f"{MISTRAL_SERVER_URL}/v1"
+        base = MISTRAL_SERVER_URL.rstrip("/")
+        if base.endswith("/v1"):
+            return base
+        return f"{base}/v1"
     return "https://api.mistral.ai/v1"
 
 

@@ -800,6 +800,96 @@ def cleanup_uploaded_files(client: Mistral, days_old: Optional[int] = None) -> i
         return 0
 
 
+def _delete_ocr_file_ids(client: Mistral, file_ids: List[str]) -> None:
+    """Best-effort delete for orphaned OCR uploads (e.g. failed batch assembly)."""
+    for fid in file_ids:
+        try:
+            client.files.delete(file_id=fid)
+        except Exception as e:
+            logger.warning("Failed to delete uploaded file %s: %s", fid, e)
+
+
+def _upload_file_for_ocr_pair(
+    client: Mistral,
+    file_path: Path,
+    expiry_hours: Optional[int] = None,
+) -> Optional[Tuple[str, str]]:
+    """
+    Upload for OCR; return (signed_url, file_id) or None on failure.
+
+    See ``upload_file_for_ocr`` for behavior notes on preprocessing.
+    """
+    temp_files_to_cleanup: List[Path] = []
+
+    try:
+        if expiry_hours is None:
+            expiry_hours = config.MISTRAL_SIGNED_URL_EXPIRY
+        processed_file_path = file_path
+        if file_path.suffix.lower().lstrip(".") in config.IMAGE_EXTENSIONS:
+            logger.debug("Image file detected: %s", file_path.suffix)
+
+            if config.MISTRAL_ENABLE_IMAGE_PREPROCESSING:
+                preprocessed_path = preprocess_image(file_path)
+                if preprocessed_path and preprocessed_path != file_path:
+                    processed_file_path = preprocessed_path
+                    temp_files_to_cleanup.append(preprocessed_path)
+                    logger.info("Image preprocessed: %s", processed_file_path.name)
+
+            if config.MISTRAL_ENABLE_IMAGE_OPTIMIZATION:
+                optimized_path = optimize_image(processed_file_path)
+                if optimized_path and processed_file_path != optimized_path:
+                    processed_file_path = optimized_path
+                    temp_files_to_cleanup.append(optimized_path)
+                    logger.info("Image optimized: %s", processed_file_path.name)
+        else:
+            logger.debug("PDF/document file - preprocessing skipped (not applicable)")
+
+        logger.info("Uploading file to Mistral: %s", processed_file_path.name)
+
+        with open(processed_file_path, "rb") as f:
+            response = client.files.upload(
+                file={
+                    "file_name": file_path.name,
+                    "content": f,
+                },
+                purpose="ocr",
+            )
+
+        if not hasattr(response, "id"):
+            logger.error("Upload response missing file ID")
+            return None
+
+        file_id = response.id
+        logger.info("File uploaded successfully: %s", file_id)
+
+        try:
+            signed_url_response = client.files.get_signed_url(
+                file_id=file_id,
+                expiry=expiry_hours,
+            )
+        except Exception as e:
+            logger.error(
+                "Error getting signed URL for uploaded file %s: %s", file_id, e
+            )
+            _delete_ocr_file_ids(client, [file_id])
+            return None
+
+        url = getattr(signed_url_response, "url", None)
+        if url:
+            logger.debug("Got signed URL for file %s", file_id)
+            return url, file_id
+
+        logger.error("Failed to get signed URL for uploaded file")
+        _delete_ocr_file_ids(client, [file_id])
+        return None
+
+    except Exception as e:
+        logger.error("Error uploading file: %s", e)
+        return None
+    finally:
+        _cleanup_temp_files(temp_files_to_cleanup)
+
+
 def upload_file_for_ocr(
     client: Mistral,
     file_path: Path,
@@ -822,71 +912,8 @@ def upload_file_for_ocr(
     Returns:
         Signed URL if successful, None otherwise
     """
-    temp_files_to_cleanup: List[Path] = []
-
-    try:
-        if expiry_hours is None:
-            expiry_hours = config.MISTRAL_SIGNED_URL_EXPIRY
-        # Apply preprocessing to images (if enabled)
-        # Note: This does NOT work for PDFs - only for standalone image files
-        processed_file_path = file_path
-        if file_path.suffix.lower().lstrip(".") in config.IMAGE_EXTENSIONS:
-            logger.debug("Image file detected: %s", file_path.suffix)
-
-            # Apply image preprocessing if enabled (contrast, sharpness)
-            if config.MISTRAL_ENABLE_IMAGE_PREPROCESSING:
-                preprocessed_path = preprocess_image(file_path)
-                if preprocessed_path and preprocessed_path != file_path:
-                    processed_file_path = preprocessed_path
-                    temp_files_to_cleanup.append(preprocessed_path)
-                    logger.info("Image preprocessed: %s", processed_file_path.name)
-
-            # Apply image optimization if enabled (resize, compress)
-            if config.MISTRAL_ENABLE_IMAGE_OPTIMIZATION:
-                optimized_path = optimize_image(processed_file_path)
-                if optimized_path and optimized_path != processed_file_path:
-                    processed_file_path = optimized_path
-                    temp_files_to_cleanup.append(optimized_path)
-                    logger.info("Image optimized: %s", processed_file_path.name)
-        else:
-            logger.debug("PDF/document file - preprocessing skipped (not applicable)")
-
-        logger.info("Uploading file to Mistral: %s", processed_file_path.name)
-
-        # Stream file object directly (avoids loading full file bytes into memory first).
-        with open(processed_file_path, "rb") as f:
-            response = client.files.upload(
-                file={
-                    "file_name": file_path.name,  # Use original name
-                    "content": f,
-                },
-                purpose="ocr",  # Critical: Must specify purpose="ocr"
-            )
-
-        if not hasattr(response, "id"):
-            logger.error("Upload response missing file ID")
-            return None
-
-        logger.info("File uploaded successfully: %s", response.id)
-
-        # Get signed URL for the uploaded file
-        signed_url_response = client.files.get_signed_url(
-            file_id=response.id,
-            expiry=expiry_hours,  # URL expiry in hours
-        )
-
-        if hasattr(signed_url_response, "url"):
-            logger.debug("Got signed URL for file %s", response.id)
-            return signed_url_response.url
-
-        logger.error("Failed to get signed URL for uploaded file")
-        return None
-
-    except Exception as e:
-        logger.error("Error uploading file: %s", e)
-        return None
-    finally:
-        _cleanup_temp_files(temp_files_to_cleanup)
+    pair = _upload_file_for_ocr_pair(client, file_path, expiry_hours=expiry_hours)
+    return pair[0] if pair else None
 
 
 def _cleanup_temp_files(temp_files: List[Path]) -> None:
@@ -1822,7 +1849,9 @@ def _process_ocr_result_pipeline(
             file_path,
             ocr_result,
             cache_type="mistral_ocr",
-            metadata=build_mistral_ocr_cache_contract_metadata(),
+            metadata=build_mistral_ocr_cache_contract_metadata(
+                improve_weak=improve_weak,
+            ),
         )
 
     # Save extracted images (skip for cached results to avoid redundant IO)
@@ -1886,7 +1915,9 @@ def convert_with_mistral_ocr(
     from_cache = False
     if use_cache:
         cache_entry = utils.cache.get_entry(file_path, cache_type="mistral_ocr")
-        contract = build_mistral_ocr_cache_contract_metadata()
+        contract = build_mistral_ocr_cache_contract_metadata(
+            improve_weak=improve_weak,
+        )
         if cache_entry and mistral_ocr_cache_contract_matches(
             cache_entry.get("metadata"), contract
         ):
@@ -2087,7 +2118,9 @@ def _document_annotation_prompt_sha256() -> str:
     return hashlib.sha256(prompt.encode("utf-8")).hexdigest()
 
 
-def build_mistral_ocr_cache_contract_metadata() -> Dict[str, Any]:
+def build_mistral_ocr_cache_contract_metadata(
+    improve_weak: bool = True,
+) -> Dict[str, Any]:
     """Stored with ``mistral_ocr`` cache entries; must match on read for a hit."""
     resolved_schema = _resolve_document_schema_type("auto")
     return {
@@ -2114,6 +2147,9 @@ def build_mistral_ocr_cache_contract_metadata() -> Dict[str, Any]:
         "document_annotation_prompt_hash": _document_annotation_prompt_sha256(),
         "quality_assessment_enabled": bool(config.ENABLE_OCR_QUALITY_ASSESSMENT),
         "weak_page_improvement_enabled": bool(config.ENABLE_OCR_WEAK_PAGE_IMPROVEMENT),
+        "improve_weak": bool(improve_weak),
+        "image_preprocessing_enabled": bool(config.MISTRAL_ENABLE_IMAGE_PREPROCESSING),
+        "image_optimization_enabled": bool(config.MISTRAL_ENABLE_IMAGE_OPTIMIZATION),
     }
 
 
@@ -2532,21 +2568,20 @@ def create_batch_ocr_file(
         config.MISTRAL_BATCH_TIMEOUT_HOURS + 1,
     )
 
+    uploaded_file_ids: List[str] = []
     try:
         logger.info("Creating batch OCR file for %s documents...", len(file_paths))
 
         entries = []
-        upload_failures = 0
 
         for idx, file_path in enumerate(file_paths):
-            # Upload file and get signed URL
-            signed_url = upload_file_for_ocr(
+            pair = _upload_file_for_ocr_pair(
                 client, file_path, expiry_hours=batch_signed_url_expiry
             )
-            if not signed_url:
-                upload_failures += 1
+            if not pair:
                 logger.warning("Failed to upload %s, skipping...", file_path.name)
                 if config.MISTRAL_BATCH_STRICT:
+                    _delete_ocr_file_ids(client, uploaded_file_ids)
                     return (
                         False,
                         None,
@@ -2554,7 +2589,9 @@ def create_batch_ocr_file(
                     )
                 continue
 
-            # Determine document type
+            signed_url, file_id = pair
+            uploaded_file_ids.append(file_id)
+
             ext = file_path.suffix.lower().lstrip(".")
             is_image = ext in config.IMAGE_EXTENSIONS
 
@@ -2582,6 +2619,7 @@ def create_batch_ocr_file(
             logger.debug("Added %s to batch (id: %s)", file_path.name, custom_id)
 
         if not entries:
+            _delete_ocr_file_ids(client, uploaded_file_ids)
             return False, None, "No files could be prepared for batch processing"
 
         # Write JSONL (signed URLs). Prefer writing under ``config.CACHE_DIR`` (POSIX
@@ -2600,6 +2638,7 @@ def create_batch_ocr_file(
         return True, output_file, None
 
     except Exception as e:
+        _delete_ocr_file_ids(client, uploaded_file_ids)
         error_msg = f"Error creating batch OCR file: {e}"
         logger.error(error_msg)
         return False, None, error_msg

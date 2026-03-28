@@ -68,6 +68,26 @@ class TestModelSelection:
             == "https://enterprise.example/v1"
         )
 
+    def test_mistral_openai_compatible_base_url_no_duplicate_v1(self, monkeypatch):
+        monkeypatch.setattr(
+            config, "MISTRAL_SERVER_URL", "https://enterprise.example/v1"
+        )
+        assert (
+            config.mistral_openai_compatible_base_url()
+            == "https://enterprise.example/v1"
+        )
+
+    def test_mistral_openai_compatible_base_url_trailing_slash_before_v1(
+        self, monkeypatch
+    ):
+        monkeypatch.setattr(
+            config, "MISTRAL_SERVER_URL", "https://enterprise.example/v1/"
+        )
+        assert (
+            config.mistral_openai_compatible_base_url()
+            == "https://enterprise.example/v1"
+        )
+
 
 class TestFileTypeConfiguration:
     """Test file type configuration."""
