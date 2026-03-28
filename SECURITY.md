@@ -35,6 +35,15 @@ If you discover a security vulnerability, please report it responsibly:
 - Mistral APIs are trusted infrastructure, but data returned by OCR/QnA must be treated as untrusted.
 - The tool does **not** sandbox untrusted file parsing. If used as a backend service, it should run in a container or restricted-user environment.
 
+### Untrusted documents and parsers
+
+Document conversion depends on MarkItDown, pdfplumber, Poppler (pdf2image), and optionally third-party MarkItDown plugins. **Hostile files are untrusted inputs** to that entire parsing stack.
+
+- Prefer running conversions in a **sandbox** or dedicated OS user when the input is not fully trusted.
+- Keep `MARKITDOWN_ENABLE_PLUGINS=false` unless you trust every installed plugin (see `config.validate_configuration()` and the `SECURITY:` warnings it emits).
+- Keep `MARKITDOWN_KEEP_DATA_URIS=false` when generated Markdown may be **rendered in a browser** without sanitization; embedded data URIs widen the XSS review surface.
+- Review `validate_configuration()` output in CI or at startup for plugin, data-URI, and signed-URL expiry guidance.
+
 ---
 
 ## Security Controls
@@ -48,7 +57,7 @@ If you discover a security vulnerability, please report it responsibly:
 
 ### File Input Validation
 
-- File paths are validated before processing (`utils.validate_file`): must exist, be a file, be non-empty, and have an extension in the relevant allowlist.
+- File paths are validated before processing (`utils.validate_file`): must exist, be a file, be non-empty, have an extension in the relevant allowlist, and meet a **mode-specific size cap** (e.g. MarkItDown vs Mistral OCR vs QnA vs smart-mode union cap).
 - **MarkItDown path:** Files exceeding `MARKITDOWN_MAX_FILE_SIZE_MB` (default: 100 MB) are rejected.
 - **Mistral OCR path:** Files exceeding `MISTRAL_OCR_MAX_FILE_SIZE_MB` (default: 200 MB) are rejected before upload.
 - **Document QnA:** Files exceeding `MISTRAL_QNA_MAX_FILE_SIZE_MB` (default: 50 MB) are rejected.

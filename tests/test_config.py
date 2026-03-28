@@ -2,6 +2,9 @@
 Tests for config.py module
 """
 
+import importlib
+import warnings
+
 import pytest
 
 import config
@@ -126,6 +129,16 @@ class TestConfigurationDefaults:
         valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
         assert config.LOG_LEVEL in valid_levels
 
+    def test_reload_invalid_log_level_env_normalizes(self, monkeypatch):
+        monkeypatch.setenv("LOG_LEVEL", "VERBOSE")
+        with warnings.catch_warnings(record=True) as rec:
+            warnings.simplefilter("always")
+            importlib.reload(config)
+        assert config.LOG_LEVEL == "INFO"
+        assert any("LOG_LEVEL" in str(r.message) for r in rec)
+        monkeypatch.delenv("LOG_LEVEL", raising=False)
+        importlib.reload(config)
+
     def test_ocr_model_correct(self):
         """Test OCR model is set correctly."""
         assert config.MISTRAL_OCR_MODEL == "mistral-ocr-latest"
@@ -228,7 +241,9 @@ class TestValidateConfigurationBranches:
         monkeypatch.setattr(config, "MISTRAL_ENABLE_STRUCTURED_OUTPUT", False)
         monkeypatch.setattr(config, "MISTRAL_ENABLE_DOCUMENT_ANNOTATION", True)
         issues = config.validate_configuration()
-        assert any("DOCUMENT_ANNOTATION" in i and "STRUCTURED_OUTPUT" in i for i in issues)
+        assert any(
+            "DOCUMENT_ANNOTATION" in i and "STRUCTURED_OUTPUT" in i for i in issues
+        )
 
     def test_threshold_ordering_warning(self, monkeypatch):
         monkeypatch.setattr(config, "MISTRAL_API_KEY", "key")
@@ -248,7 +263,9 @@ class TestValidateConfigurationBranches:
         monkeypatch.setattr(config, "MISTRAL_API_KEY", "key")
         monkeypatch.setattr(config, "MISTRAL_DOCUMENT_SCHEMA_TYPE", "custom_invalid")
         issues = config.validate_configuration()
-        assert any("MISTRAL_DOCUMENT_SCHEMA_TYPE" in i and "invalid" in i for i in issues)
+        assert any(
+            "MISTRAL_DOCUMENT_SCHEMA_TYPE" in i and "invalid" in i for i in issues
+        )
 
     def test_invalid_table_format(self, monkeypatch):
         monkeypatch.setattr(config, "MISTRAL_API_KEY", "key")

@@ -80,7 +80,9 @@ def setup_logging(log_file: Optional[str] = None) -> logging.Logger:
     if log_file and config.SAVE_PROCESSING_LOGS:
         file_handler = logging.FileHandler(log_file, encoding="utf-8")
         file_handler.setLevel(logging.DEBUG)
-        file_format = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+        file_format = logging.Formatter(
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        )
         file_handler.setFormatter(file_format)
         logger.addHandler(file_handler)
 
@@ -124,7 +126,9 @@ def ui_print(*args, **kwargs) -> None:
     print(*args, **kwargs)
 
 
-def atomic_write_text(path: Path, content: str, encoding: str = "utf-8", newline: Optional[str] = None) -> None:
+def atomic_write_text(
+    path: Path, content: str, encoding: str = "utf-8", newline: Optional[str] = None
+) -> None:
     """Write *content* to *path* atomically via a temporary file and rename.
 
     This prevents partial / corrupt files when the process is interrupted
@@ -317,7 +321,9 @@ class IntelligentCache:
                     raise ValueError("cache entry is not a dict")
                 for required_key in ("timestamp", "type", "data"):
                     if required_key not in cache_data:
-                        raise ValueError(f"cache entry missing required key: {required_key}")
+                        raise ValueError(
+                            f"cache entry missing required key: {required_key}"
+                        )
 
                 cached_time = datetime.fromisoformat(cache_data.get("timestamp", ""))
                 if cached_time.tzinfo is None:
@@ -333,7 +339,11 @@ class IntelligentCache:
                 # Type check is now redundant since paths are segregated,
                 # but keep for backwards compatibility with old cache files
                 if cache_data.get("type") != cache_type:
-                    logger.debug("Cache type mismatch (expected %s, got %s)", cache_type, cache_data.get("type"))
+                    logger.debug(
+                        "Cache type mismatch (expected %s, got %s)",
+                        cache_type,
+                        cache_data.get("type"),
+                    )
                     self.misses += 1
                     return None
 
@@ -362,7 +372,11 @@ class IntelligentCache:
             return None
 
     def set(
-        self, file_path: Path, data: Dict[str, Any], cache_type: str = "ocr", metadata: Optional[Dict[str, Any]] = None
+        self,
+        file_path: Path,
+        data: Dict[str, Any],
+        cache_type: str = "ocr",
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
         """
         Store data in cache.
@@ -435,7 +449,9 @@ class IntelligentCache:
                     with open(cache_file, "r", encoding="utf-8") as f:
                         cache_data = json.load(f)
 
-                    cached_time = datetime.fromisoformat(cache_data.get("timestamp", ""))
+                    cached_time = datetime.fromisoformat(
+                        cache_data.get("timestamp", "")
+                    )
                     if cached_time.tzinfo is None:
                         cached_time = cached_time.replace(tzinfo=timezone.utc)
 
@@ -444,7 +460,9 @@ class IntelligentCache:
                         removed += 1
 
                 except Exception as e:
-                    logger.debug("Error processing cache file %s: %s", cache_file.name, e)
+                    logger.debug(
+                        "Error processing cache file %s: %s", cache_file.name, e
+                    )
 
         return removed
 
@@ -481,7 +499,9 @@ cache = IntelligentCache()
 # ============================================================================
 
 
-def format_table_to_markdown(data: List[List[str]], headers: Optional[List[str]] = None) -> str:
+def format_table_to_markdown(
+    data: List[List[str]], headers: Optional[List[str]] = None
+) -> str:
     """
     Convert table data to Markdown format.
 
@@ -516,7 +536,9 @@ def format_table_to_markdown(data: List[List[str]], headers: Optional[List[str]]
     for row in data:
         # Pad row to match header length
         padded_row = list(row) + [""] * (len(headers) - len(row))
-        lines.append("| " + " | ".join(str(cell) for cell in padded_row[: len(headers)]) + " |")
+        lines.append(
+            "| " + " | ".join(str(cell) for cell in padded_row[: len(headers)]) + " |"
+        )
 
     return "\n".join(lines)
 
@@ -670,7 +692,9 @@ def clean_table(table: List[List[str]]) -> List[List[str]]:
     return cleaned
 
 
-def normalize_table_headers(table: List[List[str]]) -> Tuple[List[str], List[List[str]]]:
+def normalize_table_headers(
+    table: List[List[str]],
+) -> Tuple[List[str], List[List[str]]]:
     """
     Normalize table headers by detecting month headers and cleaning cells.
 
@@ -818,7 +842,11 @@ def print_progress(current: int, total: int, prefix: str = "Progress") -> None:
         return
 
     if total <= 0:
-        print(f"\r{prefix}: [----------------------------------------] 0.0% (0/0)", end="", flush=True)
+        print(
+            f"\r{prefix}: [----------------------------------------] 0.0% (0/0)",
+            end="",
+            flush=True,
+        )
         return
 
     current = max(0, min(current, total))
@@ -838,7 +866,9 @@ def print_progress(current: int, total: int, prefix: str = "Progress") -> None:
 # ============================================================================
 
 
-def validate_file(file_path: Path, mode: Optional[str] = None) -> Tuple[bool, Optional[str]]:
+def validate_file(
+    file_path: Path, mode: Optional[str] = None
+) -> Tuple[bool, Optional[str]]:
     """
     Validate if a file can be processed.
 
@@ -847,7 +877,12 @@ def validate_file(file_path: Path, mode: Optional[str] = None) -> Tuple[bool, Op
         mode: Conversion mode to validate against. When ``"markitdown"``,
               only MarkItDown-supported extensions are accepted. When
               ``"mistral_ocr"``, only Mistral OCR-supported extensions are
-              accepted. ``None`` or ``"smart"`` accepts the union of both.
+              accepted. ``None`` or ``"smart"`` accepts the union of both
+              extensions. A mode-specific **size cap** is applied when applicable;
+              for ``smart`` the cap is the larger of the MarkItDown and Mistral
+              OCR limits so OCR-only files are not rejected early—individual
+              routes still enforce stricter limits (e.g. text PDF routed to
+              MarkItDown).
 
     Returns:
         Tuple of (is_valid, error_message)
@@ -874,6 +909,31 @@ def validate_file(file_path: Path, mode: Optional[str] = None) -> Tuple[bool, Op
 
     if ext not in supported:
         return False, f"Unsupported file type for {mode or 'this'} mode: .{ext}"
+
+    try:
+        size_mb = file_path.stat().st_size / (1024 * 1024)
+    except OSError as e:
+        return False, f"Cannot read file: {e}"
+
+    max_mb: Optional[float] = None
+    if mode == "markitdown":
+        max_mb = float(config.MARKITDOWN_MAX_FILE_SIZE_MB)
+    elif mode in ("mistral_ocr", "batch_ocr"):
+        max_mb = float(config.MISTRAL_OCR_MAX_FILE_SIZE_MB)
+    elif mode == "qna":
+        max_mb = float(config.MISTRAL_QNA_MAX_FILE_SIZE_MB)
+    elif mode == "pdf_to_images":
+        if ext == "pdf":
+            max_mb = float(config.pdf_heavy_work_max_file_size_mb())
+    else:
+        max_mb = float(
+            max(config.MARKITDOWN_MAX_FILE_SIZE_MB, config.MISTRAL_OCR_MAX_FILE_SIZE_MB)
+        )
+
+    if max_mb is not None and size_mb > max_mb:
+        return False, (
+            f"File too large ({size_mb:.1f} MB) for {mode or 'this'} mode (limit {int(max_mb)} MB)."
+        )
 
     return True, None
 
@@ -911,7 +971,9 @@ def safe_output_stem(file_path: Path) -> str:
         input_dir = config.INPUT_DIR.resolve()
         if resolved.parent == input_dir:
             collisions = [
-                p for p in input_dir.glob(f"{stem}.*") if p.is_file() and p.suffix.lower() != file_path.suffix.lower()
+                p
+                for p in input_dir.glob(f"{stem}.*")
+                if p.is_file() and p.suffix.lower() != file_path.suffix.lower()
             ]
             if collisions:
                 return f"{stem}_{ext}"
@@ -929,7 +991,10 @@ def safe_output_stem(file_path: Path) -> str:
 
 
 def generate_yaml_frontmatter(
-    title: str, file_name: str, conversion_method: str, additional_fields: Optional[Dict[str, Any]] = None
+    title: str,
+    file_name: str,
+    conversion_method: str,
+    additional_fields: Optional[Dict[str, Any]] = None,
 ) -> str:
     """
     Generate YAML frontmatter for markdown files.

@@ -33,7 +33,9 @@ class TestSetupLogging:
     def test_no_file_handler_when_disabled(self, monkeypatch):
         monkeypatch.setattr(config, "SAVE_PROCESSING_LOGS", False)
         logger = utils.setup_logging(log_file="/tmp/nope.log")
-        file_handlers = [h for h in logger.handlers if isinstance(h, logging.FileHandler)]
+        file_handlers = [
+            h for h in logger.handlers if isinstance(h, logging.FileHandler)
+        ]
         assert len(file_handlers) == 0
 
 
@@ -128,7 +130,9 @@ class TestIntelligentCache:
         test_file.write_text("shared-content")
 
         def _writer(i: int):
-            cache.set(test_file, {"writer": i, "payload": "x" * 1000}, cache_type="test")
+            cache.set(
+                test_file, {"writer": i, "payload": "x" * 1000}, cache_type="test"
+            )
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
             list(ex.map(_writer, range(50)))
@@ -256,6 +260,26 @@ class TestFileValidation:
         is_valid, error = utils.validate_file(test_file)
         assert not is_valid
         assert "Unsupported" in error
+
+    def test_validate_file_markitdown_rejects_over_limit(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "MARKITDOWN_MAX_FILE_SIZE_MB", 1)
+        test_file = tmp_path / "big.pdf"
+        test_file.write_bytes(b"x" * (2 * 1024 * 1024))
+        ok, err = utils.validate_file(test_file, mode="markitdown")
+        assert ok is False
+        assert err and "too large" in err.lower()
+
+    def test_validate_file_smart_uses_union_size_cap(self, tmp_path, monkeypatch):
+        """Smart mode max size is max(MarkItDown, Mistral) so OCR-viable files are not rejected early."""
+        monkeypatch.setattr(config, "MARKITDOWN_MAX_FILE_SIZE_MB", 1)
+        monkeypatch.setattr(config, "MISTRAL_OCR_MAX_FILE_SIZE_MB", 10)
+        test_file = tmp_path / "mid.pdf"
+        test_file.write_bytes(b"x" * (2 * 1024 * 1024))
+        ok_smart, _ = utils.validate_file(test_file, mode="smart")
+        ok_md, err_md = utils.validate_file(test_file, mode="markitdown")
+        assert ok_smart is True
+        assert ok_md is False
+        assert err_md and "too large" in err_md.lower()
 
 
 class TestPdfExceedsHeavyWorkLimit:
@@ -393,7 +417,9 @@ class TestClearOldEntries:
         # Write a cache file with an old timestamp
         cache_file = tmp_path / "old_entry.json"
         old_time = (datetime.now() - timedelta(hours=5)).isoformat()
-        cache_file.write_text(json.dumps({"timestamp": old_time, "type": "ocr", "data": {}}))
+        cache_file.write_text(
+            json.dumps({"timestamp": old_time, "type": "ocr", "data": {}})
+        )
         removed = cache.clear_old_entries()
         assert removed == 1
         assert not cache_file.exists()
@@ -402,7 +428,11 @@ class TestClearOldEntries:
         monkeypatch.setattr(config, "CACHE_DURATION_HOURS", 24)
         cache = utils.IntelligentCache(cache_dir=tmp_path)
         cache_file = tmp_path / "fresh_entry.json"
-        cache_file.write_text(json.dumps({"timestamp": datetime.now().isoformat(), "type": "ocr", "data": {}}))
+        cache_file.write_text(
+            json.dumps(
+                {"timestamp": datetime.now().isoformat(), "type": "ocr", "data": {}}
+            )
+        )
         removed = cache.clear_old_entries()
         assert removed == 0
         assert cache_file.exists()
@@ -467,7 +497,9 @@ class TestIsPageArtifactRow:
         assert utils.is_page_artifact_row(["", ""]) is True
 
     def test_data_row_is_not_artifact(self):
-        assert utils.is_page_artifact_row(["10201", "Cash Operating", "1234.56"]) is False
+        assert (
+            utils.is_page_artifact_row(["10201", "Cash Operating", "1234.56"]) is False
+        )
 
     def test_none_input(self):
         assert utils.is_page_artifact_row([]) is False
@@ -621,7 +653,9 @@ class TestFileCacheGetExceptions:
         # The exists() check at the beginning of get() will fail, returning None from first branch
         # We need the cache path to exist for hash lookup but then fail on open
         # Let's use a different approach: patch open to raise
-        with unittest.mock.patch("builtins.open", side_effect=FileNotFoundError("gone")):
+        with unittest.mock.patch(
+            "builtins.open", side_effect=FileNotFoundError("gone")
+        ):
             # Need to also ensure _get_cache_path exists check passes
             with unittest.mock.patch.object(Path, "exists", return_value=True):
                 result = cache.get(test_file, cache_type="test")
@@ -653,7 +687,9 @@ class TestFileCacheGetExceptions:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         cache_path.write_text("NOT VALID JSON {{{")
 
-        with unittest.mock.patch.object(Path, "unlink", side_effect=OSError("perm denied")):
+        with unittest.mock.patch.object(
+            Path, "unlink", side_effect=OSError("perm denied")
+        ):
             result = cache.get(test_file, cache_type="test")
         assert result is None
         assert cache.misses == 1
@@ -701,7 +737,9 @@ class TestFileCacheSetException:
         test_file = tmp_path / "test.txt"
         test_file.write_text("content")
 
-        with unittest.mock.patch("tempfile.NamedTemporaryFile", side_effect=PermissionError("denied")):
+        with unittest.mock.patch(
+            "tempfile.NamedTemporaryFile", side_effect=PermissionError("denied")
+        ):
             cache.set(test_file, {"data": "value"}, cache_type="test")
         # Should handle exception gracefully
         # No crash = success
@@ -827,7 +865,9 @@ class TestSafeOutputStemOSError:
         test_file = tmp_path / "test.pdf"
         test_file.touch()
 
-        with unittest.mock.patch.object(Path, "resolve", side_effect=OSError("bad path")):
+        with unittest.mock.patch.object(
+            Path, "resolve", side_effect=OSError("bad path")
+        ):
             stem = utils.safe_output_stem(test_file)
         assert stem == "test"
 
@@ -837,7 +877,9 @@ class TestYAMLFrontmatterDisabled:
 
     def test_frontmatter_disabled(self, monkeypatch):
         monkeypatch.setattr(config, "INCLUDE_METADATA", False)
-        result = utils.generate_yaml_frontmatter(title="Test", file_name="test.pdf", conversion_method="Method")
+        result = utils.generate_yaml_frontmatter(
+            title="Test", file_name="test.pdf", conversion_method="Method"
+        )
         assert result == ""
 
 

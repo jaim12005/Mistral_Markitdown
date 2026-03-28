@@ -22,6 +22,8 @@ import re
 import threading
 import time
 import traceback
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as DnsTimeoutError
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -76,7 +78,11 @@ try:
     from mistralai.client.models import DocumentURLChunk, FileChunk, ImageURLChunk
 except ImportError:
     try:
-        from mistralai import DocumentURLChunk, FileChunk, ImageURLChunk  # type: ignore[no-redef]
+        from mistralai import (  # type: ignore[no-redef]
+            DocumentURLChunk,
+            FileChunk,
+            ImageURLChunk,
+        )
     except ImportError:
         DocumentURLChunk = None
         ImageURLChunk = None
@@ -156,7 +162,10 @@ def _reserve_session_pages(estimated: int) -> bool:
         return True
     est = max(1, estimated)
     with _session_pages_lock:
-        if _session_pages_processed + _session_pages_inflight + est > config.MAX_PAGES_PER_SESSION:
+        if (
+            _session_pages_processed + _session_pages_inflight + est
+            > config.MAX_PAGES_PER_SESSION
+        ):
             return False
         _session_pages_inflight += est
         return True
@@ -169,15 +178,25 @@ def _commit_session_pages(reserved: int, actual: int) -> bool:
         return True
     with _session_pages_lock:
         _session_pages_inflight -= reserved
-        _session_pages_processed += actual
-        if _session_pages_processed >= config.MAX_PAGES_PER_SESSION:
+        new_total = _session_pages_processed + actual
+        _session_pages_processed = new_total
+        if new_total >= config.MAX_PAGES_PER_SESSION:
             if not _session_pages_warned:
                 _session_pages_warned = True
-                logger.warning(
-                    "Session page limit reached (%d/%d). Further OCR requests will be refused.",
-                    _session_pages_processed,
-                    config.MAX_PAGES_PER_SESSION,
-                )
+                if new_total > config.MAX_PAGES_PER_SESSION:
+                    logger.warning(
+                        "Session page budget exceeded (%d > %d pages). This can happen when "
+                        "parallel OCR jobs underestimated page counts or the API returned "
+                        "more pages than reserved. Further OCR requests will be refused.",
+                        new_total,
+                        config.MAX_PAGES_PER_SESSION,
+                    )
+                else:
+                    logger.warning(
+                        "Session page limit reached (%d/%d). Further OCR requests will be refused.",
+                        new_total,
+                        config.MAX_PAGES_PER_SESSION,
+                    )
             return False
         return True
 
@@ -191,31 +210,13 @@ def _release_session_pages_reservation(reserved: int) -> None:
         _session_pages_inflight -= reserved
 
 
-def _track_pages(count: int) -> bool:
-    """Increment the session page counter and warn once if the limit is exceeded.
-
-    Returns ``True`` if processing may continue, ``False`` if the session page
-    limit has been reached and further OCR calls should be refused.
-    """
-    global _session_pages_processed, _session_pages_warned
-    with _session_pages_lock:
-        _session_pages_processed += count
-        if config.MAX_PAGES_PER_SESSION > 0 and _session_pages_processed >= config.MAX_PAGES_PER_SESSION:
-            if not _session_pages_warned:
-                _session_pages_warned = True
-                logger.warning(
-                    "Session page limit reached (%d/%d). Further OCR requests will be refused.",
-                    _session_pages_processed,
-                    config.MAX_PAGES_PER_SESSION,
-                )
-            return False
-        return True
-
-
 def _is_page_limit_reached() -> bool:
     """Return ``True`` if the session page limit has already been reached."""
     with _session_pages_lock:
-        return config.MAX_PAGES_PER_SESSION > 0 and _session_pages_processed >= config.MAX_PAGES_PER_SESSION
+        return (
+            config.MAX_PAGES_PER_SESSION > 0
+            and _session_pages_processed >= config.MAX_PAGES_PER_SESSION
+        )
 
 
 def _ocr_session_page_delta(result: Dict[str, Any]) -> int:
@@ -291,7 +292,9 @@ def get_mistral_client() -> Optional[Mistral]:
             return None
 
         if not config.MISTRAL_API_KEY:
-            logger.error("MISTRAL_API_KEY not set. Add it to your .env file in the project root.")
+            logger.error(
+                "MISTRAL_API_KEY not set. Add it to your .env file in the project root."
+            )
             return None
 
         try:
@@ -422,7 +425,10 @@ def get_bbox_annotation_format() -> Optional[Dict[str, Any]]:
     Returns:
         ResponseFormat dict for bbox annotation, or None if disabled
     """
-    if not config.MISTRAL_ENABLE_STRUCTURED_OUTPUT or not config.MISTRAL_ENABLE_BBOX_ANNOTATION:
+    if (
+        not config.MISTRAL_ENABLE_STRUCTURED_OUTPUT
+        or not config.MISTRAL_ENABLE_BBOX_ANNOTATION
+    ):
         return None
 
     # Try SDK helper with Pydantic model (preferred - handles schema extraction automatically)
@@ -430,10 +436,14 @@ def get_bbox_annotation_format() -> Optional[Dict[str, Any]]:
     if pydantic_model is not None and response_format_from_pydantic_model is not None:
         try:
             fmt = response_format_from_pydantic_model(pydantic_model)
-            logger.debug("Using SDK response_format_from_pydantic_model for bbox annotation")
+            logger.debug(
+                "Using SDK response_format_from_pydantic_model for bbox annotation"
+            )
             return fmt
         except Exception as e:
-            logger.debug("SDK helper failed for bbox annotation: %s, falling back...", e)
+            logger.debug(
+                "SDK helper failed for bbox annotation: %s, falling back...", e
+            )
 
     # Fallback: manual JSON schema extraction from Pydantic model
     if pydantic_model is not None:
@@ -443,7 +453,10 @@ def get_bbox_annotation_format() -> Optional[Dict[str, Any]]:
                 logger.debug("Using Pydantic-derived JSON schema for bbox annotation")
                 return _wrap_response_format(json_schema, "bbox_annotation")
         except Exception as e:
-            logger.debug("Could not get JSON schema from Pydantic model: %s, falling back to predefined schema", e)
+            logger.debug(
+                "Could not get JSON schema from Pydantic model: %s, falling back to predefined schema",
+                e,
+            )
 
     # Fallback to predefined JSON schema from schemas.py
     bbox_schema = schemas.get_bbox_schema("structured")
@@ -471,7 +484,10 @@ def get_document_annotation_format(doc_type: str = "auto") -> Optional[Dict[str,
     Returns:
         ResponseFormat dict for document annotation, or None if disabled
     """
-    if not config.MISTRAL_ENABLE_STRUCTURED_OUTPUT or not config.MISTRAL_ENABLE_DOCUMENT_ANNOTATION:
+    if (
+        not config.MISTRAL_ENABLE_STRUCTURED_OUTPUT
+        or not config.MISTRAL_ENABLE_DOCUMENT_ANNOTATION
+    ):
         return None
 
     if doc_type == "auto":
@@ -486,20 +502,31 @@ def get_document_annotation_format(doc_type: str = "auto") -> Optional[Dict[str,
     if pydantic_model is not None and response_format_from_pydantic_model is not None:
         try:
             fmt = response_format_from_pydantic_model(pydantic_model)
-            logger.debug("Using SDK response_format_from_pydantic_model for document annotation (type: %s)", doc_type)
+            logger.debug(
+                "Using SDK response_format_from_pydantic_model for document annotation (type: %s)",
+                doc_type,
+            )
             return fmt
         except Exception as e:
-            logger.debug("SDK helper failed for document annotation: %s, falling back...", e)
+            logger.debug(
+                "SDK helper failed for document annotation: %s, falling back...", e
+            )
 
     # Fallback: manual JSON schema extraction from Pydantic model
     if pydantic_model is not None:
         try:
             json_schema = _extract_model_json_schema(pydantic_model)
             if json_schema:
-                logger.debug("Using Pydantic-derived JSON schema for document annotation (type: %s)", doc_type)
+                logger.debug(
+                    "Using Pydantic-derived JSON schema for document annotation (type: %s)",
+                    doc_type,
+                )
                 return _wrap_response_format(json_schema, schema_name)
         except Exception as e:
-            logger.debug("Could not get JSON schema from Pydantic model: %s, falling back to predefined schema", e)
+            logger.debug(
+                "Could not get JSON schema from Pydantic model: %s, falling back to predefined schema",
+                e,
+            )
 
     # Fallback to predefined JSON schema from schemas.py
     document_schema = schemas.get_document_schema(doc_type)
@@ -528,7 +555,9 @@ def optimize_image(image_path: Path) -> Optional[Path]:
         return image_path
 
     try:
-        resample = Image.Resampling.LANCZOS if hasattr(Image, "Resampling") else Image.LANCZOS
+        resample = (
+            Image.Resampling.LANCZOS if hasattr(Image, "Resampling") else Image.LANCZOS
+        )
 
         with Image.open(image_path) as src:
             # Check if optimization needed
@@ -549,7 +578,9 @@ def optimize_image(image_path: Path) -> Optional[Path]:
             img = src.resize((new_width, new_height), resample)
 
         # Save optimized image with format-appropriate parameters
-        optimized_path = image_path.parent / f"{image_path.stem}_optimized{image_path.suffix}"
+        optimized_path = (
+            image_path.parent / f"{image_path.stem}_optimized{image_path.suffix}"
+        )
 
         try:
             suffix = image_path.suffix.lower()
@@ -602,7 +633,9 @@ def preprocess_image(image_path: Path) -> Optional[Path]:
             img = ImageEnhance.Sharpness(img).enhance(1.3)
 
             # Save preprocessed image with format-appropriate parameters
-            preprocessed_path = image_path.parent / f"{image_path.stem}_preprocessed{image_path.suffix}"
+            preprocessed_path = (
+                image_path.parent / f"{image_path.stem}_preprocessed{image_path.suffix}"
+            )
             if image_path.suffix.lower() in {".jpg", ".jpeg"}:
                 img.save(preprocessed_path, format="JPEG", quality=95, optimize=True)
             elif image_path.suffix.lower() == ".png":
@@ -652,10 +685,21 @@ def cleanup_uploaded_files(client: Mistral, days_old: Optional[int] = None) -> i
 
             while True:
                 try:
-                    files_response = client.files.list(purpose=purpose, page=page, page_size=page_size)
-                    files_list = files_response.data if hasattr(files_response, "data") else files_response
+                    files_response = client.files.list(
+                        purpose=purpose, page=page, page_size=page_size
+                    )
+                    files_list = (
+                        files_response.data
+                        if hasattr(files_response, "data")
+                        else files_response
+                    )
                 except Exception as e:
-                    logger.debug("Error listing %s files for cleanup (page %s): %s", purpose, page, e)
+                    logger.debug(
+                        "Error listing %s files for cleanup (page %s): %s",
+                        purpose,
+                        page,
+                        e,
+                    )
                     break
 
                 if not files_list:
@@ -667,25 +711,42 @@ def cleanup_uploaded_files(client: Mistral, days_old: Optional[int] = None) -> i
                             continue
 
                         if isinstance(file.created_at, str):
-                            file_created = datetime.fromisoformat(file.created_at.replace("Z", "+00:00"))
+                            file_created = datetime.fromisoformat(
+                                file.created_at.replace("Z", "+00:00")
+                            )
                         elif hasattr(file.created_at, "replace"):
                             file_created = file.created_at
                             if file_created.tzinfo is None:
                                 file_created = file_created.replace(tzinfo=timezone.utc)
                         else:
-                            logger.debug("Unexpected created_at type for file %s: %s", file.id, type(file.created_at))
+                            logger.debug(
+                                "Unexpected created_at type for file %s: %s",
+                                file.id,
+                                type(file.created_at),
+                            )
                             continue
 
                         if file_created < cutoff_date:
                             client.files.delete(file_id=file.id)
                             deleted += 1
-                            logger.debug("Deleted old %s file: %s (created %s)", purpose, file.id, file_created)
+                            logger.debug(
+                                "Deleted old %s file: %s (created %s)",
+                                purpose,
+                                file.id,
+                                file_created,
+                            )
                     except Exception as e:
-                        logger.debug("Error processing %s file %s: %s", purpose, file.id, e)
+                        logger.debug(
+                            "Error processing %s file %s: %s", purpose, file.id, e
+                        )
                         continue
 
                 total = getattr(files_response, "total", None)
-                if isinstance(total, int) and total >= 0 and (page + 1) * page_size >= total:
+                if (
+                    isinstance(total, int)
+                    and total >= 0
+                    and (page + 1) * page_size >= total
+                ):
                     break
                 if len(files_list) < page_size:
                     break
@@ -697,7 +758,11 @@ def cleanup_uploaded_files(client: Mistral, days_old: Optional[int] = None) -> i
         deleted += _cleanup_files_by_purpose("batch")
 
         if deleted > 0:
-            logger.info("Cleaned up %s old uploaded files (older than %s days)", deleted, days_old)
+            logger.info(
+                "Cleaned up %s old uploaded files (older than %s days)",
+                deleted,
+                days_old,
+            )
 
         return deleted
 
@@ -962,7 +1027,9 @@ def process_with_ocr(
         if doc_format is not None:
             ocr_params["document_annotation_format"] = doc_format
         if config.MISTRAL_DOCUMENT_ANNOTATION_PROMPT:
-            ocr_params["document_annotation_prompt"] = config.MISTRAL_DOCUMENT_ANNOTATION_PROMPT
+            ocr_params["document_annotation_prompt"] = (
+                config.MISTRAL_DOCUMENT_ANNOTATION_PROMPT
+            )
 
         # OCR 3 (mistral-ocr-2512) parameters
         if config.MISTRAL_TABLE_FORMAT:
@@ -995,6 +1062,13 @@ def process_with_ocr(
                 return False, None, error_msg
 
             actual_pages = _ocr_session_page_delta(result)
+            if reserved_pages != actual_pages:
+                logger.debug(
+                    "OCR page delta (%d) differs from reserved estimate (%d) for %s",
+                    actual_pages,
+                    reserved_pages,
+                    file_path.name,
+                )
             if config.MAX_PAGES_PER_SESSION > 0:
                 if not _commit_session_pages(reserved_pages, actual_pages):
                     logger.warning(
@@ -1015,12 +1089,16 @@ def process_with_ocr(
         # Prefer typed status_code from SDK exceptions; fall back to string matching.
         status_code = getattr(e, "status_code", None) or getattr(e, "code", None)
         err_str = str(e)
-        if status_code == 401 or (status_code is None and ("401" in err_str or "Unauthorized" in err_str)):
+        if status_code == 401 or (
+            status_code is None and ("401" in err_str or "Unauthorized" in err_str)
+        ):
             error_msg = (
                 "Mistral API authentication failed (401 Unauthorized). "
                 "Please verify your API key has OCR access at https://console.mistral.ai/"
             )
-        elif status_code == 403 or (status_code is None and ("403" in err_str or "Forbidden" in err_str)):
+        elif status_code == 403 or (
+            status_code is None and ("403" in err_str or "Forbidden" in err_str)
+        ):
             error_msg = "Access denied to Mistral OCR (403 Forbidden). This feature may require a paid plan."
 
         logger.error(error_msg)
@@ -1084,7 +1162,10 @@ def _parse_page_object(page: Any, idx: int) -> Dict[str, Any]:
                     "bottom_right_y": getattr(img, "bottom_right_y", None),
                     "bbox": getattr(img, "bbox", None),
                     "base64": (
-                        (getattr(img, "image_base64", None) or getattr(img, "base64", None))
+                        (
+                            getattr(img, "image_base64", None)
+                            or getattr(img, "base64", None)
+                        )
                         if config.MISTRAL_INCLUDE_IMAGES
                         else None
                     ),
@@ -1102,7 +1183,9 @@ def _parse_page_object(page: Any, idx: int) -> Dict[str, Any]:
 
     # Tables
     if hasattr(page, "tables") and page.tables:
-        page_data["tables"] = [t.model_dump() if hasattr(t, "model_dump") else t for t in page.tables]
+        page_data["tables"] = [
+            t.model_dump() if hasattr(t, "model_dump") else t for t in page.tables
+        ]
         # Expand table placeholder links in page text with actual table content.
         # The API returns placeholders like [tbl-0.md](tbl-0.md) and stores the
         # real table data in the tables array.
@@ -1116,7 +1199,9 @@ def _parse_page_object(page: Any, idx: int) -> Dict[str, Any]:
 
     # Hyperlinks
     if hasattr(page, "hyperlinks") and page.hyperlinks:
-        page_data["hyperlinks"] = [h.model_dump() if hasattr(h, "model_dump") else h for h in page.hyperlinks]
+        page_data["hyperlinks"] = [
+            h.model_dump() if hasattr(h, "model_dump") else h for h in page.hyperlinks
+        ]
 
     # Header / footer
     if hasattr(page, "header") and page.header:
@@ -1179,7 +1264,8 @@ def _extract_structured_outputs(response: Any, result: Dict[str, Any]) -> None:
     """Extract bbox_annotations and document_annotation from the response."""
     if hasattr(response, "bbox_annotations") and response.bbox_annotations:
         result["bbox_annotations"] = [
-            bbox.model_dump() if hasattr(bbox, "model_dump") else bbox for bbox in response.bbox_annotations
+            bbox.model_dump() if hasattr(bbox, "model_dump") else bbox
+            for bbox in response.bbox_annotations
         ]
 
     if hasattr(response, "document_annotation") and response.document_annotation:
@@ -1260,7 +1346,11 @@ def _parse_ocr_response(response: Any, file_path: Path) -> Dict[str, Any]:
 
         _extract_response_metadata(response, result)
 
-        logger.debug("Extracted %d pages, %d chars", len(result["pages"]), len(result["full_text"]))
+        logger.debug(
+            "Extracted %d pages, %d chars",
+            len(result["pages"]),
+            len(result["full_text"]),
+        )
 
     except Exception as e:
         logger.error("Error parsing OCR response: %s", e)
@@ -1392,7 +1482,9 @@ def assess_ocr_quality(ocr_result: Dict[str, Any]) -> Dict[str, Any]:
 
     # Deduct points for issues
     if assessment["weak_page_count"] > 0:
-        weak_ratio = assessment["weak_page_count"] / max(1, assessment["total_page_count"])
+        weak_ratio = assessment["weak_page_count"] / max(
+            1, assessment["total_page_count"]
+        )
         points_lost = weak_ratio * _QUALITY_PENALTY_WEAK_PAGES_MAX
         assessment["quality_score"] -= points_lost
         assessment["issues"].append(
@@ -1401,7 +1493,9 @@ def assess_ocr_quality(ocr_result: Dict[str, Any]) -> Dict[str, Any]:
 
     if assessment["uniqueness_ratio"] < config.OCR_MIN_UNIQUENESS_RATIO:
         assessment["quality_score"] -= _QUALITY_PENALTY_HIGH_REPETITION
-        assessment["issues"].append(f"High repetition (uniqueness: {assessment['uniqueness_ratio']:.1%})")
+        assessment["issues"].append(
+            f"High repetition (uniqueness: {assessment['uniqueness_ratio']:.1%})"
+        )
 
     # Clamp score to [0, 100]
     assessment["quality_score"] = max(0.0, min(100.0, assessment["quality_score"]))
@@ -1421,7 +1515,9 @@ def assess_ocr_quality(ocr_result: Dict[str, Any]) -> Dict[str, Any]:
     return assessment
 
 
-def improve_weak_pages(client: Mistral, file_path: Path, ocr_result: Dict[str, Any], model: str) -> Dict[str, Any]:
+def improve_weak_pages(
+    client: Mistral, file_path: Path, ocr_result: Dict[str, Any], model: str
+) -> Dict[str, Any]:
     """
     Re-OCR weak pages with low confidence or short text.
 
@@ -1497,7 +1593,9 @@ def improve_weak_pages(client: Mistral, file_path: Path, ocr_result: Dict[str, A
         """Re-OCR a single page; returns (page_idx, improved_page_data) or (page_idx, None)."""
         try:
             url = _refresh_url_if_needed()
-            ok, improved_result, _ = process_with_ocr(client, file_path, model=model, pages=[page_idx], signed_url=url)
+            ok, improved_result, _ = process_with_ocr(
+                client, file_path, model=model, pages=[page_idx], signed_url=url
+            )
             if ok and improved_result and improved_result.get("pages"):
                 return page_idx, improved_result["pages"][0]
         except Exception as e:
@@ -1511,7 +1609,9 @@ def improve_weak_pages(client: Mistral, file_path: Path, ocr_result: Dict[str, A
             try:
                 page_idx, improved_page = future.result()
             except Exception as e:
-                logger.warning("Unexpected error retrieving page improvement result: %s", e)
+                logger.warning(
+                    "Unexpected error retrieving page improvement result: %s", e
+                )
                 continue
             if improved_page is None:
                 continue
@@ -1524,7 +1624,9 @@ def improve_weak_pages(client: Mistral, file_path: Path, ocr_result: Dict[str, A
                 ocr_result["pages"][page_idx]["text"] = improved_page.get("text", "")
 
     # Rebuild full text
-    ocr_result["full_text"] = "\n\n".join(page.get("text", "") for page in ocr_result["pages"])
+    ocr_result["full_text"] = "\n\n".join(
+        page.get("text", "") for page in ocr_result["pages"]
+    )
 
     return ocr_result
 
@@ -1638,7 +1740,10 @@ def _process_ocr_result_pipeline(
         and quality_assessment
         and quality_assessment.get("weak_page_count", 0) > 0
     ):
-        logger.info("Attempting to improve %d weak pages...", quality_assessment["weak_page_count"])
+        logger.info(
+            "Attempting to improve %d weak pages...",
+            quality_assessment["weak_page_count"],
+        )
         model = config.get_ocr_model()
         # Note: improve_weak_pages is synchronous
         ocr_result = improve_weak_pages(client, file_path, ocr_result, model)
@@ -1646,7 +1751,9 @@ def _process_ocr_result_pipeline(
         # Re-assess quality after improvement
         quality_assessment = assess_ocr_quality(ocr_result)
         ocr_result["quality_assessment"] = quality_assessment
-        logger.info("Quality after improvement: %.1f/100", quality_assessment["quality_score"])
+        logger.info(
+            "Quality after improvement: %.1f/100", quality_assessment["quality_score"]
+        )
 
     # Cache result (only for fresh results)
     if use_cache and not from_cache:
@@ -1664,8 +1771,13 @@ def _process_ocr_result_pipeline(
     # Save JSON metadata if requested (non-fatal -- OCR already succeeded)
     if config.SAVE_MISTRAL_JSON:
         try:
-            json_path = config.OUTPUT_MD_DIR / f"{utils.safe_output_stem(file_path)}_ocr_metadata.json"
-            utils.atomic_write_text(json_path, json.dumps(ocr_result, indent=2, ensure_ascii=False))
+            json_path = (
+                config.OUTPUT_MD_DIR
+                / f"{utils.safe_output_stem(file_path)}_ocr_metadata.json"
+            )
+            utils.atomic_write_text(
+                json_path, json.dumps(ocr_result, indent=2, ensure_ascii=False)
+            )
             logger.info("Saved OCR metadata: %s", json_path.name)
         except Exception as e:
             logger.warning("Failed to save OCR metadata JSON: %s", e)
@@ -1724,7 +1836,9 @@ def convert_with_mistral_ocr(
 
     # Process result using common pipeline
     # Pass from_cache flag to skip redundant API calls and IO for cached results
-    return _process_ocr_result_pipeline(client, file_path, ocr_result, use_cache, improve_weak, from_cache)
+    return _process_ocr_result_pipeline(
+        client, file_path, ocr_result, use_cache, improve_weak, from_cache
+    )
 
 
 def _save_structured_outputs(file_path: Path, ocr_result: Dict[str, Any]) -> None:
@@ -1737,14 +1851,26 @@ def _save_structured_outputs(file_path: Path, ocr_result: Dict[str, Any]) -> Non
     """
     # Save bounding box annotations if present
     if "bbox_annotations" in ocr_result and ocr_result["bbox_annotations"]:
-        bbox_path = config.OUTPUT_MD_DIR / f"{utils.safe_output_stem(file_path)}_bbox_annotations.json"
-        utils.atomic_write_text(bbox_path, json.dumps(ocr_result["bbox_annotations"], indent=2, ensure_ascii=False))
+        bbox_path = (
+            config.OUTPUT_MD_DIR
+            / f"{utils.safe_output_stem(file_path)}_bbox_annotations.json"
+        )
+        utils.atomic_write_text(
+            bbox_path,
+            json.dumps(ocr_result["bbox_annotations"], indent=2, ensure_ascii=False),
+        )
         logger.info("Saved bbox annotations: %s", bbox_path.name)
 
     # Save document annotations if present
     if "document_annotation" in ocr_result and ocr_result["document_annotation"]:
-        doc_path = config.OUTPUT_MD_DIR / f"{utils.safe_output_stem(file_path)}_document_annotation.json"
-        utils.atomic_write_text(doc_path, json.dumps(ocr_result["document_annotation"], indent=2, ensure_ascii=False))
+        doc_path = (
+            config.OUTPUT_MD_DIR
+            / f"{utils.safe_output_stem(file_path)}_document_annotation.json"
+        )
+        utils.atomic_write_text(
+            doc_path,
+            json.dumps(ocr_result["document_annotation"], indent=2, ensure_ascii=False),
+        )
         logger.info("Saved document annotation: %s", doc_path.name)
 
 
@@ -1760,7 +1886,9 @@ def _create_markdown_output(file_path: Path, ocr_result: Dict[str, Any]) -> Path
         Path to created markdown file
     """
     # Calculate total image count from all pages (images are stored per-page)
-    total_image_count = sum(len(page.get("images", [])) for page in ocr_result.get("pages", []))
+    total_image_count = sum(
+        len(page.get("images", [])) for page in ocr_result.get("pages", [])
+    )
 
     # Generate frontmatter
     frontmatter = utils.generate_yaml_frontmatter(
@@ -1779,7 +1907,9 @@ def _create_markdown_output(file_path: Path, ocr_result: Dict[str, Any]) -> Path
     # Add page-by-page breakdown (no "Full Text" section to avoid duplication)
     if ocr_result.get("pages"):
         total_pages = len(ocr_result["pages"])
-        md_content += f"## OCR Content ({total_pages} page{'s' if total_pages != 1 else ''})\n\n"
+        md_content += (
+            f"## OCR Content ({total_pages} page{'s' if total_pages != 1 else ''})\n\n"
+        )
 
         # page_number is now preserved as the API's 1-based index
         for page in ocr_result["pages"]:
@@ -1791,7 +1921,11 @@ def _create_markdown_output(file_path: Path, ocr_result: Dict[str, Any]) -> Path
             # Header (if extracted separately from page content)
             header = page.get("header")
             if header:
-                header_text = header if isinstance(header, str) else getattr(header, "text", str(header))
+                header_text = (
+                    header
+                    if isinstance(header, str)
+                    else getattr(header, "text", str(header))
+                )
                 if header_text.strip():
                     md_content += f"> **Header:** {header_text.strip()}\n\n"
 
@@ -1800,7 +1934,11 @@ def _create_markdown_output(file_path: Path, ocr_result: Dict[str, Any]) -> Path
             # Footer (if extracted separately from page content)
             footer = page.get("footer")
             if footer:
-                footer_text = footer if isinstance(footer, str) else getattr(footer, "text", str(footer))
+                footer_text = (
+                    footer
+                    if isinstance(footer, str)
+                    else getattr(footer, "text", str(footer))
+                )
                 if footer_text.strip():
                     md_content += f"\n\n> **Footer:** {footer_text.strip()}"
 
@@ -1812,7 +1950,9 @@ def _create_markdown_output(file_path: Path, ocr_result: Dict[str, Any]) -> Path
         md_content += "\n\n---\n\n"
 
     # Save markdown
-    output_path = config.OUTPUT_MD_DIR / f"{utils.safe_output_stem(file_path)}_mistral_ocr.md"
+    output_path = (
+        config.OUTPUT_MD_DIR / f"{utils.safe_output_stem(file_path)}_mistral_ocr.md"
+    )
     utils.atomic_write_text(output_path, md_content)
 
     # Save text version
@@ -1854,12 +1994,23 @@ def _validate_document_url(url: str) -> Tuple[bool, Optional[str]]:
     from urllib.parse import urlparse
 
     def _is_forbidden_address(addr: Any) -> bool:
-        if addr.is_private or addr.is_reserved or addr.is_loopback or addr.is_link_local or addr.is_multicast:
+        if (
+            addr.is_private
+            or addr.is_reserved
+            or addr.is_loopback
+            or addr.is_link_local
+            or addr.is_multicast
+        ):
             return True
         # IPv6-mapped IPv4 (e.g. ::ffff:127.0.0.1)
         if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:
             mapped = addr.ipv4_mapped
-            if mapped.is_private or mapped.is_loopback or mapped.is_reserved or mapped.is_link_local:
+            if (
+                mapped.is_private
+                or mapped.is_loopback
+                or mapped.is_reserved
+                or mapped.is_link_local
+            ):
                 return True
         return False
 
@@ -1869,7 +2020,10 @@ def _validate_document_url(url: str) -> Tuple[bool, Optional[str]]:
         except ValueError:
             return True, None
         if _is_forbidden_address(addr):
-            return False, f"URLs pointing to private/internal networks are not allowed: {source}"
+            return (
+                False,
+                f"URLs pointing to private/internal networks are not allowed: {source}",
+            )
         return True, None
 
     try:
@@ -1916,35 +2070,50 @@ def _validate_document_url(url: str) -> Tuple[bool, Optional[str]]:
     # Resolve DNS with a per-call timeout.  We avoid socket.setdefaulttimeout()
     # because it mutates process-global state and is not thread-safe (concurrent
     # workers in improve_weak_pages could clobber or inherit the 5-second value).
-    from concurrent.futures import ThreadPoolExecutor as _DnsPool
-    from concurrent.futures import TimeoutError as _DnsTimeout
-
+    #
+    # Use a fresh single-worker executor per lookup (not a process-wide singleton):
+    # if getaddrinfo blocks past *timeout*, the worker thread can stay stuck in the
+    # libc resolver until the OS returns. A shared pool with max_workers=1 would
+    # serialize all later lookups behind that stuck task; their result() calls would
+    # time out and (with strict DNS off) fall through to accepting the URL without
+    # any DNS validation.
     try:
-        _pool = _DnsPool(max_workers=1)
+        _pool = ThreadPoolExecutor(max_workers=1)
         try:
-            _future = _pool.submit(socket.getaddrinfo, hostname, None, proto=socket.IPPROTO_TCP)
+            _future = _pool.submit(
+                socket.getaddrinfo, hostname, None, proto=socket.IPPROTO_TCP
+            )
             try:
                 infos = _future.result(timeout=5)
-            except _DnsTimeout:
+            except DnsTimeoutError:
                 raise socket.timeout("DNS resolution timed out")
+            resolved_ips = {info[4][0] for info in infos if info and info[4]}
+            for ip in resolved_ips:
+                ok, err = _validate_ip_str(ip, f"{hostname} -> {ip}")
+                if not ok:
+                    return ok, err
         finally:
             _pool.shutdown(wait=False, cancel_futures=True)
-        resolved_ips = {info[4][0] for info in infos if info and info[4]}
-        for ip in resolved_ips:
-            ok, err = _validate_ip_str(ip, f"{hostname} -> {ip}")
-            if not ok:
-                return ok, err
     except socket.gaierror:
         if config.MISTRAL_DOCUMENT_URL_STRICT_DNS:
-            return False, f"Could not resolve hostname in strict document URL mode: {hostname}"
+            return (
+                False,
+                f"Could not resolve hostname in strict document URL mode: {hostname}",
+            )
         logger.debug("Could not resolve hostname during SSRF validation: %s", hostname)
     except socket.timeout:
         if config.MISTRAL_DOCUMENT_URL_STRICT_DNS:
-            return False, f"DNS resolution timed out in strict document URL mode: {hostname}"
+            return (
+                False,
+                f"DNS resolution timed out in strict document URL mode: {hostname}",
+            )
         logger.debug("DNS resolution timed out for %s", hostname)
     except Exception as e:
         if config.MISTRAL_DOCUMENT_URL_STRICT_DNS:
-            return False, f"DNS resolution check failed in strict document URL mode for {hostname}: {e}"
+            return (
+                False,
+                f"DNS resolution check failed in strict document URL mode for {hostname}: {e}",
+            )
         logger.debug("DNS resolution check skipped for %s: %s", hostname, e)
 
     return True, None
@@ -2002,7 +2171,10 @@ def query_document(
             {"role": "system", "content": system_prompt},
             {
                 "role": "user",
-                "content": [{"type": "text", "text": question}, {"type": "document_url", "document_url": document_url}],
+                "content": [
+                    {"type": "text", "text": question},
+                    {"type": "document_url", "document_url": document_url},
+                ],
             },
         ]
 
@@ -2019,7 +2191,9 @@ def query_document(
             chat_params["retries"] = retry_config
 
         if config.MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT > 0:
-            chat_params["document_image_limit"] = config.MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT
+            chat_params["document_image_limit"] = (
+                config.MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT
+            )
         if config.MISTRAL_QNA_DOCUMENT_PAGE_LIMIT > 0:
             chat_params["document_page_limit"] = config.MISTRAL_QNA_DOCUMENT_PAGE_LIMIT
 
@@ -2093,9 +2267,13 @@ def query_document_stream(
             stream_params["retries"] = retry_config
 
         if config.MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT > 0:
-            stream_params["document_image_limit"] = config.MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT
+            stream_params["document_image_limit"] = (
+                config.MISTRAL_QNA_DOCUMENT_IMAGE_LIMIT
+            )
         if config.MISTRAL_QNA_DOCUMENT_PAGE_LIMIT > 0:
-            stream_params["document_page_limit"] = config.MISTRAL_QNA_DOCUMENT_PAGE_LIMIT
+            stream_params["document_page_limit"] = (
+                config.MISTRAL_QNA_DOCUMENT_PAGE_LIMIT
+            )
 
         event_stream = client.chat.stream(**stream_params)
         return True, event_stream, None
@@ -2218,7 +2396,9 @@ def create_batch_ocr_file(
 
         for idx, file_path in enumerate(file_paths):
             # Upload file and get signed URL
-            signed_url = upload_file_for_ocr(client, file_path, expiry_hours=batch_signed_url_expiry)
+            signed_url = upload_file_for_ocr(
+                client, file_path, expiry_hours=batch_signed_url_expiry
+            )
             if not signed_url:
                 upload_failures += 1
                 logger.warning("Failed to upload %s, skipping...", file_path.name)
@@ -2242,7 +2422,11 @@ def create_batch_ocr_file(
 
             entry = {
                 "custom_id": f"{idx}_{utils.safe_output_stem(file_path)}",
-                "body": {"model": model, "document": document, "include_image_base64": include_image_base64},
+                "body": {
+                    "model": model,
+                    "document": document,
+                    "include_image_base64": include_image_base64,
+                },
             }
 
             # Include structured annotation formats if enabled
@@ -2253,10 +2437,14 @@ def create_batch_ocr_file(
             if doc_format is not None:
                 entry["body"]["document_annotation_format"] = doc_format
             if config.MISTRAL_DOCUMENT_ANNOTATION_PROMPT:
-                entry["body"]["document_annotation_prompt"] = config.MISTRAL_DOCUMENT_ANNOTATION_PROMPT
+                entry["body"]["document_annotation_prompt"] = (
+                    config.MISTRAL_DOCUMENT_ANNOTATION_PROMPT
+                )
 
             entries.append(entry)
-            logger.debug("Added %s to batch (id: %s)", file_path.name, entry["custom_id"])
+            logger.debug(
+                "Added %s to batch (id: %s)", file_path.name, entry["custom_id"]
+            )
 
         if not entries:
             return False, None, "No files could be prepared for batch processing"
@@ -2355,7 +2543,11 @@ def submit_batch_ocr_job(
             batch_file_path.unlink(missing_ok=True)
             logger.debug("Cleaned up batch JSONL file: %s", batch_file_path.name)
         except OSError as cleanup_err:
-            logger.warning("Could not remove batch JSONL file %s: %s", batch_file_path.name, cleanup_err)
+            logger.warning(
+                "Could not remove batch JSONL file %s: %s",
+                batch_file_path.name,
+                cleanup_err,
+            )
 
         return True, created_job.id, None
 
@@ -2364,7 +2556,11 @@ def submit_batch_ocr_job(
             try:
                 client.files.delete(file_id=batch_file_id)
             except Exception as del_err:
-                logger.debug("Could not delete orphaned batch upload %s: %s", batch_file_id, del_err)
+                logger.debug(
+                    "Could not delete orphaned batch upload %s: %s",
+                    batch_file_id,
+                    del_err,
+                )
         try:
             batch_file_path.unlink(missing_ok=True)
         except OSError:
@@ -2374,7 +2570,9 @@ def submit_batch_ocr_job(
         return False, None, error_msg
 
 
-def get_batch_job_status(job_id: str) -> Tuple[bool, Optional[Dict[str, Any]], Optional[str]]:
+def get_batch_job_status(
+    job_id: str,
+) -> Tuple[bool, Optional[Dict[str, Any]], Optional[str]]:
     """
     Get the status of a batch OCR job.
 
@@ -2412,11 +2610,18 @@ def get_batch_job_status(job_id: str) -> Tuple[bool, Optional[Dict[str, Any]], O
         }
 
         if total_req > 0:
-            status["progress_percent"] = round(((succeeded_req + failed_req) / total_req) * 100, 2)
+            status["progress_percent"] = round(
+                ((succeeded_req + failed_req) / total_req) * 100, 2
+            )
         else:
             status["progress_percent"] = 0
 
-        logger.info("Batch job %s: %s - %s%% complete", job_id, status["status"], status["progress_percent"])
+        logger.info(
+            "Batch job %s: %s - %s%% complete",
+            job_id,
+            status["status"],
+            status["progress_percent"],
+        )
 
         return True, status, None
 
@@ -2511,7 +2716,11 @@ def list_batch_jobs(
             # SDK version doesn't accept status=; fall back to client-side filtering.
             list_kwargs.pop("status", None)
             jobs_response = client.batch.jobs.list(**list_kwargs)
-        jobs_data = (jobs_response.data or []) if hasattr(jobs_response, "data") else jobs_response
+        jobs_data = (
+            (jobs_response.data or [])
+            if hasattr(jobs_response, "data")
+            else jobs_response
+        )
 
         jobs_list = []
         for job in jobs_data:
