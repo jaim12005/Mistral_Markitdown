@@ -2027,6 +2027,22 @@ class TestGetMistralClientInit:
         assert result is None
         mistral_converter.reset_mistral_client()
 
+    def test_client_creation_with_server_url(self, monkeypatch):
+        mistral_converter.reset_mistral_client()
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test-key")
+        monkeypatch.setattr(config, "MISTRAL_SERVER_URL", "https://custom.api.example")
+
+        mock_mistral_class = MagicMock()
+        mock_mistral_class.return_value = MagicMock()
+
+        with patch.object(mistral_converter, "Mistral", mock_mistral_class):
+            with patch.object(mistral_converter, "get_retry_config", return_value=None):
+                mistral_converter.get_mistral_client()
+
+        call_kwargs = mock_mistral_class.call_args[1]
+        assert call_kwargs["server_url"] == "https://custom.api.example"
+        mistral_converter.reset_mistral_client()
+
     def test_no_api_key(self, monkeypatch):
         mistral_converter.reset_mistral_client()
         monkeypatch.setattr(config, "MISTRAL_API_KEY", "")
@@ -3374,6 +3390,14 @@ class TestCreateBatchOcrFileFull:
         assert output.exists()
         lines = output.read_text().strip().split("\n")
         assert len(lines) == 2
+        import json
+
+        row0 = json.loads(lines[0])
+        assert row0["body"]["id"] == row0["custom_id"]
+        assert row0["body"]["extract_header"] == config.MISTRAL_EXTRACT_HEADER
+        assert row0["body"]["extract_footer"] == config.MISTRAL_EXTRACT_FOOTER
+        assert row0["body"]["table_format"] == config.MISTRAL_TABLE_FORMAT
+        assert row0["body"]["document"]["document_name"] == "doc1.pdf"
 
     def test_with_image_files(self, tmp_path, monkeypatch):
         monkeypatch.setattr(config, "MISTRAL_INCLUDE_IMAGES", True)

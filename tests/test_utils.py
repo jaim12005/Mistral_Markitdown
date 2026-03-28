@@ -281,6 +281,24 @@ class TestFileValidation:
         assert ok_md is False
         assert err_md and "too large" in err_md.lower()
 
+    def test_validate_file_strict_rejects_symlink_outside_input(
+        self, tmp_path, monkeypatch
+    ):
+        inbox = tmp_path / "inbox"
+        inbox.mkdir()
+        monkeypatch.setattr(config, "INPUT_DIR", inbox)
+        monkeypatch.setattr(config, "STRICT_INPUT_PATH_RESOLUTION", True)
+        outside = tmp_path / "secret.pdf"
+        outside.write_bytes(b"%PDF-1.4")
+        link = inbox / "trap.pdf"
+        try:
+            link.symlink_to(outside)
+        except (OSError, NotImplementedError):
+            pytest.skip("symlinks not supported")
+        ok, err = utils.validate_file(link)
+        assert ok is False
+        assert err and "input directory" in err.lower()
+
 
 class TestPdfExceedsHeavyWorkLimit:
     """pdf_exceeds_heavy_work_limit stat gate for PDF pipelines."""

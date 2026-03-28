@@ -55,6 +55,19 @@ class TestModelSelection:
         assert model == config.MISTRAL_OCR_MODEL
         assert model == "mistral-ocr-latest"
 
+    def test_mistral_openai_compatible_base_url_default(self, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_SERVER_URL", "")
+        assert (
+            config.mistral_openai_compatible_base_url() == "https://api.mistral.ai/v1"
+        )
+
+    def test_mistral_openai_compatible_base_url_custom(self, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_SERVER_URL", "https://enterprise.example")
+        assert (
+            config.mistral_openai_compatible_base_url()
+            == "https://enterprise.example/v1"
+        )
+
 
 class TestFileTypeConfiguration:
     """Test file type configuration."""
@@ -65,6 +78,8 @@ class TestFileTypeConfiguration:
         assert "docx" in config.MARKITDOWN_SUPPORTED
         assert "xlsx" in config.MARKITDOWN_SUPPORTED
         assert "png" in config.MARKITDOWN_SUPPORTED
+        assert "webp" in config.MARKITDOWN_SUPPORTED
+        assert "avif" in config.MARKITDOWN_SUPPORTED
 
     def test_mistral_ocr_supported_types(self):
         """Test Mistral OCR supported file types."""

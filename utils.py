@@ -866,7 +866,24 @@ def print_progress(current: int, total: int, prefix: str = "Progress") -> None:
 # ============================================================================
 
 
-def validate_file(
+def _resolved_path_under_input_dir(file_path: Path) -> Tuple[bool, Optional[str]]:
+    """If strict resolution is enabled, ensure *file_path* resolves under ``INPUT_DIR``."""
+    if not config.STRICT_INPUT_PATH_RESOLUTION:
+        return True, None
+    try:
+        resolved = file_path.resolve()
+        base = config.INPUT_DIR.resolve()
+        if not resolved.is_relative_to(base):
+            return (
+                False,
+                f"Resolved path must be under input directory: {file_path.name}",
+            )
+    except (OSError, ValueError) as e:
+        return False, f"Cannot resolve file path: {e}"
+    return True, None
+
+
+def validate_file(  # noqa: C901
     file_path: Path, mode: Optional[str] = None
 ) -> Tuple[bool, Optional[str]]:
     """
@@ -892,6 +909,10 @@ def validate_file(
 
     if not file_path.is_file():
         return False, f"Not a file: {file_path}"
+
+    ok_path, path_err = _resolved_path_under_input_dir(file_path)
+    if not ok_path:
+        return False, path_err
 
     if file_path.stat().st_size == 0:
         return False, f"File is empty: {file_path.name}"

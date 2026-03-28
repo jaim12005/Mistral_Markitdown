@@ -34,6 +34,7 @@ load_dotenv()
 __all__ = [
     "ensure_directories",
     "get_ocr_model",
+    "mistral_openai_compatible_base_url",
     "validate_configuration",
     "initialize",
 ]
@@ -157,6 +158,12 @@ BASE_DIR = Path(__file__).parent.resolve()
 
 # Input/Output directories
 INPUT_DIR = BASE_DIR / "input"
+
+# When true, ``utils.validate_file`` rejects paths that resolve outside ``INPUT_DIR``
+# (e.g. symlinks pointing outside the inbox). Default false preserves tests and
+# programmatic callers that pass arbitrary paths.
+STRICT_INPUT_PATH_RESOLUTION = _safe_bool("STRICT_INPUT_PATH_RESOLUTION", False)
+
 OUTPUT_MD_DIR = BASE_DIR / "output_md"
 OUTPUT_TXT_DIR = BASE_DIR / "output_txt"
 OUTPUT_IMAGES_DIR = BASE_DIR / "output_images"
@@ -206,6 +213,10 @@ def ensure_directories() -> None:
 # lazy accessor or SecretStr wrapper if this module is ever used as a library
 # in a long-lived / multi-tenant service.
 MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY", "")
+
+# Optional Mistral API base URL (private deployment, Azure-compatible shape, etc.).
+# Empty = SDK default (https://api.mistral.ai). No trailing slash required.
+MISTRAL_SERVER_URL = os.getenv("MISTRAL_SERVER_URL", "").strip().rstrip("/")
 
 # NOTE: Azure Document Intelligence and OpenAI API keys have been removed.
 # LLM image descriptions now use Mistral's OpenAI-compatible endpoint
@@ -505,6 +516,13 @@ def get_ocr_model() -> str:
     return MISTRAL_OCR_MODEL
 
 
+def mistral_openai_compatible_base_url() -> str:
+    """Base URL for OpenAI-compatible Mistral chat (MarkItDown LLM descriptions)."""
+    if MISTRAL_SERVER_URL:
+        return f"{MISTRAL_SERVER_URL}/v1"
+    return "https://api.mistral.ai/v1"
+
+
 # ============================================================================
 # File Type Configuration
 # ============================================================================
@@ -530,6 +548,8 @@ MARKITDOWN_SUPPORTED = {
     "gif",
     "bmp",
     "tiff",
+    "webp",
+    "avif",
     "mp3",
     "wav",
     "m4a",

@@ -23,6 +23,7 @@ Documentation references:
 """
 
 import argparse
+import io
 import re
 import sys
 import time
@@ -31,9 +32,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-# Suppress harmless version-check warning from requests when transitive
-# dependency versions (urllib3, chardet) are newer than requests expects.
-warnings.filterwarnings("ignore", message=".*urllib3.*chardet.*charset_normalizer.*")
+# Suppress harmless dependency-version warning from requests (often
+# RequestsDependencyWarning from ``requests``, mentioning urllib3/chardet/
+# charset_normalizer) when transitives are newer than requests pins expect.
+warnings.filterwarnings(
+    "ignore",
+    message=r".*urllib3.*chardet.*charset_normalizer.*",
+)
 
 import config
 import local_converter
@@ -108,7 +113,11 @@ def _process_files_concurrently(
                 successful += 1
             else:
                 failed += 1
-                err = result[2] if isinstance(result, tuple) and len(result) > 2 else "unknown error"
+                err = (
+                    result[2]
+                    if isinstance(result, tuple) and len(result) > 2
+                    else "unknown error"
+                )
                 logger.error("Failed: %s - %s", file_paths[0].name, err)
         except Exception as e:
             failed += 1
@@ -126,7 +135,11 @@ def _process_files_concurrently(
                         successful += 1
                     else:
                         failed += 1
-                        err = result[2] if isinstance(result, tuple) and len(result) > 2 else "unknown error"
+                        err = (
+                            result[2]
+                            if isinstance(result, tuple) and len(result) > 2
+                            else "unknown error"
+                        )
                         logger.error("Failed: %s - %s", file_path.name, err)
                 except Exception as e:
                     failed += 1
@@ -201,13 +214,21 @@ def _process_single_smart(
     if ext == "pdf":
         too_large, size_err = utils.pdf_exceeds_heavy_work_limit(file_path)
         if too_large:
-            logger.warning("Skipping table extraction for %s: %s", file_path.name, size_err)
+            logger.warning(
+                "Skipping table extraction for %s: %s", file_path.name, size_err
+            )
         else:
             try:
                 table_result = local_converter.extract_all_tables(file_path)
                 if table_result["table_count"] > 0:
-                    local_converter.save_tables_to_files(file_path, table_result["tables"])
-                    logger.info("Extracted %d tables from %s", table_result["table_count"], file_path.name)
+                    local_converter.save_tables_to_files(
+                        file_path, table_result["tables"]
+                    )
+                    logger.info(
+                        "Extracted %d tables from %s",
+                        table_result["table_count"],
+                        file_path.name,
+                    )
             except Exception as e:
                 logger.warning("Table extraction failed for %s: %s", file_path.name, e)
 
@@ -218,7 +239,11 @@ def _process_single_smart(
         return mistral_converter.convert_with_mistral_ocr(file_path)
     else:
         success, content, error = local_converter.convert_with_markitdown(file_path)
-        output_path = config.OUTPUT_MD_DIR / f"{utils.safe_output_stem(file_path)}.md" if success else None
+        output_path = (
+            config.OUTPUT_MD_DIR / f"{utils.safe_output_stem(file_path)}.md"
+            if success
+            else None
+        )
         return success, output_path, error
 
 
@@ -249,7 +274,9 @@ def mode_convert_smart(file_paths: List[Path]) -> Tuple[bool, str]:
     # Show routing plan
     utils.ui_print("\nRouting plan:")
     if not config.MISTRAL_API_KEY:
-        utils.ui_print("  NOTE: No MISTRAL_API_KEY set. All files will use MarkItDown (local).\n")
+        utils.ui_print(
+            "  NOTE: No MISTRAL_API_KEY set. All files will use MarkItDown (local).\n"
+        )
 
     for fp in file_paths:
         label = _route_label_cached(fp, routing_cache[fp])
@@ -259,7 +286,9 @@ def mode_convert_smart(file_paths: List[Path]) -> Tuple[bool, str]:
     def _process_fn(file_path: Path) -> Tuple[bool, Optional[Path], Optional[str]]:
         return _process_single_smart(file_path, use_ocr=routing_cache[file_path])
 
-    successful, failed = _process_files_concurrently(file_paths, _process_fn, "Converting files")
+    successful, failed = _process_files_concurrently(
+        file_paths, _process_fn, "Converting files"
+    )
 
     total = len(file_paths)
     return failed == 0, f"Processed {successful}/{total} files successfully"
@@ -270,15 +299,78 @@ def mode_convert_smart(file_paths: List[Path]) -> Tuple[bool, str]:
 # ============================================================================
 
 
+def _process_single_markitdown_with_pdf_tables(
+    file_path: Path,
+) -> Tuple[bool, Optional[str], Optional[str]]:
+    """MarkItDown conversion with pdfplumber table sidecars for PDFs (smart-mode parity)."""
+    ext = file_path.suffix.lower().lstrip(".")
+    if ext == "pdf":
+        too_large, size_err = utils.pdf_exceeds_heavy_work_limit(file_path)
+        if too_large:
+            logger.warning(
+                "Skipping table extraction for %s: %s", file_path.name, size_err
+            )
+        else:
+            try:
+                table_result = local_converter.extract_all_tables(file_path)
+                if table_result["table_count"] > 0:
+                    local_converter.save_tables_to_files(
+                        file_path, table_result["tables"]
+                    )
+                    logger.info(
+                        "Extracted %d tables from %s",
+                        table_result["table_count"],
+                        file_path.name,
+                    )
+            except Exception as e:
+                logger.warning("Table extraction failed for %s: %s", file_path.name, e)
+    return local_converter.convert_with_markitdown(file_path)
+
+
 def mode_markitdown_only(file_paths: List[Path]) -> Tuple[bool, str]:
     """Force all files through MarkItDown (local conversion, no API calls)."""
     logger.info("MARKITDOWN MODE: Processing %d file(s)", len(file_paths))
 
     successful, failed = _process_files_concurrently(
-        file_paths, local_converter.convert_with_markitdown, "Converting files"
+        file_paths,
+        _process_single_markitdown_with_pdf_tables,
+        "Converting files",
     )
 
     return failed == 0, f"Processed {successful}/{len(file_paths)} files successfully"
+
+
+def mode_markitdown_stdin(stdin_bytes: bytes, filename_hint: str) -> Tuple[bool, str]:
+    """Convert stdin bytes with MarkItDown using *filename_hint* for format detection."""
+    logger.info("MARKITDOWN STDIN: %s (%d bytes)", filename_hint, len(stdin_bytes))
+
+    stream = io.BytesIO(stdin_bytes)
+    success, markdown, error = local_converter.convert_stream_with_markitdown(
+        stream, filename=filename_hint
+    )
+    if not success or not markdown:
+        return False, error or "MarkItDown stream conversion failed"
+
+    hint_path = Path(filename_hint)
+    stem = utils.safe_output_stem(hint_path) if hint_path.suffix else filename_hint
+    doc_metadata = {
+        "file_size_bytes": len(stdin_bytes),
+        "file_extension": hint_path.suffix.lower() or "",
+        "source": "stdin",
+    }
+    doc_title = hint_path.stem if hint_path.stem else stem
+    frontmatter = utils.generate_yaml_frontmatter(
+        title=doc_title,
+        file_name=filename_hint,
+        conversion_method="MarkItDown (stream)",
+        additional_fields=doc_metadata,
+    )
+    full_content = frontmatter + markdown
+    output_path = config.OUTPUT_MD_DIR / f"{stem}.md"
+    utils.atomic_write_text(output_path, full_content)
+    utils.save_text_output(output_path, full_content)
+    logger.info("Saved: %s", output_path.name)
+    return True, f"Saved {output_path}"
 
 
 # ============================================================================
@@ -334,14 +426,20 @@ def mode_pdf_to_images(file_paths: List[Path]) -> Tuple[bool, str]:
 
     # Cap Poppler threads per PDF when the outer pool also runs in parallel.
     if len(pdf_files) > 1:
-        inner_threads = max(1, config.PDF_IMAGE_THREAD_COUNT // max(1, config.MAX_CONCURRENT_FILES))
+        inner_threads = max(
+            1, config.PDF_IMAGE_THREAD_COUNT // max(1, config.MAX_CONCURRENT_FILES)
+        )
     else:
         inner_threads = config.PDF_IMAGE_THREAD_COUNT
 
     def _convert_one_pdf(pdf_path: Path) -> Tuple[bool, List[Path], Optional[str]]:
-        return local_converter.convert_pdf_to_images(pdf_path, thread_count=inner_threads)
+        return local_converter.convert_pdf_to_images(
+            pdf_path, thread_count=inner_threads
+        )
 
-    successful, failed = _process_files_concurrently(pdf_files, _convert_one_pdf, "Converting PDFs")
+    successful, failed = _process_files_concurrently(
+        pdf_files, _convert_one_pdf, "Converting PDFs"
+    )
 
     return failed == 0, f"Converted {successful} PDFs"
 
@@ -351,11 +449,50 @@ def mode_pdf_to_images(file_paths: List[Path]) -> Tuple[bool, str]:
 # ============================================================================
 
 
+def _qna_print_stream(document_url: str, question: str) -> Tuple[bool, str]:
+    """Run streaming QnA and print to stdout; returns (ok, message)."""
+    success, stream, error = mistral_converter.query_document_stream(
+        document_url, question
+    )
+    if success and stream is not None:
+        utils.ui_print("\nAnswer: ", end="", flush=True)
+        emitted_any = False
+        try:
+            for chunk in stream:
+                if chunk.data.choices and chunk.data.choices[0].delta.content:
+                    emitted_any = True
+                    safe_text = utils.sanitize_for_terminal(
+                        chunk.data.choices[0].delta.content
+                    )
+                    utils.ui_print(safe_text, end="", flush=True)
+        except Exception as e:
+            utils.ui_print(f"\n\nStream error: {e}")
+            return False, f"QnA stream failed: {e}"
+        utils.ui_print("\n")
+        if not emitted_any:
+            return False, "QnA stream returned no answer content"
+        return True, "ok"
+    return False, error or "QnA stream failed"
+
+
+def _qna_print_complete(document_url: str, question: str) -> Tuple[bool, str]:
+    """Run non-streaming QnA and print the full answer."""
+    success, answer, error = mistral_converter.query_document(document_url, question)
+    if success and answer:
+        utils.ui_print("\nAnswer:\n")
+        utils.ui_print(utils.sanitize_for_terminal(answer))
+        utils.ui_print("\n")
+        return True, "ok"
+    return False, error or "QnA failed"
+
+
 def mode_document_qna(
     file_paths: List[Path],
     *,
     initial_question: Optional[str] = None,
     non_interactive: bool = False,
+    qna_document_url: Optional[str] = None,
+    qna_use_stream: bool = True,
 ) -> Tuple[bool, str]:
     """Query a document in natural language using Mistral chat + OCR."""
     logger.info("DOCUMENT QnA MODE: %d file(s) selected", len(file_paths))
@@ -363,26 +500,38 @@ def mode_document_qna(
     if not config.MISTRAL_API_KEY:
         return False, "Document QnA requires MISTRAL_API_KEY to be set"
 
-    if len(file_paths) != 1:
-        utils.ui_print("\nPlease select exactly 1 file to query.\n")
-        return False, "Document QnA works on one file at a time"
+    url_mode = bool((qna_document_url or "").strip())
+    if url_mode:
+        doc_url = (qna_document_url or "").strip()
+        ok_url, url_err = mistral_converter.validate_https_document_url(doc_url)
+        if not ok_url:
+            return False, f"Invalid document URL: {url_err}"
+        display_name = doc_url[:80] + ("…" if len(doc_url) > 80 else "")
+    else:
+        if len(file_paths) != 1:
+            utils.ui_print("\nPlease select exactly 1 file to query.\n")
+            return False, "Document QnA works on one file at a time"
+        doc_url = ""
+        display_name = file_paths[0].name
 
-    file_path = file_paths[0]
+    file_path = file_paths[0] if not url_mode else None
 
-    client = mistral_converter.get_mistral_client()
-    if client is None:
-        return False, "Mistral client not available"
-
-    try:
-        file_size_mb = file_path.stat().st_size / (1024 * 1024)
-        cap = config.MISTRAL_QNA_MAX_FILE_SIZE_MB
-        if file_size_mb > cap:
-            return False, (
-                f"File too large for Document QnA ({file_size_mb:.1f} MB). "
-                f"Maximum allowed is {cap} MB (MISTRAL_QNA_MAX_FILE_SIZE_MB). Consider splitting the document."
-            )
-    except OSError as e:
-        return False, f"Cannot read file: {e}"
+    client = None
+    if not url_mode:
+        client = mistral_converter.get_mistral_client()
+        if client is None:
+            return False, "Mistral client not available"
+        assert file_path is not None
+        try:
+            file_size_mb = file_path.stat().st_size / (1024 * 1024)
+            cap = config.MISTRAL_QNA_MAX_FILE_SIZE_MB
+            if file_size_mb > cap:
+                return False, (
+                    f"File too large for Document QnA ({file_size_mb:.1f} MB). "
+                    f"Maximum allowed is {cap} MB (MISTRAL_QNA_MAX_FILE_SIZE_MB). Consider splitting the document."
+                )
+        except OSError as e:
+            return False, f"Cannot read file: {e}"
 
     if non_interactive and not (initial_question or "").strip():
         return False, "Non-interactive QnA requires --qna-question"
@@ -393,6 +542,9 @@ def mode_document_qna(
 
     def _get_document_url() -> Optional[str]:
         nonlocal signed_url, upload_started_at
+        if url_mode:
+            return doc_url
+        assert client is not None and file_path is not None
         if signed_url and (time.time() - upload_started_at) < ttl_seconds * 0.9:
             return signed_url
         signed_url = mistral_converter.upload_file_for_ocr(client, file_path)
@@ -400,34 +552,29 @@ def mode_document_qna(
         return signed_url
 
     if not _get_document_url():
-        return False, f"Failed to upload {file_path.name} for QnA"
+        return False, (
+            f"Failed to upload {file_path.name} for QnA"
+            if file_path
+            else "No document URL available"
+        )
 
-    utils.ui_print(f"\nQuerying: {file_path.name}")
+    utils.ui_print(f"\nQuerying: {display_name}")
     utils.ui_print(f"Model: {config.MISTRAL_DOCUMENT_QNA_MODEL}")
 
     if non_interactive:
         question = (initial_question or "").strip()
         document_url = _get_document_url()
         if not document_url:
-            return False, f"Failed to refresh document URL for {file_path.name}"
-        success, stream, error = mistral_converter.query_document_stream(document_url, question)
-        if success and stream is not None:
-            utils.ui_print("\nAnswer: ", end="", flush=True)
-            emitted_any = False
-            try:
-                for chunk in stream:
-                    if chunk.data.choices and chunk.data.choices[0].delta.content:
-                        emitted_any = True
-                        safe_text = utils.sanitize_for_terminal(chunk.data.choices[0].delta.content)
-                        utils.ui_print(safe_text, end="", flush=True)
-            except Exception as e:
-                utils.ui_print(f"\n\nStream error: {e}")
-                return False, f"QnA stream failed: {e}"
-            utils.ui_print("\n")
-            if not emitted_any:
-                return False, "QnA stream returned no answer content"
-            return True, f"Asked 1 question about {file_path.name}"
-        return False, error or "QnA stream failed"
+            return False, "Failed to resolve document URL for QnA"
+        if qna_use_stream:
+            ok, msg = _qna_print_stream(document_url, question)
+            if not ok:
+                return False, msg
+            return True, f"Asked 1 question ({'URL' if url_mode else file_path.name})"
+        ok, msg = _qna_print_complete(document_url, question)
+        if not ok:
+            return False, msg
+        return True, f"Asked 1 question ({'URL' if url_mode else file_path.name})"
 
     utils.ui_print("Type 'exit' or 'quit' to return to menu.\n")
 
@@ -440,32 +587,49 @@ def mode_document_qna(
 
             document_url = _get_document_url()
             if not document_url:
-                utils.ui_print(f"\nError: Failed to refresh document URL for {file_path.name}\n")
+                utils.ui_print("\nError: Failed to refresh document URL\n")
                 continue
 
-            success, stream, error = mistral_converter.query_document_stream(
-                document_url,
-                question,
-            )
-
-            if success and stream is not None:
-                utils.ui_print("\nAnswer: ", end="", flush=True)
-                try:
-                    for chunk in stream:
-                        if chunk.data.choices and chunk.data.choices[0].delta.content:
-                            safe_text = utils.sanitize_for_terminal(chunk.data.choices[0].delta.content)
-                            utils.ui_print(safe_text, end="", flush=True)
-                except Exception as e:
-                    utils.ui_print(f"\n\nStream error: {e}")
-                utils.ui_print("\n")
-                questions_asked += 1
+            if qna_use_stream:
+                success, stream, error = mistral_converter.query_document_stream(
+                    document_url,
+                    question,
+                )
+                if success and stream is not None:
+                    utils.ui_print("\nAnswer: ", end="", flush=True)
+                    try:
+                        for chunk in stream:
+                            if (
+                                chunk.data.choices
+                                and chunk.data.choices[0].delta.content
+                            ):
+                                safe_text = utils.sanitize_for_terminal(
+                                    chunk.data.choices[0].delta.content
+                                )
+                                utils.ui_print(safe_text, end="", flush=True)
+                    except Exception as e:
+                        utils.ui_print(f"\n\nStream error: {e}")
+                    utils.ui_print("\n")
+                    questions_asked += 1
+                else:
+                    utils.ui_print(f"\nError: {error}\n")
             else:
-                utils.ui_print(f"\nError: {error}\n")
+                success, answer, error = mistral_converter.query_document(
+                    document_url, question
+                )
+                if success and answer:
+                    utils.ui_print("\nAnswer:\n")
+                    utils.ui_print(utils.sanitize_for_terminal(answer))
+                    utils.ui_print("\n")
+                    questions_asked += 1
+                else:
+                    utils.ui_print(f"\nError: {error}\n")
 
         except KeyboardInterrupt:
             break
 
-    return True, f"Asked {questions_asked} question(s) about {file_path.name}"
+    label = display_name if url_mode else (file_path.name if file_path else "document")
+    return True, f"Asked {questions_asked} question(s) about {label}"
 
 
 # ============================================================================
@@ -505,13 +669,18 @@ def mode_batch_ocr(
         )
 
     if len(file_paths) < config.MISTRAL_BATCH_MIN_FILES:
-        utils.ui_print(f"\nNote: Batch processing is most cost-effective with {config.MISTRAL_BATCH_MIN_FILES}+ files.")
+        utils.ui_print(
+            f"\nNote: Batch processing is most cost-effective with {config.MISTRAL_BATCH_MIN_FILES}+ files."
+        )
         utils.ui_print(f"You selected {len(file_paths)} file(s). Proceeding anyway.\n")
 
     choice: Optional[str] = None
     if non_interactive:
         if not batch_action:
-            return False, "Non-interactive batch mode requires --batch-action (submit|status|list|download)"
+            return (
+                False,
+                "Non-interactive batch mode requires --batch-action (submit|status|list|download)",
+            )
         _batch_map = {"submit": "1", "status": "2", "list": "3", "download": "4"}
         choice = _batch_map.get(batch_action.lower().strip())
         if choice is None:
@@ -533,7 +702,9 @@ def mode_batch_ocr(
         batch_file = config.CACHE_DIR / "batch_input.jsonl"
         utils.ui_print(f"\nCreating batch file for {len(file_paths)} document(s)...")
 
-        success, batch_path, error = mistral_converter.create_batch_ocr_file(file_paths, batch_file)
+        success, batch_path, error = mistral_converter.create_batch_ocr_file(
+            file_paths, batch_file
+        )
         if not success or batch_path is None:
             return False, f"Failed to create batch file: {error}"
 
@@ -541,7 +712,9 @@ def mode_batch_ocr(
         success, job_id, error = mistral_converter.submit_batch_ocr_job(batch_path)
         if success:
             utils.ui_print(f"\nBatch job submitted: {job_id}")
-            utils.ui_print("Use option 2 to check status, option 4 to download results when complete.")
+            utils.ui_print(
+                "Use option 2 to check status, option 4 to download results when complete."
+            )
             return True, f"Batch job submitted: {job_id}"
         else:
             return False, f"Failed to submit batch job: {error}"
@@ -621,14 +794,25 @@ def mode_system_status() -> Tuple[bool, str]:
 
     out("Configuration:")
     out(f"  * Mistral API Key: {'Set' if config.MISTRAL_API_KEY else 'NOT SET'}")
-    llm_status = f"Enabled ({config.MARKITDOWN_LLM_MODEL})" if config.MARKITDOWN_ENABLE_LLM_DESCRIPTIONS else "Disabled"
+    out(
+        f"  * Mistral API base: {config.MISTRAL_SERVER_URL or 'default (api.mistral.ai)'}",
+    )
+    llm_status = (
+        f"Enabled ({config.MARKITDOWN_LLM_MODEL})"
+        if config.MARKITDOWN_ENABLE_LLM_DESCRIPTIONS
+        else "Disabled"
+    )
     out(f"  * LLM Descriptions: {llm_status}")
     out(f"  * Cache Duration: {config.CACHE_DURATION_HOURS} hours")
     out(f"  * Max Concurrent Files: {config.MAX_CONCURRENT_FILES}")
     out(f"  * Mistral OCR Model: {config.get_ocr_model()}")
     out(f"  * Table Format: {config.MISTRAL_TABLE_FORMAT or 'API default (unset)'}")
-    out(f"  * Extract Headers/Footers: {config.MISTRAL_EXTRACT_HEADER}/{config.MISTRAL_EXTRACT_FOOTER}")
-    out(f"  * ExifTool: {'Set' if config.MARKITDOWN_EXIFTOOL_PATH else 'Not configured'}")
+    out(
+        f"  * Extract Headers/Footers: {config.MISTRAL_EXTRACT_HEADER}/{config.MISTRAL_EXTRACT_FOOTER}"
+    )
+    out(
+        f"  * ExifTool: {'Set' if config.MARKITDOWN_EXIFTOOL_PATH else 'Not configured'}"
+    )
     out(f"  * Style Map: {'Set' if config.MARKITDOWN_STYLE_MAP else 'Not configured'}")
     out()
 
@@ -669,7 +853,9 @@ def mode_system_status() -> Tuple[bool, str]:
         recommendations.append("! Set MISTRAL_API_KEY to enable OCR features")
 
     if cache_stats["total_entries"] > 100:
-        recommendations.append("* Consider running Maintenance (option 8) to clear old cache entries")
+        recommendations.append(
+            "* Consider running Maintenance (option 8) to clear old cache entries"
+        )
 
     if not recommendations:
         recommendations.append("  All systems operational")
@@ -765,7 +951,9 @@ def select_files() -> List[Path]:
 
     while True:
         try:
-            choice = input("Select file(s) to process (comma-separated or single number): ").strip()
+            choice = input(
+                "Select file(s) to process (comma-separated or single number): "
+            ).strip()
 
             if choice == "0":
                 return []
@@ -847,7 +1035,9 @@ MODE_DISPATCH: Dict[str, Tuple[str, Any]] = {
 }
 
 # Reverse lookup: cli mode name -> handler
-_CLI_MODE_DISPATCH = {cli_name: handler for _, (cli_name, handler) in MODE_DISPATCH.items()}
+_CLI_MODE_DISPATCH = {
+    cli_name: handler for _, (cli_name, handler) in MODE_DISPATCH.items()
+}
 
 
 def interactive_menu():
@@ -873,7 +1063,9 @@ def interactive_menu():
                 continue
 
             if choice not in MODE_DISPATCH:
-                utils.ui_print("\nInvalid choice. Please enter a number between 0 and 8.\n")
+                utils.ui_print(
+                    "\nInvalid choice. Please enter a number between 0 and 8.\n"
+                )
                 continue
 
             files = select_files()
@@ -924,6 +1116,9 @@ Examples:
   python main.py --mode markitdown   # Force MarkItDown
   python main.py --mode mistral_ocr  # Force Mistral OCR
   python main.py --mode qna --no-interactive --qna-question "Summary?"
+  python main.py --mode qna --no-interactive --qna-document-url "https://example.com/doc.pdf" --qna-question "Summary?"
+  python main.py --mode qna --no-interactive --qna-no-stream --qna-question "Summary?"
+  python main.py --mode markitdown --no-interactive --stdin --stdin-filename report.pdf < report.pdf
   python main.py --mode batch_ocr --no-interactive --batch-action submit
   python main.py --test              # Test mode
         """,
@@ -968,6 +1163,26 @@ Examples:
         default=None,
         help="Single question for --mode qna when using --no-interactive",
     )
+    parser.add_argument(
+        "--qna-document-url",
+        default=None,
+        help="HTTPS document URL for QnA (requires --no-interactive; no input/ file)",
+    )
+    parser.add_argument(
+        "--qna-no-stream",
+        action="store_true",
+        help="Use chat.complete (non-streaming) for QnA instead of streaming",
+    )
+    parser.add_argument(
+        "--stdin",
+        action="store_true",
+        help="With --mode markitdown and --no-interactive: read document bytes from stdin",
+    )
+    parser.add_argument(
+        "--stdin-filename",
+        default=None,
+        help="Filename hint for --stdin (extension selects the MarkItDown converter)",
+    )
 
     args = parser.parse_args()
 
@@ -1006,21 +1221,50 @@ Examples:
 
     # Direct mode execution
     if args.mode:
+        qna_url = (args.qna_document_url or "").strip()
+        if qna_url and not args.no_interactive:
+            utils.ui_print("--qna-document-url requires --no-interactive")
+            sys.exit(1)
+
+        if args.mode == "markitdown" and args.stdin:
+            if not args.no_interactive:
+                utils.ui_print("MarkItDown stdin conversion requires --no-interactive")
+                sys.exit(1)
+            if not args.stdin_filename:
+                utils.ui_print("--stdin requires --stdin-filename (e.g. report.pdf)")
+                sys.exit(1)
+            start_time = time.time()
+            stdin_data = sys.stdin.buffer.read()
+            success, message = mode_markitdown_stdin(stdin_data, args.stdin_filename)
+            utils.ui_print(f"\n{message}")
+            elapsed = time.time() - start_time
+            utils.ui_print(f"\nTotal processing time: {elapsed:.2f} seconds")
+            sys.exit(0 if success else 1)
+
         if args.no_interactive:
-            files = _list_input_files()
-            if not files:
-                utils.ui_print(f"No files found in {config.INPUT_DIR}")
-                return
-            utils.ui_print(f"Non-interactive mode: Processing {len(files)} files from input directory")
+            if args.mode == "qna" and qna_url:
+                files = []
+                utils.ui_print(
+                    "Non-interactive QnA using --qna-document-url (no input/ files)."
+                )
+            else:
+                files = _list_input_files()
+                if not files:
+                    utils.ui_print(f"No files found in {config.INPUT_DIR}")
+                    return
+                utils.ui_print(
+                    f"Non-interactive mode: Processing {len(files)} files from input directory"
+                )
         else:
             files = select_files()
             if not files:
                 return
 
-        files = _filter_valid_files(files, mode=args.mode)
-        if not files:
-            utils.ui_print("No valid files to process.")
-            sys.exit(1)
+        if not (args.mode == "qna" and qna_url):
+            files = _filter_valid_files(files, mode=args.mode)
+            if not files:
+                utils.ui_print("No valid files to process.")
+                sys.exit(1)
 
         start_time = time.time()
         handler = _CLI_MODE_DISPATCH.get(args.mode)
@@ -1032,6 +1276,8 @@ Examples:
                 files,
                 initial_question=args.qna_question,
                 non_interactive=args.no_interactive,
+                qna_document_url=args.qna_document_url,
+                qna_use_stream=not args.qna_no_stream,
             )
         elif args.mode == "batch_ocr":
             success, message = mode_batch_ocr(

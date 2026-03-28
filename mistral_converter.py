@@ -51,18 +51,19 @@ __all__ = [
     "get_batch_job_status",
     "download_batch_results",
     "list_batch_jobs",
+    "validate_https_document_url",
 ]
 
 # Mistral SDK v2 imports (pinned to mistralai==2.1.3)
 # SDK v2.1.3 uses a namespace package layout: core code lives under
 # ``mistralai.client`` rather than ``mistralai`` directly.
 try:
-    from mistralai.client import Mistral, models
+    from mistralai.client import Mistral
     from mistralai.client.utils import retries
 except ImportError:
     try:
         # Legacy import path (older SDK builds with top-level __init__.py)
-        from mistralai import Mistral, models  # type: ignore[no-redef]
+        from mistralai import Mistral  # type: ignore[no-redef]
         from mistralai.utils import retries  # type: ignore[no-redef]
     except ImportError:
         import logging as _logging
@@ -71,22 +72,28 @@ except ImportError:
             "mistralai package not available. Install with: pip install mistralai"
         )
         Mistral = None
-        models = None
         retries = None
 
 try:
-    from mistralai.client.models import DocumentURLChunk, FileChunk, ImageURLChunk
+    from mistralai.client.models import DocumentURLChunk, ImageURLChunk
 except ImportError:
     try:
         from mistralai import (  # type: ignore[no-redef]
             DocumentURLChunk,
-            FileChunk,
             ImageURLChunk,
         )
     except ImportError:
         DocumentURLChunk = None
         ImageURLChunk = None
-        FileChunk = None
+
+try:
+    import httpx
+except ImportError:
+    httpx = None
+
+# Legacy names kept for test compatibility (SDK chunks are not used in OCR flow).
+FileChunk = None  # type: ignore[misc, assignment]
+models = None  # type: ignore[misc, assignment]
 
 try:
     from mistralai.extra import response_format_from_pydantic_model
@@ -103,6 +110,17 @@ import schemas  # New: JSON schemas for structured extraction
 import utils
 
 logger = utils.logger
+
+
+def _http_client_exceptions() -> Tuple[type, ...]:
+    """Tuple of httpx errors to handle explicitly before a generic Exception."""
+    if httpx is None:
+        return ()
+    return (
+        httpx.HTTPError,
+        httpx.TimeoutException,
+    )
+
 
 # ============================================================================
 # OCR Quality Assessment
@@ -300,6 +318,9 @@ def get_mistral_client() -> Optional[Mistral]:
         try:
             client_kwargs = {"api_key": config.MISTRAL_API_KEY}
 
+            if config.MISTRAL_SERVER_URL:
+                client_kwargs["server_url"] = config.MISTRAL_SERVER_URL
+
             # Set global retry config on client (applies to all calls by default)
             global_retry = get_retry_config()
             if global_retry:
@@ -313,7 +334,7 @@ def get_mistral_client() -> Optional[Mistral]:
             return client
 
         except Exception as e:
-            logger.error("Error initializing Mistral client: %s", e)
+            logger.exception("Error initializing Mistral client: %s", e)
             return None
 
 
@@ -2119,6 +2140,11 @@ def _validate_document_url(url: str) -> Tuple[bool, Optional[str]]:
     return True, None
 
 
+def validate_https_document_url(url: str) -> Tuple[bool, Optional[str]]:
+    """Public SSRF-safe HTTPS URL check for Document QnA."""
+    return _validate_document_url(url)
+
+
 def query_document(
     document_url: str,
     question: str,
@@ -2208,7 +2234,11 @@ def query_document(
 
     except Exception as e:
         error_msg = f"Error querying document: {e}"
-        logger.error(error_msg)
+        http_types = _http_client_exceptions()
+        if http_types and isinstance(e, http_types):
+            logger.error(error_msg)
+        else:
+            logger.exception(error_msg)
         return False, None, error_msg
 
 
@@ -2280,7 +2310,11 @@ def query_document_stream(
 
     except Exception as e:
         error_msg = f"Error streaming document query: {e}"
-        logger.error(error_msg)
+        http_types = _http_client_exceptions()
+        if http_types and isinstance(e, http_types):
+            logger.error(error_msg)
+        else:
+            logger.exception(error_msg)
         return False, None, error_msg
 
 
@@ -2340,6 +2374,30 @@ def query_document_file(
 # Batch OCR Processing (NEW - from updated Mistral docs)
 # Process multiple documents at 50% cost reduction using Batch API
 # ============================================================================
+
+
+def _build_batch_ocr_entry_body(
+    model: str,
+    document: Dict[str, Any],
+    include_image_base64: bool,
+    custom_id: str,
+) -> Dict[str, Any]:
+    """Build batch JSONL ``body`` dict aligned with sync :meth:`process_with_ocr` options."""
+    body: Dict[str, Any] = {
+        "model": model,
+        "document": document,
+        "include_image_base64": include_image_base64,
+        "id": custom_id,
+    }
+    if config.MISTRAL_TABLE_FORMAT:
+        body["table_format"] = config.MISTRAL_TABLE_FORMAT
+    body["extract_header"] = config.MISTRAL_EXTRACT_HEADER
+    body["extract_footer"] = config.MISTRAL_EXTRACT_FOOTER
+    if config.MISTRAL_IMAGE_LIMIT > 0:
+        body["image_limit"] = config.MISTRAL_IMAGE_LIMIT
+    if config.MISTRAL_IMAGE_MIN_SIZE > 0:
+        body["image_min_size"] = config.MISTRAL_IMAGE_MIN_SIZE
+    return body
 
 
 def create_batch_ocr_file(
@@ -2414,37 +2472,35 @@ def create_batch_ocr_file(
             ext = file_path.suffix.lower().lstrip(".")
             is_image = ext in config.IMAGE_EXTENSIONS
 
-            # Create batch entry
+            custom_id = f"{idx}_{utils.safe_output_stem(file_path)}"
             if is_image:
                 document = {"type": "image_url", "image_url": signed_url}
             else:
-                document = {"type": "document_url", "document_url": signed_url}
+                document = {
+                    "type": "document_url",
+                    "document_url": signed_url,
+                    "document_name": file_path.name,
+                }
 
-            entry = {
-                "custom_id": f"{idx}_{utils.safe_output_stem(file_path)}",
-                "body": {
-                    "model": model,
-                    "document": document,
-                    "include_image_base64": include_image_base64,
-                },
-            }
+            body = _build_batch_ocr_entry_body(
+                model, document, include_image_base64, custom_id
+            )
 
             # Include structured annotation formats if enabled
             bbox_format = get_bbox_annotation_format()
             doc_format = get_document_annotation_format()
             if bbox_format is not None:
-                entry["body"]["bbox_annotation_format"] = bbox_format
+                body["bbox_annotation_format"] = bbox_format
             if doc_format is not None:
-                entry["body"]["document_annotation_format"] = doc_format
+                body["document_annotation_format"] = doc_format
             if config.MISTRAL_DOCUMENT_ANNOTATION_PROMPT:
-                entry["body"]["document_annotation_prompt"] = (
+                body["document_annotation_prompt"] = (
                     config.MISTRAL_DOCUMENT_ANNOTATION_PROMPT
                 )
 
+            entry = {"custom_id": custom_id, "body": body}
             entries.append(entry)
-            logger.debug(
-                "Added %s to batch (id: %s)", file_path.name, entry["custom_id"]
-            )
+            logger.debug("Added %s to batch (id: %s)", file_path.name, custom_id)
 
         if not entries:
             return False, None, "No files could be prepared for batch processing"

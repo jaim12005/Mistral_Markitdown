@@ -63,6 +63,16 @@ LOG_LEVEL=INFO
 MISTRAL_API_KEY="your_api_key_here"
 ```
 
+### MISTRAL_SERVER_URL (Optional)
+
+- **Type:** String (URL without trailing slash)
+- **Default:** `""` (official Python SDK default host)
+- **Description:** Override the Mistral API base URL for private or regional deployments. Passed to the SDK as `server_url`. When set, MarkItDown LLM image descriptions use `{MISTRAL_SERVER_URL}/v1` as the OpenAI-compatible base instead of `https://api.mistral.ai/v1`.
+
+```ini
+# MISTRAL_SERVER_URL="https://api.mistral.ai"
+```
+
 ---
 
 ## Mistral OCR Settings
@@ -884,6 +894,7 @@ MARKITDOWN_LLM_PROMPT=""
 - **Required for:** Optional media plugins and `markitdown-ocr` when using Convert (MarkItDown) (`--mode markitdown`)
 - **Requires:** Install `requirements-optional.txt`
 - **Note:** The `markitdown-ocr` package (in `requirements-optional.txt`) provides LLM-powered OCR within the MarkItDown pipeline itself, separate from Mistral OCR.
+- **Allowlist vs plugins:** `MARKITDOWN_SUPPORTED` in `config.py` lists extensions accepted in `--mode markitdown`. Some entries (for example `flac`, `rtf`) require optional MarkItDown plugins or extras from `requirements-optional.txt`. If conversion fails with plugins disabled, enable `MARKITDOWN_ENABLE_PLUGINS` and install the matching optional dependencies.
 
 ```ini
 MARKITDOWN_ENABLE_PLUGINS=false
@@ -918,6 +929,20 @@ MARKITDOWN_EXIFTOOL_PATH=""
 ```ini
 MARKITDOWN_MAX_FILE_SIZE_MB=100
 ```
+
+### STRICT_INPUT_PATH_RESOLUTION
+
+- **Type:** Boolean
+- **Default:** `false`
+- **Description:** When `true`, `validate_file()` rejects paths whose resolved location lies outside `input/`. Use this to block symlink escapes from a shared inbox. Leave `false` for the usual single-user layout and for tools that pass arbitrary paths (for example tests).
+
+```ini
+STRICT_INPUT_PATH_RESOLUTION=false
+```
+
+### Maintainer note: upgrading `mistralai` or `markitdown`
+
+After bumping the `mistralai` or `markitdown` package version, compare OCR, Document QnA, and batch request bodies against upstream release notes and run the full test suite. Batch JSONL fields are kept in sync with synchronous OCR options in code; API changes may require updates in `mistral_converter.py`.
 
 ---
 
@@ -1046,6 +1071,8 @@ VERBOSE_PROGRESS=true
 | Variable                           | Type   | Default              | Required                                                              | Section          |
 | ---------------------------------- | ------ | -------------------- | --------------------------------------------------------------------- | ---------------- |
 | MISTRAL_API_KEY                    | string | -                    | Yes (for smart, mistral_ocr, qna, batch_ocr; optional for markitdown) | API Keys         |
+| MISTRAL_SERVER_URL                 | string | ""                   | No                                                                    | API Keys         |
+| STRICT_INPUT_PATH_RESOLUTION       | bool   | false                | No                                                                    | Security         |
 | MISTRAL_OCR_MODEL                  | string | mistral-ocr-latest   | No                                                                    | OCR              |
 | MISTRAL_INCLUDE_IMAGES             | bool   | true                 | No                                                                    | OCR              |
 | SAVE_MISTRAL_JSON                  | bool   | true                 | No                                                                    | OCR              |
