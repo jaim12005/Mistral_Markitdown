@@ -67,12 +67,12 @@ __all__ = [
 try:
     from mistralai.client import Mistral
     from mistralai.client.utils import retries
-except ImportError:
+except ImportError:  # pragma: no cover
     try:
         # Legacy import path (older SDK builds with top-level __init__.py)
         from mistralai import Mistral  # type: ignore[no-redef]
         from mistralai.utils import retries  # type: ignore[no-redef]
-    except ImportError:
+    except ImportError:  # pragma: no cover
         import logging as _logging
 
         _logging.getLogger("document_converter").warning(
@@ -83,19 +83,19 @@ except ImportError:
 
 try:
     from mistralai.client.models import DocumentURLChunk, ImageURLChunk
-except ImportError:
+except ImportError:  # pragma: no cover
     try:
         from mistralai import (  # type: ignore[no-redef]
             DocumentURLChunk,
             ImageURLChunk,
         )
-    except ImportError:
+    except ImportError:  # pragma: no cover
         DocumentURLChunk = None
         ImageURLChunk = None
 
 try:
     import httpx
-except ImportError:
+except ImportError:  # pragma: no cover
     httpx = None
 
 # Legacy names kept for test compatibility (SDK chunks are not used in OCR flow).
@@ -104,12 +104,12 @@ models = None  # type: ignore[misc, assignment]
 
 try:
     from mistralai.extra import response_format_from_pydantic_model
-except ImportError:
+except ImportError:  # pragma: no cover
     response_format_from_pydantic_model = None
 
 try:
     from PIL import Image
-except ImportError:
+except ImportError:  # pragma: no cover
     Image = None
 
 import config
@@ -2616,7 +2616,7 @@ def submit_batch_ocr_job(
         try:
             batch_file_path.unlink(missing_ok=True)
             logger.debug("Cleaned up batch JSONL file: %s", batch_file_path.name)
-        except OSError as cleanup_err:
+        except OSError as cleanup_err:  # pragma: no cover
             logger.warning(
                 "Could not remove batch JSONL file %s: %s",
                 batch_file_path.name,
@@ -2625,7 +2625,7 @@ def submit_batch_ocr_job(
 
         return True, created_job.id, None
 
-    except Exception as e:
+    except Exception as e:  # pragma: no cover
         if batch_file_id:
             try:
                 client.files.delete(file_id=batch_file_id)

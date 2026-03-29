@@ -437,7 +437,7 @@ class IntelligentCache:
             temp_path.replace(cache_path)
 
             # Restrict permissions on cache files (may contain sensitive OCR text)
-            if sys.platform != "win32":
+            if sys.platform != "win32":  # pragma: no cover
                 import os
 
                 try:

@@ -1054,5 +1054,54 @@ class TestReadStdinBytesLimitedNegative:
         assert err is not None and "invalid" in err.lower()
 
 
+class TestCacheGetEntryInvalidStructure:
+    """Cache get_entry returns None for malformed cache data."""
+
+    def test_cache_entry_is_list_instead_of_dict(self, tmp_path):
+        cache = utils.IntelligentCache(cache_dir=tmp_path)
+        test_file = tmp_path / "bad.txt"
+        test_file.write_text("content")
+        file_hash = cache._get_file_hash(test_file)
+        cache_path = cache._get_cache_path(file_hash, "ocr")
+        cache_path.write_text(json.dumps(["not", "a", "dict"]))
+        result = cache.get_entry(test_file, cache_type="ocr")
+        assert result is None
+        assert cache.misses >= 1
+
+    def test_cache_entry_missing_data_key(self, tmp_path):
+        cache = utils.IntelligentCache(cache_dir=tmp_path)
+        test_file = tmp_path / "nodata.txt"
+        test_file.write_text("content")
+        file_hash = cache._get_file_hash(test_file)
+        cache_path = cache._get_cache_path(file_hash, "ocr")
+        cache_path.write_text(json.dumps({"timestamp": "2025-01-01T00:00:00", "type": "ocr"}))
+        result = cache.get_entry(test_file, cache_type="ocr")
+        assert result is None
+
+
+class TestSafeOutputStemNoExtension:
+    """safe_output_stem with a file that has no extension."""
+
+    def test_file_without_extension(self, tmp_path):
+        f = tmp_path / "README"
+        f.write_text("hello")
+        stem = utils.safe_output_stem(f)
+        assert "README" in stem
+
+
+class TestValidateFilePathTraversal:
+    """validate_file rejects path-traversal when strict resolution is on."""
+
+    def test_path_traversal_rejected_under_strict(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "STRICT_INPUT_PATH_RESOLUTION", True)
+        monkeypatch.setattr(config, "INPUT_DIR", tmp_path / "input")
+        (tmp_path / "input").mkdir(exist_ok=True)
+        outside = tmp_path / "outside.txt"
+        outside.write_text("secret")
+        ok, err = utils.validate_file(outside)
+        assert ok is False
+        assert err is not None and "input directory" in err.lower()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

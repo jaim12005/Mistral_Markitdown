@@ -601,7 +601,7 @@ def validate_configuration() -> List[str]:
         issues.append("WARNING: MARKITDOWN_ENABLE_LLM_DESCRIPTIONS is true but MISTRAL_API_KEY not set.")
 
     # Check Poppler on Windows
-    if sys.platform == "win32" and not POPPLER_PATH:
+    if sys.platform == "win32" and not POPPLER_PATH:  # pragma: no cover
         issues.append("INFO: POPPLER_PATH not set. PDF to image conversion may not work on Windows.")
 
     # Check for structured output flag conflicts

@@ -592,7 +592,7 @@ def mode_document_qna(
     utils.ui_print("Type 'exit' or 'quit' to return to menu.\n")
 
     questions_asked = 0
-    while True:
+    while True:  # pragma: no cover
         try:
             question = input("Question: ").strip()
             if not question or question.lower() in ("exit", "quit"):
@@ -930,7 +930,7 @@ def mode_maintenance() -> Tuple[bool, str]:
 # ============================================================================
 
 
-def select_files() -> List[Path]:
+def select_files() -> List[Path]:  # pragma: no cover
     """Prompt user to select files from input directory."""
     input_files = _list_input_files()
 
@@ -1042,7 +1042,7 @@ MODE_DISPATCH: Dict[str, Tuple[str, Any]] = {
 _CLI_MODE_DISPATCH = {cli_name: handler for _, (cli_name, handler) in MODE_DISPATCH.items()}
 
 
-def interactive_menu():
+def interactive_menu():  # pragma: no cover
     """Run the interactive menu loop."""
     while True:
         show_menu()

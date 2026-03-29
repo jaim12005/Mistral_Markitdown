@@ -5371,5 +5371,108 @@ class TestImportFallbackPaths:
             self._restore_module_state(saved)
 
 
+class TestBuildMistralOcrCacheContractMetadata:
+    """build_mistral_ocr_cache_contract_metadata returns expected keys."""
+
+    def test_returns_expected_keys(self):
+        meta = mistral_converter.build_mistral_ocr_cache_contract_metadata()
+        expected = {
+            "contract_type",
+            "contract_version",
+            "sdk_version",
+            "ocr_model",
+            "include_images",
+            "table_format",
+            "extract_header",
+            "extract_footer",
+            "image_limit",
+            "image_min_size",
+            "structured_output_enabled",
+            "bbox_annotation_enabled",
+            "document_annotation_enabled",
+            "document_schema_type",
+            "document_annotation_prompt_hash",
+            "quality_assessment_enabled",
+            "weak_page_improvement_enabled",
+            "improve_weak",
+            "image_preprocessing_enabled",
+            "image_optimization_enabled",
+        }
+        assert set(meta.keys()) == expected
+        assert meta["contract_type"] == "mistral_ocr"
+
+
+class TestValidateFileForOcr:
+    """_validate_file_for_ocr returns error when file exceeds size limit."""
+
+    def test_oversized_file_returns_error(self, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_OCR_MAX_FILE_SIZE_MB", 100)
+        result = mistral_converter._validate_file_for_ocr(Path("big.pdf"), 150.0)
+        assert result is not None
+        ok, data, msg = result
+        assert ok is False
+        assert data is None
+        assert "too large" in msg.lower()
+
+    def test_within_limit_returns_none(self, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_OCR_MAX_FILE_SIZE_MB", 200)
+        result = mistral_converter._validate_file_for_ocr(Path("ok.pdf"), 50.0)
+        assert result is None
+
+
+class TestDetectWeakPages:
+    """_detect_weak_pages identifies weak pages correctly."""
+
+    def test_mix_of_weak_and_strong(self, monkeypatch):
+        monkeypatch.setattr(config, "OCR_MIN_TEXT_LENGTH", 50)
+        ocr_result = {
+            "pages": [
+                {"text": "short"},
+                {"text": "A " * 100},
+                {"text": ""},
+                {"text": "This is a sufficiently long paragraph with enough unique words. " * 3},
+            ]
+        }
+        weak = mistral_converter._detect_weak_pages(ocr_result)
+        assert 0 in weak  # "short" is weak
+        assert 2 in weak  # empty is weak
+        assert 3 not in weak  # long diverse text is not weak
+
+
+class TestIsForbiddenAddress:
+    """_is_forbidden_address with various IP types."""
+
+    def test_loopback_is_forbidden(self):
+        import ipaddress
+
+        assert mistral_converter._is_forbidden_address(ipaddress.ip_address("127.0.0.1")) is True
+
+    def test_private_is_forbidden(self):
+        import ipaddress
+
+        assert mistral_converter._is_forbidden_address(ipaddress.ip_address("192.168.1.1")) is True
+
+    def test_multicast_is_forbidden(self):
+        import ipaddress
+
+        assert mistral_converter._is_forbidden_address(ipaddress.ip_address("224.0.0.1")) is True
+
+    def test_public_is_allowed(self):
+        import ipaddress
+
+        assert mistral_converter._is_forbidden_address(ipaddress.ip_address("8.8.8.8")) is False
+
+    def test_ipv6_loopback_forbidden(self):
+        import ipaddress
+
+        assert mistral_converter._is_forbidden_address(ipaddress.ip_address("::1")) is True
+
+    def test_ipv4_mapped_ipv6_loopback_forbidden(self):
+        import ipaddress
+
+        addr = ipaddress.ip_address("::ffff:127.0.0.1")
+        assert mistral_converter._is_forbidden_address(addr) is True
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -309,6 +309,35 @@ class TestValidateConfigurationBranches:
         assert any("LLM_DESCRIPTIONS" in i for i in issues)
 
 
+class TestValidateConfigurationEdgeCases:
+    """Validation edge cases for schema type, image format, exiftool path, and ensure_directories."""
+
+    def test_invalid_document_schema_type_warning(self, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "key")
+        monkeypatch.setattr(config, "MISTRAL_DOCUMENT_SCHEMA_TYPE", "nonexistent_type")
+        issues = config.validate_configuration()
+        assert any("MISTRAL_DOCUMENT_SCHEMA_TYPE" in i and "invalid" in i for i in issues)
+
+    def test_invalid_pdf_image_format_warning(self, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "key")
+        monkeypatch.setattr(config, "PDF_IMAGE_FORMAT", "bmp")
+        issues = config.validate_configuration()
+        assert any("PDF_IMAGE_FORMAT" in i and "not a recognized format" in i for i in issues)
+
+    def test_relative_exiftool_path_warning(self, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "key")
+        monkeypatch.setattr(config, "MARKITDOWN_EXIFTOOL_PATH", "bin/exiftool")
+        issues = config.validate_configuration()
+        assert any("MARKITDOWN_EXIFTOOL_PATH" in i and "not an absolute path" in i for i in issues)
+
+    def test_ensure_directories_handles_oserror(self, monkeypatch):
+        """ensure_directories logs but does not raise on OSError from mkdir."""
+        from unittest.mock import patch
+
+        with patch.object(config.Path, "mkdir", side_effect=OSError("permission denied")):
+            config.ensure_directories()  # should not raise
+
+
 class TestInitializeIdempotent:
     """Test that initialize() only runs once."""
 

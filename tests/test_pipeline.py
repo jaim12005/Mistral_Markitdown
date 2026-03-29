@@ -1844,5 +1844,32 @@ class TestModeDocumentQnaExpanded:
         assert ok is True
 
 
+class TestShouldUseOcrRouting:
+    """_should_use_ocr routing logic edge cases."""
+
+    def test_returns_false_when_no_api_key(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "")
+        pdf = tmp_path / "doc.pdf"
+        pdf.write_bytes(b"%PDF-1.4\n%EOF")
+        assert main._should_use_ocr(pdf) is False
+
+    @patch("main.local_converter")
+    def test_oversized_for_markitdown_routes_to_ocr(self, mock_local, tmp_path, monkeypatch):
+        """File exceeds MarkItDown limit but fits OCR limit -> OCR."""
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        monkeypatch.setattr(config, "MARKITDOWN_MAX_FILE_SIZE_MB", 10)
+        monkeypatch.setattr(config, "MISTRAL_OCR_MAX_FILE_SIZE_MB", 200)
+
+        pdf = tmp_path / "big.pdf"
+        pdf.write_bytes(b"x" * (15 * 1024 * 1024))  # 15 MB
+
+        mock_local.analyze_file_content.return_value = {
+            "is_text_based": True,
+            "file_type": "pdf",
+        }
+        result = main._should_use_ocr(pdf)
+        assert result is True
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
