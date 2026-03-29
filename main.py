@@ -26,6 +26,7 @@ import argparse
 import io
 import os
 import re
+import shutil
 import sys
 import tempfile
 import time
@@ -56,9 +57,13 @@ logger = utils.logger
 
 
 def _list_input_files() -> List[Path]:
-    """Return sorted list of files in the input directory (includes extensionless files)."""
+    """Return sorted list of files in the input directory (includes extensionless files).
+
+    Dotfiles (e.g. ``.gitkeep``, ``.DS_Store``) are silently excluded to avoid
+    spurious "File is empty" warnings during non-interactive runs.
+    """
     return sorted(
-        (f for f in config.INPUT_DIR.iterdir() if f.is_file()),
+        (f for f in config.INPUT_DIR.iterdir() if f.is_file() and not f.name.startswith(".")),
         key=lambda p: p.name.lower(),
     )
 
@@ -671,6 +676,8 @@ def _batch_submit(file_paths: List[Path], *, non_interactive: bool) -> Tuple[boo
         success, job_id, error = mistral_converter.submit_batch_ocr_job(batch_path)
         if success:
             utils.ui_print(f"\nBatch job submitted: {job_id}")
+            # Machine-readable line for automation / scripting
+            utils.ui_print(f"BATCH_JOB_ID={job_id}")
             utils.ui_print("Use option 2 to check status, option 4 to download results when complete.")
             return True, f"Batch job submitted: {job_id}"
         return False, f"Failed to submit batch job: {error}"
@@ -819,6 +826,23 @@ def mode_system_status() -> Tuple[bool, str]:
     out(f"  * Extract Headers/Footers: {config.MISTRAL_EXTRACT_HEADER}/{config.MISTRAL_EXTRACT_FOOTER}")
     out(f"  * ExifTool: {'Set' if config.MARKITDOWN_EXIFTOOL_PATH else 'Not configured'}")
     out(f"  * Style Map: {'Set' if config.MARKITDOWN_STYLE_MAP else 'Not configured'}")
+    out()
+
+    # Optional feature readiness
+    out("Optional Features:")
+    ffmpeg_path = shutil.which("ffmpeg")
+    out(f"  * ffmpeg: {'Available' if ffmpeg_path else 'Not found (needed for audio conversion)'}")
+    _optional_pkgs = [
+        ("pydub", "audio conversion"),
+        ("youtube_transcript_api", "YouTube transcripts"),
+        ("olefile", "Outlook .msg conversion"),
+    ]
+    for pkg_name, purpose in _optional_pkgs:
+        try:
+            __import__(pkg_name)
+            out(f"  * {pkg_name}: Available")
+        except ImportError:
+            out(f"  * {pkg_name}: Not installed (needed for {purpose})")
     out()
 
     cache_stats = utils.cache.get_statistics()

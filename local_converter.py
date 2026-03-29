@@ -212,6 +212,17 @@ def convert_with_markitdown(
             utils.save_text_output(output_path, full_content)
 
             logger.info("Saved: %s", output_path.name)
+
+            # Warn when output contains minimal text (common for scanned
+            # images or image-only PDFs processed through MarkItDown).
+            ext = file_path.suffix.lower().lstrip(".")
+            if len(markdown_content.strip()) < 50 and ext in (config.IMAGE_EXTENSIONS | {"pdf"}):
+                logger.warning(
+                    "Conversion of %s completed but no meaningful text was extracted. "
+                    "For scanned or image-based content, consider using Mistral OCR mode.",
+                    file_path.name,
+                )
+
             return True, full_content, None
 
         else:

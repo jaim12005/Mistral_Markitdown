@@ -342,6 +342,59 @@ class TestConvertWithMarkItDown:
         assert success is False
         assert "conversion error" in error
 
+    def test_low_quality_warning_for_image(self, tmp_path, monkeypatch, caplog):
+        """Image files with minimal text output trigger a warning."""
+        monkeypatch.setattr(config, "MARKITDOWN_MAX_FILE_SIZE_MB", 100)
+        monkeypatch.setattr(config, "OUTPUT_MD_DIR", tmp_path)
+        monkeypatch.setattr(config, "INCLUDE_METADATA", False)
+        monkeypatch.setattr(config, "GENERATE_TXT_OUTPUT", False)
+        monkeypatch.setattr(config, "INPUT_DIR", tmp_path)
+
+        test_file = tmp_path / "scan.png"
+        test_file.write_bytes(b"\x89PNG")
+
+        mock_result = MagicMock()
+        mock_result.markdown = ""  # No text extracted
+        mock_result.title = "scan"
+
+        mock_md = MagicMock()
+        mock_md.convert.return_value = mock_result
+
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            with patch.object(local_converter, "get_markitdown_instance", return_value=mock_md):
+                success, content, error = local_converter.convert_with_markitdown(test_file)
+
+        assert success is True
+        assert any("no meaningful text" in r.message.lower() for r in caplog.records)
+
+    def test_no_low_quality_warning_for_text_file(self, tmp_path, monkeypatch, caplog):
+        """Short text files do NOT trigger the low-quality warning."""
+        monkeypatch.setattr(config, "MARKITDOWN_MAX_FILE_SIZE_MB", 100)
+        monkeypatch.setattr(config, "OUTPUT_MD_DIR", tmp_path)
+        monkeypatch.setattr(config, "INCLUDE_METADATA", False)
+        monkeypatch.setattr(config, "GENERATE_TXT_OUTPUT", False)
+        monkeypatch.setattr(config, "INPUT_DIR", tmp_path)
+
+        test_file = tmp_path / "note.txt"
+        test_file.write_text("hi")
+
+        mock_result = MagicMock()
+        mock_result.markdown = "hi"
+        mock_result.title = "note"
+
+        mock_md = MagicMock()
+        mock_md.convert.return_value = mock_result
+
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            with patch.object(local_converter, "get_markitdown_instance", return_value=mock_md):
+                local_converter.convert_with_markitdown(test_file)
+
+        assert not any("no meaningful text" in r.message.lower() for r in caplog.records)
+
 
 # ============================================================================
 # convert_stream_with_markitdown Tests

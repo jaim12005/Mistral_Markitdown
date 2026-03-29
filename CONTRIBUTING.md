@@ -180,7 +180,7 @@ Common fixtures are available in `tests/conftest.py`:
 ```
 Mistral_Markitdown/
 ├── main.py                  # Main application entry point: Convert (Smart), Convert (MarkItDown), Convert (Mistral OCR), PDF to Images, Document QnA, Batch OCR, System Status
-├── config.py                # Configuration management (65+ options)
+├── config.py                # Configuration management (90+ options)
 ├── local_converter.py       # MarkItDown integration & table extraction
 ├── mistral_converter.py     # Mistral AI OCR integration
 ├── utils.py                 # Utility functions (caching, logging, formatting)
@@ -191,6 +191,7 @@ Mistral_Markitdown/
 ├── requirements-dev.txt     # Development dependencies (testing, linting)
 │
 ├── README.md                # Complete user guide
+├── ARCHITECTURE.md          # Architecture and design details
 ├── CONFIGURATION.md         # Complete configuration reference
 ├── KNOWN_ISSUES.md          # Known issues and troubleshooting guide
 ├── CONTRIBUTING.md          # Development guidelines (this file)
@@ -367,11 +368,12 @@ By contributing, you agree that your contributions will be licensed under the sa
 
 Thank you for contributing to Enhanced Document Converter!
 
-**Version:** 3.0.0
+**Version:** 3.0.2
 
 **Related Documentation:**
 
 - **[README.md](README.md)** - Complete feature documentation
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - Architecture and design details
 - **[CONFIGURATION.md](CONFIGURATION.md)** - Configuration reference
 - **[KNOWN_ISSUES.md](KNOWN_ISSUES.md)** - Known issues
 - **[CHANGELOG.md](CHANGELOG.md)** - Release history

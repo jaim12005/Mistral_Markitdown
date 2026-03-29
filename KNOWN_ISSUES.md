@@ -38,6 +38,19 @@ Download links:
 
 ---
 
+### MarkItDown on scanned/image inputs produces minimal output
+
+When MarkItDown (mode 2) is used on scanned images or image-only PDFs, the conversion succeeds but the output contains little or no extracted text (typically just metadata frontmatter). A warning is now logged when this happens:
+
+```
+WARNING: Conversion of scan.png completed but no meaningful text was extracted.
+For scanned or image-based content, consider using Mistral OCR mode.
+```
+
+**Recommendation:** Use Convert (Smart) or Convert (Mistral OCR) for scanned documents and images. Smart mode auto-routes image inputs to Mistral OCR.
+
+---
+
 ### Audio/video transcription requires extra setup
 
 MarkItDown plugins for audio/video are not installed by default:
@@ -45,6 +58,8 @@ MarkItDown plugins for audio/video are not installed by default:
 1. `pip install -r requirements-optional.txt`
 2. Install ffmpeg: `brew install ffmpeg` / `apt install ffmpeg` / [Windows builds](https://www.gyan.dev/ffmpeg/builds/)
 3. Set `MARKITDOWN_ENABLE_PLUGINS=true` in `.env`
+
+Run `python3 main.py --test` to check optional feature readiness (ffmpeg, pydub, etc.).
 
 ---
 

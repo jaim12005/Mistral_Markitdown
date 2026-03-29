@@ -423,6 +423,23 @@ class TestListInputFiles:
         assert len(result) == 1
         assert result[0].name == "file.pdf"
 
+    def test_ignores_dotfiles(self, tmp_path, monkeypatch):
+        """Dotfiles like .gitkeep and .DS_Store are excluded."""
+        monkeypatch.setattr(config, "INPUT_DIR", tmp_path)
+        (tmp_path / ".gitkeep").touch()
+        (tmp_path / ".DS_Store").touch()
+        (tmp_path / "report.pdf").touch()
+        result = main._list_input_files()
+        names = [f.name for f in result]
+        assert names == ["report.pdf"]
+
+    def test_only_dotfiles_returns_empty(self, tmp_path, monkeypatch):
+        """Directory with only dotfiles is treated as empty."""
+        monkeypatch.setattr(config, "INPUT_DIR", tmp_path)
+        (tmp_path / ".gitkeep").touch()
+        result = main._list_input_files()
+        assert result == []
+
 
 # ============================================================================
 # _filter_valid_files Tests
@@ -805,6 +822,30 @@ class TestModeBatchOcr:
         assert "job-99" in msg
         assert mock_mc.create_batch_ocr_file.call_args[0][1].name.startswith("batch_ocr_")
 
+    def test_batch_submit_emits_machine_readable_id(self, tmp_path, monkeypatch, capsys):
+        """Batch submit prints a BATCH_JOB_ID= line for automation."""
+        monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
+        monkeypatch.setattr(config, "MISTRAL_BATCH_ENABLED", True)
+        monkeypatch.setattr(config, "MISTRAL_BATCH_MIN_FILES", 1)
+        cache_sub = tmp_path / "cache"
+        cache_sub.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setattr(config, "CACHE_DIR", cache_sub)
+
+        pdf = tmp_path / "doc.pdf"
+        pdf.write_bytes(b"%PDF")
+
+        with patch.object(main, "mistral_converter") as mock_mc:
+
+            def _fake_create(paths, out_path):
+                return True, out_path, None
+
+            mock_mc.create_batch_ocr_file.side_effect = _fake_create
+            mock_mc.submit_batch_ocr_job.return_value = (True, "job-42", None)
+            main.mode_batch_ocr([pdf], non_interactive=True, batch_action="submit")
+
+        captured = capsys.readouterr().out
+        assert "BATCH_JOB_ID=job-42" in captured
+
     def test_non_interactive_batch_missing_action(self, tmp_path, monkeypatch):
         monkeypatch.setattr(config, "MISTRAL_API_KEY", "test_key")
         monkeypatch.setattr(config, "MISTRAL_BATCH_ENABLED", True)
@@ -1033,6 +1074,18 @@ class TestModeSystemStatus:
         success, msg = main.mode_system_status()
         assert success is True
         assert "status" in msg.lower()
+
+    def test_optional_features_section(self, monkeypatch, capsys):
+        """System status reports optional feature readiness."""
+        monkeypatch.setattr(config, "CLEANUP_OLD_UPLOADS", False)
+        monkeypatch.setattr(config, "AUTO_CLEAR_CACHE", False)
+        main.mode_system_status()
+        captured = capsys.readouterr().out
+        assert "Optional Features:" in captured
+        assert "ffmpeg:" in captured
+        assert "pydub:" in captured
+        assert "youtube_transcript_api:" in captured
+        assert "olefile:" in captured
 
 
 # ============================================================================

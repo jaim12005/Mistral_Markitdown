@@ -23,6 +23,7 @@ Complete reference for all configuration options in Enhanced Document Converter.
 - [Output Settings](#output-settings)
 - [MarkItDown Settings](#markitdown-settings)
 - [Complete Example Configuration](#complete-example-configuration)
+- [System Status and Diagnostics](#system-status-and-diagnostics)
 - [Configuration by Use Case](#configuration-by-use-case)
 - [Environment Variable Reference](#environment-variable-reference)
 
@@ -1016,6 +1017,20 @@ MISTRAL_BATCH_TIMEOUT_HOURS=24
 # Only needed on Windows
 POPPLER_PATH="C:/Program Files/poppler-23.08.0/Library/bin"
 ```
+
+---
+
+## System Status and Diagnostics
+
+Run `python3 main.py --test` or `python3 main.py --mode status` to display the full system status, including:
+
+- **Configuration** — Current settings for API key, OCR model, cache, concurrency
+- **Optional Features** — Runtime availability of ffmpeg, pydub, youtube_transcript_api, and olefile
+- **Cache Statistics** — Hit rate, entry count, total size
+- **Output Statistics** — Markdown, text, and image file counts
+- **Recommendations** — Actionable suggestions (e.g., set API key, clear cache)
+
+Optional features are detected at runtime and do not require configuration -- the status report simply tells you what is available on your system.
 
 ---
 

@@ -78,7 +78,7 @@ python3 main.py --test       # Verify setup
 | 4   | **PDF to Images**         | No         | Render each PDF page to PNG/JPEG at configurable DPI.                               |
 | 5   | **Document QnA**          | Yes        | Ask questions about a document in natural language (advisory for exact values).     |
 | 6   | **Batch OCR**             | Yes        | Submit to Mistral Batch API at reduced cost (requires AI Studio Scale).              |
-| 7   | **System Status**         | No         | Cache stats, config info, diagnostics.                                              |
+| 7   | **System Status**         | No         | Cache stats, config info, optional feature readiness, diagnostics.                  |
 | 8   | **Maintenance**           | No         | Clear expired cache, clean up old Mistral uploads.                                  |
 
 Smart mode prints its routing decisions before processing:
@@ -216,6 +216,27 @@ if success:
 
 The interactive QnA mode (mode 5) uses streaming by default.
 
+### Batch OCR
+
+Submit 10+ documents to the Mistral Batch API at reduced cost. After submission, the CLI emits a machine-readable `BATCH_JOB_ID=<id>` line for easy integration with automation scripts, in addition to the human-readable confirmation.
+
+```bash
+python3 main.py --mode batch_ocr --batch-action submit --no-interactive
+# Output includes: BATCH_JOB_ID=<your-job-id>
+```
+
+### System Status and Diagnostics
+
+System Status (mode 7 / `--test`) now reports optional feature readiness alongside configuration and cache stats:
+
+```
+Optional Features:
+  * ffmpeg: Available
+  * pydub: Available
+  * youtube_transcript_api: Not installed (needed for YouTube transcripts)
+  * olefile: Available
+```
+
 ### MarkItDown LLM Descriptions
 
 MarkItDown can use Mistral's vision models for AI-powered image descriptions within documents:
@@ -261,7 +282,7 @@ cache/           # OCR result cache (SHA-256 indexed)
 
 ## Configuration
 
-All settings are in `.env`. See `.env.example` for the complete reference with 70+ documented options.
+All settings are in `.env`. See `.env.example` for the complete reference with 90+ documented options.
 
 For the full configuration guide: **[CONFIGURATION.md](CONFIGURATION.md)**
 
@@ -270,7 +291,7 @@ For the full configuration guide: **[CONFIGURATION.md](CONFIGURATION.md)**
 | Guide                                            | Description                                   |
 | ------------------------------------------------ | --------------------------------------------- |
 | **[CONFIGURATION.md](CONFIGURATION.md)**         | Complete configuration reference              |
-| **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** | Architecture and design details               |
+| **[ARCHITECTURE.md](ARCHITECTURE.md)**           | Architecture and design details               |
 | **[KNOWN_ISSUES.md](KNOWN_ISSUES.md)**           | Known issues, limitations, troubleshooting    |
 | **[CONTRIBUTING.md](CONTRIBUTING.md)**           | Development setup and contribution guidelines |
 | **[CHANGELOG.md](CHANGELOG.md)**                 | Release history and version changes           |

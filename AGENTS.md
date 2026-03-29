@@ -6,7 +6,7 @@ Stack: Python 3.10–3.12, MarkItDown, Mistral AI SDK, Pydantic, pdfplumber, pdf
 
 - Install: `pip install -r requirements.txt`
 - Install dev: `pip install -r requirements.txt && pip install -r requirements-dev.txt`
-- Test all: `python3 -m pytest tests/` (~665 tests, ~15s) after dev install, or `bash scripts/test-safe.sh`, or `python3 run_tests.py` (bootstraps `./env` + dev deps if pytest is missing)
+- Test all: `python3 -m pytest tests/` (~696 tests, ~15s) after dev install, or `bash scripts/test-safe.sh`, or `python3 run_tests.py` (bootstraps `./env` + dev deps if pytest is missing)
 - Test single file: `python3 -m pytest tests/test_<name>.py -v`
 - Lint: `python3 -m flake8 .`
 - Format: `python3 -m black . && python3 -m isort .`
