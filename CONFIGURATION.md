@@ -389,7 +389,7 @@ if success:
 
 ## Batch OCR Processing
 
-Process multiple documents at 50% cost reduction using Mistral's Batch API.
+Process multiple documents at reduced cost using Mistral's Batch API.
 
 Important: Batch OCR requires Mistral AI Studio Scale / paid access.
 A valid API key alone is not enough. If batch submit returns free-trial / 402 messaging even for tiny jobs, check the workspace plan first and, after plan changes, consider creating a fresh API key.
@@ -1004,7 +1004,7 @@ MISTRAL_ENABLE_DOCUMENT_ANNOTATION=false
 # Document QnA (natural language queries)
 MISTRAL_DOCUMENT_QNA_MODEL=mistral-small-latest
 
-# Batch OCR (50% cost reduction)
+# Batch OCR (reduced cost)
 MISTRAL_BATCH_ENABLED=true
 MISTRAL_BATCH_MIN_FILES=10
 MISTRAL_BATCH_TIMEOUT_HOURS=24

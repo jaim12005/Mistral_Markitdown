@@ -7,7 +7,7 @@ Interactive CLI for document conversion with 8 modes:
 3. Convert (Mistral OCR) - Force cloud OCR
 4. PDF to Images         - Page rendering
 5. Document QnA          - Query documents in natural language
-6. Batch OCR             - 50% cost reduction batch jobs
+6. Batch OCR             - Reduced-cost batch jobs
 7. System Status         - Cache and performance metrics
 8. Maintenance           - Clear cache, clean up old uploads
 
@@ -86,6 +86,17 @@ def _filter_valid_files(files: List[Path], mode: Optional[str] = None) -> List[P
 # ============================================================================
 
 
+def _unpack_result(result) -> Tuple[bool, Optional[str]]:
+    """Extract (success, error) from a converter result (ConversionResult, tuple, or bool)."""
+    if isinstance(result, utils.ConversionResult):
+        return result.success, result.error
+    if isinstance(result, tuple):
+        ok = result[0]
+        err = result[2] if len(result) > 2 else "unknown error"
+        return bool(ok), err
+    return bool(result), None
+
+
 def _process_files_concurrently(
     file_paths: List[Path],
     process_fn,
@@ -95,8 +106,7 @@ def _process_files_concurrently(
 
     Args:
         file_paths: Files to process.
-        process_fn: Callable(Path) -> Tuple[bool, ...].  First element must be a bool
-                    indicating success.
+        process_fn: Callable(Path) -> ConversionResult | Tuple[bool, ...].
         label: Progress bar label.
 
     Returns:
@@ -110,12 +120,11 @@ def _process_files_concurrently(
     if total == 1:
         try:
             result = process_fn(file_paths[0])
-            ok = result[0] if isinstance(result, tuple) else result
+            ok, err = _unpack_result(result)
             if ok:
                 successful += 1
             else:
                 failed += 1
-                err = result[2] if isinstance(result, tuple) and len(result) > 2 else "unknown error"
                 logger.error("Failed: %s - %s", file_paths[0].name, err)
         except Exception as e:
             failed += 1
@@ -128,12 +137,11 @@ def _process_files_concurrently(
                 file_path = futures[future]
                 try:
                     result = future.result()
-                    ok = result[0] if isinstance(result, tuple) else result
+                    ok, err = _unpack_result(result)
                     if ok:
                         successful += 1
                     else:
                         failed += 1
-                        err = result[2] if isinstance(result, tuple) and len(result) > 2 else "unknown error"
                         logger.error("Failed: %s - %s", file_path.name, err)
                 except Exception as e:
                     failed += 1
@@ -238,7 +246,7 @@ def _extract_pdf_tables(file_path: Path) -> None:
                 table_result["table_count"],
                 file_path.name,
             )
-    except Exception as e:
+    except (OSError, ValueError) as e:
         logger.warning("Table extraction failed for %s: %s", file_path.name, e)
 
 
@@ -516,7 +524,8 @@ def mode_document_qna(
         client = mistral_converter.get_mistral_client()
         if client is None:
             return False, "Mistral client not available"
-        assert file_path is not None
+        if file_path is None:
+            return False, "Internal error: file_path is None in non-URL QnA mode"
         try:
             file_size_mb = file_path.stat().st_size / (1024 * 1024)
             cap = config.MISTRAL_QNA_MAX_FILE_SIZE_MB
@@ -539,8 +548,9 @@ def mode_document_qna(
         nonlocal signed_url, upload_started_at
         if url_mode:
             return doc_url
-        assert client is not None and file_path is not None
-        if signed_url and (time.time() - upload_started_at) < ttl_seconds * 0.9:
+        if client is None or file_path is None:
+            return None
+        if signed_url and (time.time() - upload_started_at) < ttl_seconds * config.MISTRAL_SIGNED_URL_REFRESH_THRESHOLD:
             return signed_url
         signed_url = mistral_converter.upload_file_for_ocr(client, file_path)
         upload_started_at = time.time()
@@ -552,17 +562,29 @@ def mode_document_qna(
     utils.ui_print(f"\nQuerying: {display_name}")
     utils.ui_print(f"Model: {config.MISTRAL_DOCUMENT_QNA_MODEL}")
 
-    if non_interactive:
-        question = (initial_question or "").strip()
+    def _ask_with_retry(question: str, use_stream: bool) -> Tuple[bool, str]:
+        """Ask a QnA question, retrying once with a fresh URL on expiry-related errors."""
         document_url = _get_document_url()
         if not document_url:
             return False, "Failed to resolve document URL for QnA"
-        if qna_use_stream:
-            ok, msg = _qna_print_stream(document_url, question)
-            if not ok:
-                return False, msg
-            return True, f"Asked 1 question ({'URL' if url_mode else file_path.name})"
-        ok, msg = _qna_print_complete(document_url, question)
+        qna_fn = _qna_print_stream if use_stream else _qna_print_complete
+        ok, msg = qna_fn(document_url, question)
+        if ok:
+            return True, msg
+        # If the error looks like a signed URL expiry, force re-upload and retry once
+        err_lower = (msg or "").lower()
+        if any(hint in err_lower for hint in ("expired", "403", "forbidden", "url")):
+            nonlocal signed_url, upload_started_at
+            signed_url = None
+            upload_started_at = 0.0
+            document_url = _get_document_url()
+            if document_url:
+                ok, msg = qna_fn(document_url, question)
+        return ok, msg
+
+    if non_interactive:
+        question = (initial_question or "").strip()
+        ok, msg = _ask_with_retry(question, qna_use_stream)
         if not ok:
             return False, msg
         return True, f"Asked 1 question ({'URL' if url_mode else file_path.name})"
@@ -576,23 +598,11 @@ def mode_document_qna(
             if not question or question.lower() in ("exit", "quit"):
                 break
 
-            document_url = _get_document_url()
-            if not document_url:
-                utils.ui_print("\nError: Failed to refresh document URL\n")
-                continue
-
-            if qna_use_stream:
-                ok, qmsg = _qna_print_stream(document_url, question)
-                if ok:
-                    questions_asked += 1
-                else:
-                    utils.ui_print(f"\nError: {qmsg}\n")
+            ok, qmsg = _ask_with_retry(question, qna_use_stream)
+            if ok:
+                questions_asked += 1
             else:
-                ok, qmsg = _qna_print_complete(document_url, question)
-                if ok:
-                    questions_asked += 1
-                else:
-                    utils.ui_print(f"\nError: {qmsg}\n")
+                utils.ui_print(f"\nError: {qmsg}\n")
 
         except KeyboardInterrupt:
             break
@@ -602,7 +612,7 @@ def mode_document_qna(
 
 
 # ============================================================================
-# Mode 6: Batch OCR (50% cost savings)
+# Mode 6: Batch OCR (reduced-cost batch processing)
 # ============================================================================
 
 
@@ -731,7 +741,7 @@ def mode_batch_ocr(
     batch_job_id: Optional[str] = None,
     non_interactive: bool = False,
 ) -> Tuple[bool, str]:
-    """Submit files for batch OCR processing at 50% cost reduction."""
+    """Submit files for batch OCR processing at reduced cost."""
     logger.info("BATCH OCR MODE: %d file(s) in initial selection", len(file_paths))
 
     if not config.MISTRAL_API_KEY:
@@ -1005,7 +1015,7 @@ def show_menu():
     out("  5. Document QnA")
     out("     Query documents in natural language")
     out()
-    out("  6. Batch OCR (50% savings)")
+    out("  6. Batch OCR (reduced cost)")
     out("     Submit batch jobs to Mistral Batch API")
     out()
     out("  7. System Status")

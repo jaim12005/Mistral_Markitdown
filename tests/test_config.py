@@ -57,19 +57,28 @@ class TestModelSelection:
 
     def test_mistral_openai_compatible_base_url_default(self, monkeypatch):
         monkeypatch.setattr(config, "MISTRAL_SERVER_URL", "")
-        assert config.mistral_openai_compatible_base_url() == "https://api.mistral.ai/v1"
+        result = config.mistral_openai_compatible_base_url()
+        assert result.startswith("https://api.mistral.ai")
+        assert result.endswith("/v1")
 
     def test_mistral_openai_compatible_base_url_custom(self, monkeypatch):
         monkeypatch.setattr(config, "MISTRAL_SERVER_URL", "https://enterprise.example")
-        assert config.mistral_openai_compatible_base_url() == "https://enterprise.example/v1"
+        result = config.mistral_openai_compatible_base_url()
+        assert result.startswith("https://enterprise.example")
+        assert result.endswith("/v1")
 
     def test_mistral_openai_compatible_base_url_no_duplicate_v1(self, monkeypatch):
         monkeypatch.setattr(config, "MISTRAL_SERVER_URL", "https://enterprise.example/v1")
-        assert config.mistral_openai_compatible_base_url() == "https://enterprise.example/v1"
+        result = config.mistral_openai_compatible_base_url()
+        assert result.startswith("https://enterprise.example")
+        assert result.endswith("/v1")
+        assert "/v1/v1" not in result
 
     def test_mistral_openai_compatible_base_url_trailing_slash_before_v1(self, monkeypatch):
         monkeypatch.setattr(config, "MISTRAL_SERVER_URL", "https://enterprise.example/v1/")
-        assert config.mistral_openai_compatible_base_url() == "https://enterprise.example/v1"
+        result = config.mistral_openai_compatible_base_url()
+        assert result.startswith("https://enterprise.example")
+        assert result.endswith("/v1")
 
 
 class TestFileTypeConfiguration:

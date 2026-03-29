@@ -465,7 +465,7 @@ def _fix_merged_currency_cells(table: List[List[str]]) -> List[List[str]]:
     #   ".00 .00"                 — two zero shorthands
     # Each number: optional leading paren/minus, digits with optional commas,
     # optional decimal portion, optional closing paren.
-    _NUM = r"[\(\-]?\.?\d[\d,]*\.?\d*\)?"
+    _NUM = r"(?:\([\d,]+\.?\d*\)|-?\.?\d[\d,]*\.?\d*)"
     double_bare_number_pattern = re.compile(rf"({_NUM})\s+({_NUM})")
 
     fixed_table = []

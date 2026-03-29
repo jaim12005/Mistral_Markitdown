@@ -260,14 +260,13 @@ class TestAnnotationFormats:
         monkeypatch.setattr(config, "MISTRAL_ENABLE_BBOX_ANNOTATION", True)
         monkeypatch.setattr(config, "MISTRAL_ENABLE_STRUCTURED_OUTPUT", True)
         result = mistral_converter.get_bbox_annotation_format()
-        # Should be a dict or ResponseFormat object, or None if no schema available
-        assert result is None or isinstance(result, dict) or hasattr(result, "type")
+        assert result is None or isinstance(result, dict)
 
     def test_document_format_enabled_returns_dict(self, monkeypatch):
         monkeypatch.setattr(config, "MISTRAL_ENABLE_DOCUMENT_ANNOTATION", True)
         monkeypatch.setattr(config, "MISTRAL_ENABLE_STRUCTURED_OUTPUT", True)
         result = mistral_converter.get_document_annotation_format("generic")
-        assert result is None or isinstance(result, dict) or hasattr(result, "type")
+        assert result is None or isinstance(result, dict)
 
     def test_document_format_auto_resolves_to_generic(self, monkeypatch):
         """auto schema type should resolve to generic when not configured."""
@@ -275,8 +274,7 @@ class TestAnnotationFormats:
         monkeypatch.setattr(config, "MISTRAL_ENABLE_STRUCTURED_OUTPUT", True)
         monkeypatch.setattr(config, "MISTRAL_DOCUMENT_SCHEMA_TYPE", "auto")
         result = mistral_converter.get_document_annotation_format("auto")
-        # Should not raise, and should return dict, ResponseFormat, or None
-        assert result is None or isinstance(result, dict) or hasattr(result, "type")
+        assert result is None or isinstance(result, dict)
 
 
 # ============================================================================
@@ -5224,8 +5222,8 @@ class TestValidateUrlParseException:
 
     def test_urlparse_raises(self):
         with patch(
-            "urllib.parse.urlparse",
-            side_effect=Exception("parse error"),
+            "mistral_converter.urlparse",
+            side_effect=ValueError("parse error"),
         ):
             valid, err = mistral_converter._validate_document_url("https://example.com/doc.pdf")
 

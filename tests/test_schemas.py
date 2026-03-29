@@ -39,7 +39,8 @@ class TestGetDocumentSchema:
     def test_schema_has_required_keys(self, schema_type: str):
         result = schemas.get_document_schema(schema_type)
         # Should have at minimum a 'schema' key with the JSON schema
-        assert "schema" in result or "name" in result
+        assert "schema" in result
+        assert "name" in result
 
 
 # ============================================================================
@@ -56,7 +57,8 @@ class TestGetBboxSchema:
 
     def test_schema_has_required_keys(self):
         result = schemas.get_bbox_schema("structured")
-        assert "schema" in result or "name" in result
+        assert "schema" in result
+        assert "name" in result
 
 
 # ============================================================================
@@ -105,12 +107,47 @@ class TestSchemaContent:
         schema_body = result.get("schema", result)
         # The word "invoice" should appear somewhere in the schema
         schema_str = str(schema_body).lower()
-        assert "invoice" in schema_str or "total" in schema_str or "amount" in schema_str
+        assert "invoice" in schema_str
 
     def test_generic_schema_is_not_empty(self):
         result = schemas.get_document_schema("generic")
         schema_body = result.get("schema", result)
         assert len(str(schema_body)) > 20  # Non-trivial schema
+
+
+class TestPydanticModelValidation:
+    """Test that Pydantic models enforce field constraints."""
+
+    def test_invoice_line_item_requires_amount(self):
+        with pytest.raises(Exception):
+            schemas.LineItem(description="test")
+
+    def test_invoice_date_rejects_bad_format(self):
+        with pytest.raises(Exception):
+            schemas.InvoiceDetails(invoice_number="1", invoice_date="not-a-date")
+
+    def test_invoice_date_accepts_iso_format(self):
+        details = schemas.InvoiceDetails(invoice_number="1", invoice_date="2024-01-15")
+        assert details.invoice_date == "2024-01-15"
+
+    def test_line_item_uses_decimal(self):
+        from decimal import Decimal
+
+        item = schemas.LineItem(description="Widget", amount=Decimal("19.99"))
+        assert isinstance(item.amount, Decimal)
+
+    def test_document_schema_returns_all_required_keys(self):
+        for schema_type in ["invoice", "financial_statement", "contract", "form", "generic"]:
+            result = schemas.get_document_schema(schema_type)
+            assert "schema" in result, f"{schema_type} missing 'schema' key"
+            assert "name" in result, f"{schema_type} missing 'name' key"
+            assert "description" in result, f"{schema_type} missing 'description' key"
+
+    def test_bbox_schema_returns_all_required_keys(self):
+        result = schemas.get_bbox_schema("structured")
+        assert "schema" in result
+        assert "name" in result
+        assert "description" in result
 
 
 if __name__ == "__main__":

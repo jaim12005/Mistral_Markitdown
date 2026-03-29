@@ -48,7 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Streaming Document QnA** — `query_document_stream()` delivers answer tokens in real-time for interactive experiences
-- **Batch OCR mode** — Submit 10+ documents to Mistral Batch API at 50% cost reduction with job tracking
+- **Batch OCR mode** — Submit 10+ documents to Mistral Batch API at reduced cost with job tracking
 - **OCR quality assessment** — Automated 0-100 scoring with weak page auto-reprocessing
 - **Structured data extraction** — Built-in Pydantic schemas for invoices, financial statements, contracts, forms, and generic documents
 - **Contract document schema** — Dedicated `ContractDocument` model for extracting parties, dates, clauses, signatures

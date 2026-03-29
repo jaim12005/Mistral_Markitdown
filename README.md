@@ -77,7 +77,7 @@ python3 main.py --test       # Verify setup
 | 3   | **Convert (Mistral OCR)** | Yes        | Force cloud OCR. Best for scanned docs, complex layouts, equations.                 |
 | 4   | **PDF to Images**         | No         | Render each PDF page to PNG/JPEG at configurable DPI.                               |
 | 5   | **Document QnA**          | Yes        | Ask questions about a document in natural language (advisory for exact values).     |
-| 6   | **Batch OCR**             | Yes        | Submit to Mistral Batch API at 50% cost reduction (requires AI Studio Scale).       |
+| 6   | **Batch OCR**             | Yes        | Submit to Mistral Batch API at reduced cost (requires AI Studio Scale).              |
 | 7   | **System Status**         | No         | Cache stats, config info, diagnostics.                                              |
 | 8   | **Maintenance**           | No         | Clear expired cache, clean up old Mistral uploads.                                  |
 
@@ -136,7 +136,7 @@ python3 main.py --no-interactive    # Process all files in input/ without prompt
 ### Cost Optimization
 
 - **Caching**: SHA-256 file hashing with 24-hour persistence. Reprocessing the same files costs nothing.
-- **Batch OCR**: 50% cost reduction for 10+ documents via Mistral Batch API. Requires AI Studio Scale / paid access.
+- **Batch OCR**: Significant cost reduction for 10+ documents via Mistral Batch API. Requires AI Studio Scale / paid access.
 - **Auto-cleanup**: Old uploaded files removed from Mistral after 7 days (configurable).
 
 ## Key Features

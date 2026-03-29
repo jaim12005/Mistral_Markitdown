@@ -18,15 +18,21 @@ Documentation references:
 import base64
 import hashlib
 import html
+import ipaddress
 import json
+import os
 import re
+import socket
+import sys
 import threading
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as DnsTimeoutError
+from concurrent.futures import as_completed
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
+from urllib.parse import urlparse
 
 __all__ = [
     "get_mistral_client",
@@ -130,9 +136,10 @@ def _http_client_exceptions() -> Tuple[type, ...]:
 # This ensures .env settings are honored as documented in README.md
 # See: config.OCR_MIN_TEXT_LENGTH, config.OCR_MIN_UNIQUENESS_RATIO, etc.
 
-# Quality scoring point deductions (max total deduction = 100).
-_QUALITY_PENALTY_WEAK_PAGES_MAX = 50  # Maximum points lost when all pages are weak
-_QUALITY_PENALTY_HIGH_REPETITION = 30  # Points lost for high token repetition
+# Quality scoring point deductions — now configurable via config.py.
+# Kept as module-level aliases for internal use.
+_QUALITY_PENALTY_WEAK_PAGES_MAX = config.OCR_QUALITY_PENALTY_WEAK_PAGES_MAX
+_QUALITY_PENALTY_HIGH_REPETITION = config.OCR_QUALITY_PENALTY_HIGH_REPETITION
 
 # Process-global page counter — suitable for CLI use.  A multi-tenant
 # service would need per-request counters instead.
@@ -166,7 +173,7 @@ def _estimate_session_pages_for_ocr(file_path: Path, pages: Optional[List[int]])
                 if config.MAX_PAGES_PER_SESSION > 0:
                     return min(pc, config.MAX_PAGES_PER_SESSION)
                 return pc
-        except Exception:
+        except (OSError, ImportError, ValueError):
             pass
         cap = config.MAX_PAGES_PER_SESSION if config.MAX_PAGES_PER_SESSION > 0 else 256
         return max(1, min(cap, 256))
@@ -177,10 +184,10 @@ def _estimate_session_pages_for_ocr(file_path: Path, pages: Optional[List[int]])
 def _reserve_session_pages(estimated: int) -> bool:
     """Reserve *estimated* pages against the session cap before starting OCR."""
     global _session_pages_inflight
-    if config.MAX_PAGES_PER_SESSION <= 0:
-        return True
     est = max(1, estimated)
     with _session_pages_lock:
+        if config.MAX_PAGES_PER_SESSION <= 0:
+            return True
         if _session_pages_processed + _session_pages_inflight + est > config.MAX_PAGES_PER_SESSION:
             return False
         _session_pages_inflight += est
@@ -944,6 +951,62 @@ def build_ocr_process_kwargs(
 # ============================================================================
 
 
+def _validate_file_for_ocr(
+    file_path: Path, file_size_mb: float
+) -> Optional[Tuple[bool, Optional[Dict[str, Any]], Optional[str]]]:
+    """Return an early-exit error tuple if the file cannot be processed, else None."""
+    if file_size_mb > config.MISTRAL_OCR_MAX_FILE_SIZE_MB:
+        return (
+            False,
+            None,
+            (
+                f"File too large for Mistral OCR ({file_size_mb:.1f} MB). "
+                f"Maximum allowed: {config.MISTRAL_OCR_MAX_FILE_SIZE_MB} MB"
+            ),
+        )
+    return None
+
+
+def _prepare_ocr_document(
+    client: Mistral,
+    file_path: Path,
+    signed_url: Optional[str],
+    file_size_mb: float,
+    progress_callback: Optional[Callable[[str, float], None]],
+) -> Tuple[Any, str]:
+    """Upload (if needed) and build the SDK document object for OCR."""
+    ext = file_path.suffix.lower().lstrip(".")
+    is_image = ext in config.IMAGE_EXTENSIONS
+
+    if signed_url:
+        logger.debug("Using provided signed URL for OCR")
+    else:
+        if progress_callback:
+            progress_callback(f"Uploading file ({file_size_mb:.1f} MB)...", 0.3)
+        signed_url = upload_file_for_ocr(client, file_path)
+        if not signed_url:
+            raise RuntimeError("Failed to upload file")
+        if progress_callback:
+            progress_callback("Upload complete", 0.4)
+
+    if is_image:
+        if ImageURLChunk is not None:
+            document = ImageURLChunk(image_url=signed_url)
+            logger.debug("Using ImageURLChunk for %s file", ext)
+        else:
+            document = {"type": "image_url", "image_url": signed_url}
+            logger.debug("Using image_url dict for %s file", ext)
+    else:
+        if DocumentURLChunk is not None:
+            document = DocumentURLChunk(document_url=signed_url, document_name=file_path.name)
+            logger.debug("Using DocumentURLChunk for %s file", ext)
+        else:
+            document = {"type": "document_url", "document_url": signed_url}
+            logger.debug("Using document_url dict for %s file", ext)
+
+    return document, signed_url
+
+
 def process_with_ocr(
     client: Mistral,
     file_path: Path,
@@ -978,15 +1041,10 @@ def process_with_ocr(
     reserved_pages = 0
     try:
         file_size_mb = file_path.stat().st_size / (1024 * 1024)
-        if file_size_mb > config.MISTRAL_OCR_MAX_FILE_SIZE_MB:
-            return (
-                False,
-                None,
-                (
-                    f"File too large for Mistral OCR ({file_size_mb:.1f} MB). "
-                    f"Maximum allowed: {config.MISTRAL_OCR_MAX_FILE_SIZE_MB} MB"
-                ),
-            )
+
+        validation_error = _validate_file_for_ocr(file_path, file_size_mb)
+        if validation_error is not None:
+            return validation_error
 
         if config.MAX_PAGES_PER_SESSION > 0:
             if not _reserve_session_pages(estimated_pages):
@@ -1002,58 +1060,16 @@ def process_with_ocr(
 
         _report_progress("Analyzing file...", 0.1)
 
-        # Determine best model
         if model is None:
             model = config.get_ocr_model()
 
         logger.info("Processing with Mistral OCR using model: %s", model)
-
         _report_progress("Preparing document...", 0.2)
 
-        # Prepare document using SDK types when available
-        # IMPORTANT: Mistral OCR API uses different types for images vs documents:
-        # - Images (png, jpg, etc.): type="image_url", image_url=<url> -> ImageURLChunk
-        # - Documents (pdf, docx, etc.): type="document_url", document_url=<url> -> DocumentURLChunk
-        ext = file_path.suffix.lower().lstrip(".")
-        is_image = ext in config.IMAGE_EXTENSIONS
-
-        if signed_url:
-            logger.debug("Using provided signed URL for OCR")
-        else:
-            _report_progress(f"Uploading file ({file_size_mb:.1f} MB)...", 0.3)
-            # Upload file and get signed URL
-            # NOTE: The Mistral OCR API requires a signed HTTPS URL, not a file ID
-            # After uploading, we must call get_signed_url() to get an HTTPS URL
-            signed_url = upload_file_for_ocr(client, file_path)
-            if not signed_url:
-                return False, None, "Failed to upload file"
-            _report_progress("Upload complete", 0.4)
-
-        # Use SDK types when available (new recommended approach)
-        # Fallback to dict format for compatibility
-        if is_image:
-            if ImageURLChunk is not None:
-                document = ImageURLChunk(image_url=signed_url)
-                logger.debug("Using ImageURLChunk for %s file", ext)
-            else:
-                document = {
-                    "type": "image_url",
-                    "image_url": signed_url,
-                }
-                logger.debug("Using image_url dict for %s file", ext)
-        else:
-            if DocumentURLChunk is not None:
-                document = DocumentURLChunk(
-                    document_url=signed_url,
-                    document_name=file_path.name,
-                )
-                logger.debug("Using DocumentURLChunk for %s file", ext)
-            else:
-                document = {
-                    "type": "document_url",
-                    "document_url": signed_url,
-                }
-                logger.debug("Using document_url dict for %s file", ext)
+        try:
+            document, signed_url = _prepare_ocr_document(client, file_path, signed_url, file_size_mb, progress_callback)
+        except RuntimeError as upload_err:
+            return False, None, str(upload_err)
 
         _report_progress("Processing with Mistral OCR...", 0.5)
 
@@ -1065,16 +1081,12 @@ def process_with_ocr(
             request_id=ocr_id,
         )
 
-        # Process with OCR
         response = client.ocr.process(**ocr_params)
-
         _report_progress("Parsing OCR response...", 0.8)
 
-        # Parse response
         if response:
             result = _parse_ocr_response(response, file_path)
 
-            # Surface any parsing errors that occurred
             if result.get("parse_error"):
                 logger.warning(
                     "OCR response parsing encountered an error for %s: %s",
@@ -1082,7 +1094,6 @@ def process_with_ocr(
                     result["parse_error"],
                 )
 
-            # Validate that we got actual text content
             if not result.get("full_text", "").strip():
                 parse_hint = ""
                 if result.get("parse_error"):
@@ -1120,7 +1131,6 @@ def process_with_ocr(
     except Exception as e:
         error_msg = f"Error processing with Mistral OCR: {e}"
 
-        # Prefer typed status_code from SDK exceptions; fall back to string matching.
         status_code = getattr(e, "status_code", None) or getattr(e, "code", None)
         err_str = str(e)
         if status_code == 401 or (status_code is None and ("401" in err_str or "Unauthorized" in err_str)):
@@ -1399,7 +1409,7 @@ def _parse_ocr_response(response: Any, file_path: Path) -> Dict[str, Any]:
 # Cap concurrency for weak-page re-OCR to avoid nested thread-pool explosion.
 # When improve_weak_pages runs inside _process_files_concurrently (which uses
 # MAX_CONCURRENT_FILES threads), an uncapped inner pool could spawn M*M threads.
-_MAX_WEAK_PAGE_WORKERS = 3
+# Configurable via config.OCR_MAX_WEAK_PAGE_WORKERS.
 
 
 def _is_weak_page(text: str) -> bool:
@@ -1546,6 +1556,41 @@ def assess_ocr_quality(ocr_result: Dict[str, Any]) -> Dict[str, Any]:
     return assessment
 
 
+def _detect_weak_pages(ocr_result: Dict[str, Any]) -> List[int]:
+    """Return indices of pages whose OCR text is considered weak."""
+    weak_pages = []
+    for i, page in enumerate(ocr_result["pages"]):
+        text = page.get("text", "")
+        if _is_weak_page(text):
+            weak_pages.append(i)
+            logger.debug("Page %s has weak OCR result (%s chars)", i + 1, len(text))
+    return weak_pages
+
+
+def _run_weak_page_improvements(
+    weak_pages: List[int],
+    improve_fn: Callable[[int], Tuple[int, Optional[Dict[str, Any]]]],
+    ocr_result: Dict[str, Any],
+) -> None:
+    """Execute *improve_fn* across *weak_pages* in a thread pool, mutating *ocr_result*."""
+    max_workers = min(len(weak_pages), config.OCR_MAX_WEAK_PAGE_WORKERS)
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(improve_fn, idx): idx for idx in weak_pages}
+        for future in as_completed(futures):
+            try:
+                page_idx, improved_page = future.result()
+            except Exception as e:
+                logger.warning("Unexpected error retrieving page improvement result: %s", e)
+                continue
+            if improved_page is None:
+                continue
+            original_len = len(ocr_result["pages"][page_idx].get("text", ""))
+            improved_len = len(improved_page.get("text", ""))
+            if improved_len > original_len:
+                logger.info("Improved page %d", page_idx + 1)
+                ocr_result["pages"][page_idx]["text"] = improved_page.get("text", "")
+
+
 def improve_weak_pages(client: Mistral, file_path: Path, ocr_result: Dict[str, Any], model: str) -> Dict[str, Any]:
     """
     Re-OCR weak pages with low confidence or short text.
@@ -1574,15 +1619,7 @@ def improve_weak_pages(client: Mistral, file_path: Path, ocr_result: Dict[str, A
 
     logger.info("Analyzing pages for weak OCR results...")
 
-    weak_pages = []
-
-    for i, page in enumerate(ocr_result["pages"]):
-        text = page.get("text", "")
-
-        # Use enhanced weak page detection
-        if _is_weak_page(text):
-            weak_pages.append(i)
-            logger.debug("Page %s has weak OCR result (%s chars)", i + 1, len(text))
+    weak_pages = _detect_weak_pages(ocr_result)
 
     if not weak_pages:
         logger.info("No weak pages detected")
@@ -1607,7 +1644,10 @@ def improve_weak_pages(client: Mistral, file_path: Path, ocr_result: Dict[str, A
     def _refresh_url_if_needed() -> Optional[str]:
         nonlocal signed_url, upload_time
         with _url_lock:
-            if signed_url and (time.time() - upload_time) > url_ttl_seconds * 0.9:
+            if (
+                signed_url
+                and (time.time() - upload_time) > url_ttl_seconds * config.MISTRAL_SIGNED_URL_REFRESH_THRESHOLD
+            ):
                 try:
                     logger.debug("Signed URL nearing expiry, re-uploading...")
                     signed_url = upload_file_for_ocr(client, file_path)
@@ -1615,8 +1655,6 @@ def improve_weak_pages(client: Mistral, file_path: Path, ocr_result: Dict[str, A
                 except Exception as e:
                     logger.warning("Re-upload failed: %s", e)
             return signed_url
-
-    from concurrent.futures import ThreadPoolExecutor, as_completed
 
     def _improve_page(page_idx: int) -> Tuple[int, Optional[Dict[str, Any]]]:
         """Re-OCR a single page; returns (page_idx, improved_page_data) or (page_idx, None)."""
@@ -1637,24 +1675,7 @@ def improve_weak_pages(client: Mistral, file_path: Path, ocr_result: Dict[str, A
             logger.warning("Error improving page %d: %s", page_idx + 1, e)
         return page_idx, None
 
-    max_workers = min(len(weak_pages), _MAX_WEAK_PAGE_WORKERS)
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(_improve_page, idx): idx for idx in weak_pages}
-        for future in as_completed(futures):
-            try:
-                page_idx, improved_page = future.result()
-            except Exception as e:
-                logger.warning("Unexpected error retrieving page improvement result: %s", e)
-                continue
-            if improved_page is None:
-                continue
-            original_len = len(ocr_result["pages"][page_idx].get("text", ""))
-            improved_len = len(improved_page.get("text", ""))
-            if improved_len > original_len:
-                logger.info("Improved page %d", page_idx + 1)
-                # Merge: update text only, preserve original metadata
-                # (tables, hyperlinks, headers, footers, dimensions)
-                ocr_result["pages"][page_idx]["text"] = improved_page.get("text", "")
+    _run_weak_page_improvements(weak_pages, _improve_page, ocr_result)
 
     # Rebuild full text
     ocr_result["full_text"] = "\n\n".join(page.get("text", "") for page in ocr_result["pages"])
@@ -1863,6 +1884,11 @@ def convert_with_mistral_ocr(
                 error = None
                 from_cache = True
             else:
+                logger.warning(
+                    "Cached OCR result for %s is not a dict (type=%s), invalidating and re-processing",
+                    file_path.name,
+                    type(cached_result).__name__,
+                )
                 success, ocr_result, error = process_with_ocr(client, file_path)
         else:
             if cache_entry and not mistral_ocr_cache_contract_matches(cache_entry.get("metadata"), contract):
@@ -2072,102 +2098,39 @@ def mistral_ocr_cache_contract_matches(stored: Any, current: Dict[str, Any]) -> 
     return True
 
 
-def _validate_document_url(url: str) -> Tuple[bool, Optional[str]]:
-    """
-    Validate a document URL to prevent SSRF attacks.
-
-    Rejects non-HTTPS URLs, URLs with embedded credentials, and URLs
-    pointing to private/internal networks (IPv4 and IPv6).
-
-    Args:
-        url: URL to validate
-
-    Returns:
-        Tuple of (is_valid, error_message)
-    """
-    import ipaddress
-    import socket
-    from urllib.parse import urlparse
-
-    def _is_forbidden_address(addr: Any) -> bool:
-        if addr.is_private or addr.is_reserved or addr.is_loopback or addr.is_link_local or addr.is_multicast:
+def _is_forbidden_address(addr: Any) -> bool:
+    """Return True if *addr* points to a private/internal/reserved network."""
+    if addr.is_private or addr.is_reserved or addr.is_loopback or addr.is_link_local or addr.is_multicast:
+        return True
+    if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:
+        mapped = addr.ipv4_mapped
+        if mapped.is_private or mapped.is_loopback or mapped.is_reserved or mapped.is_link_local:
             return True
-        # IPv6-mapped IPv4 (e.g. ::ffff:127.0.0.1)
-        if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:
-            mapped = addr.ipv4_mapped
-            if mapped.is_private or mapped.is_loopback or mapped.is_reserved or mapped.is_link_local:
-                return True
-        return False
+    return False
 
-    def _validate_ip_str(ip_str: str, source: str) -> Tuple[bool, Optional[str]]:
-        try:
-            addr = ipaddress.ip_address(ip_str)
-        except ValueError:
-            return True, None
-        if _is_forbidden_address(addr):
-            return (
-                False,
-                f"URLs pointing to private/internal networks are not allowed: {source}",
-            )
-        return True, None
 
+def _validate_ip_str(ip_str: str, source: str) -> Tuple[bool, Optional[str]]:
+    """Return (False, error) if *ip_str* resolves to a forbidden address."""
     try:
-        parsed = urlparse(url)
-    except Exception:
-        return False, "Invalid URL format"
+        addr = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return True, None
+    if _is_forbidden_address(addr):
+        return (
+            False,
+            f"URLs pointing to private/internal networks are not allowed: {source}",
+        )
+    return True, None
 
-    # Require HTTPS
-    if parsed.scheme not in ("https",):
-        return False, f"Only HTTPS URLs are allowed (got {parsed.scheme}://)"
 
-    # Reject embedded credentials (userinfo component)
-    if parsed.username or parsed.password:
-        return False, "URLs with embedded credentials are not allowed"
-
-    hostname = (parsed.hostname or "").lower()
-    if not hostname:
-        return False, "URL must include a hostname"
-
-    blocked_hosts = {
-        "localhost",
-        "127.0.0.1",
-        "0.0.0.0",
-        "::1",
-        "[::1]",
-        "metadata.google.internal",
-        "169.254.169.254",  # AWS/cloud metadata endpoint
-        "metadata.google.internal.",  # trailing dot variant
-    }
-    if hostname in blocked_hosts:
-        return False, f"URLs pointing to internal hosts are not allowed: {hostname}"
-
-    # Fast path: direct IP literal
-    ok, err = _validate_ip_str(hostname.strip("[]"), hostname)
-    if not ok:
-        return ok, err
-
-    # Defense-in-depth: resolve hostname and reject if any resolved address is internal.
-    # If DNS resolution fails locally, defer handling to the upstream request.
-    # NOTE (TOCTOU): This local check cannot prevent DNS rebinding where the
-    # hostname resolves to a different address when Mistral's servers later
-    # fetch the URL.  It remains valuable as a first-pass filter against
-    # obvious internal targets.
-    # Resolve DNS with a per-call timeout.  We avoid socket.setdefaulttimeout()
-    # because it mutates process-global state and is not thread-safe (concurrent
-    # workers in improve_weak_pages could clobber or inherit the 5-second value).
-    #
-    # Use a fresh single-worker executor per lookup (not a process-wide singleton):
-    # if getaddrinfo blocks past *timeout*, the worker thread can stay stuck in the
-    # libc resolver until the OS returns. A shared pool with max_workers=1 would
-    # serialize all later lookups behind that stuck task; their result() calls would
-    # time out and (with strict DNS off) fall through to accepting the URL without
-    # any DNS validation.
+def _resolve_and_validate_dns(hostname: str) -> Tuple[bool, Optional[str]]:
+    """Resolve *hostname* via DNS and reject any private/internal addresses."""
     try:
         _pool = ThreadPoolExecutor(max_workers=1)
         try:
             _future = _pool.submit(socket.getaddrinfo, hostname, None, proto=socket.IPPROTO_TCP)
             try:
-                infos = _future.result(timeout=5)
+                infos = _future.result(timeout=config.MISTRAL_DOCUMENT_URL_DNS_TIMEOUT_SECONDS)
             except DnsTimeoutError:
                 raise socket.timeout("DNS resolution timed out")
             resolved_ips = {info[4][0] for info in infos if info and info[4]}
@@ -2191,7 +2154,7 @@ def _validate_document_url(url: str) -> Tuple[bool, Optional[str]]:
                 f"DNS resolution timed out in strict document URL mode: {hostname}",
             )
         logger.debug("DNS resolution timed out for %s", hostname)
-    except Exception as e:
+    except (OSError, socket.error) as e:
         if config.MISTRAL_DOCUMENT_URL_STRICT_DNS:
             return (
                 False,
@@ -2200,6 +2163,54 @@ def _validate_document_url(url: str) -> Tuple[bool, Optional[str]]:
         logger.debug("DNS resolution check skipped for %s: %s", hostname, e)
 
     return True, None
+
+
+def _validate_document_url(url: str) -> Tuple[bool, Optional[str]]:
+    """
+    Validate a document URL to prevent SSRF attacks.
+
+    Rejects non-HTTPS URLs, URLs with embedded credentials, and URLs
+    pointing to private/internal networks (IPv4 and IPv6).
+
+    Args:
+        url: URL to validate
+
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False, "Invalid URL format"
+
+    if parsed.scheme not in ("https",):
+        return False, f"Only HTTPS URLs are allowed (got {parsed.scheme}://)"
+
+    if parsed.username or parsed.password:
+        return False, "URLs with embedded credentials are not allowed"
+
+    hostname = (parsed.hostname or "").lower()
+    if not hostname:
+        return False, "URL must include a hostname"
+
+    blocked_hosts = {
+        "localhost",
+        "127.0.0.1",
+        "0.0.0.0",
+        "::1",
+        "[::1]",
+        "metadata.google.internal",
+        "169.254.169.254",
+        "metadata.google.internal.",
+    }
+    if hostname in blocked_hosts:
+        return False, f"URLs pointing to internal hosts are not allowed: {hostname}"
+
+    ok, err = _validate_ip_str(hostname.strip("[]"), hostname)
+    if not ok:
+        return ok, err
+
+    return _resolve_and_validate_dns(hostname)
 
 
 def validate_https_document_url(url: str) -> Tuple[bool, Optional[str]]:
@@ -2397,8 +2408,64 @@ def query_document_file(
 
 # ============================================================================
 # Batch OCR Processing (NEW - from updated Mistral docs)
-# Process multiple documents at 50% cost reduction using Batch API
+# Process multiple documents at reduced cost using Batch API
 # ============================================================================
+
+
+def _prepare_batch_entries(
+    client: Any,
+    file_paths: List[Path],
+    model: str,
+    include_image_base64: bool,
+    batch_signed_url_expiry: int,
+) -> Tuple[List[Dict[str, Any]], List[str], Optional[str]]:
+    """Upload files and build JSONL entries; returns (entries, uploaded_ids, error_or_None)."""
+    entries: List[Dict[str, Any]] = []
+    uploaded_file_ids: List[str] = []
+
+    for idx, file_path in enumerate(file_paths):
+        pair = _upload_file_for_ocr_pair(client, file_path, expiry_hours=batch_signed_url_expiry)
+        if not pair:
+            logger.warning("Failed to upload %s, skipping...", file_path.name)
+            if config.MISTRAL_BATCH_STRICT:
+                _delete_ocr_file_ids(client, uploaded_file_ids)
+                return (
+                    [],
+                    [],
+                    f"Batch strict mode: upload failed for {file_path.name}",
+                )
+            continue
+
+        signed_url, file_id = pair
+        uploaded_file_ids.append(file_id)
+
+        ext = file_path.suffix.lower().lstrip(".")
+        is_image = ext in config.IMAGE_EXTENSIONS
+
+        custom_id = f"{idx}_{utils.safe_output_stem(file_path)}"
+        if is_image:
+            document = {"type": "image_url", "image_url": signed_url}
+        else:
+            document = {
+                "type": "document_url",
+                "document_url": signed_url,
+                "document_name": file_path.name,
+            }
+
+        body = build_ocr_process_kwargs(
+            document=document,
+            model=model,
+            include_retries=False,
+            pages=None,
+            request_id=custom_id,
+        )
+        body["include_image_base64"] = include_image_base64
+
+        entry = {"custom_id": custom_id, "body": body}
+        entries.append(entry)
+        logger.debug("Added %s to batch (id: %s)", file_path.name, custom_id)
+
+    return entries, uploaded_file_ids, None
 
 
 def create_batch_ocr_file(
@@ -2411,7 +2478,7 @@ def create_batch_ocr_file(
     Create a JSONL batch file for OCR processing.
 
     This creates a file in the format required by Mistral's Batch API
-    for processing multiple documents at 50% reduced cost.
+    for processing multiple documents at reduced cost.
 
     Args:
         file_paths: List of file paths to process
@@ -2441,59 +2508,19 @@ def create_batch_ocr_file(
     if include_image_base64 is None:
         include_image_base64 = config.MISTRAL_INCLUDE_IMAGES
 
-    # Use a signed-URL expiry that outlasts the batch timeout
     batch_signed_url_expiry = max(
         config.MISTRAL_SIGNED_URL_EXPIRY,
         config.MISTRAL_BATCH_TIMEOUT_HOURS + 1,
     )
 
-    uploaded_file_ids: List[str] = []
     try:
         logger.info("Creating batch OCR file for %s documents...", len(file_paths))
 
-        entries = []
-
-        for idx, file_path in enumerate(file_paths):
-            pair = _upload_file_for_ocr_pair(client, file_path, expiry_hours=batch_signed_url_expiry)
-            if not pair:
-                logger.warning("Failed to upload %s, skipping...", file_path.name)
-                if config.MISTRAL_BATCH_STRICT:
-                    _delete_ocr_file_ids(client, uploaded_file_ids)
-                    return (
-                        False,
-                        None,
-                        f"Batch strict mode: upload failed for {file_path.name}",
-                    )
-                continue
-
-            signed_url, file_id = pair
-            uploaded_file_ids.append(file_id)
-
-            ext = file_path.suffix.lower().lstrip(".")
-            is_image = ext in config.IMAGE_EXTENSIONS
-
-            custom_id = f"{idx}_{utils.safe_output_stem(file_path)}"
-            if is_image:
-                document = {"type": "image_url", "image_url": signed_url}
-            else:
-                document = {
-                    "type": "document_url",
-                    "document_url": signed_url,
-                    "document_name": file_path.name,
-                }
-
-            body = build_ocr_process_kwargs(
-                document=document,
-                model=model,
-                include_retries=False,
-                pages=None,
-                request_id=custom_id,
-            )
-            body["include_image_base64"] = include_image_base64
-
-            entry = {"custom_id": custom_id, "body": body}
-            entries.append(entry)
-            logger.debug("Added %s to batch (id: %s)", file_path.name, custom_id)
+        entries, uploaded_file_ids, prep_error = _prepare_batch_entries(
+            client, file_paths, model, include_image_base64, batch_signed_url_expiry
+        )
+        if prep_error:
+            return False, None, prep_error
 
         if not entries:
             _delete_ocr_file_ids(client, uploaded_file_ids)
@@ -2502,20 +2529,16 @@ def create_batch_ocr_file(
         # Write JSONL (signed URLs). Prefer writing under ``config.CACHE_DIR`` (POSIX
         # 0o700 from ``ensure_directories``). On Windows, tighten ACLs on ``cache/``
         # or the output path if these URLs must stay secret on disk.
-        import os as _os
-        import sys as _sys
-
         content = "".join(json.dumps(entry) + "\n" for entry in entries)
         utils.atomic_write_text(output_file, content)
 
-        if _sys.platform != "win32":
-            _os.chmod(output_file, 0o600)
+        if sys.platform != "win32":
+            os.chmod(output_file, 0o600)
 
         logger.info("Created batch file with %s entries: %s", len(entries), output_file)
         return True, output_file, None
 
     except Exception as e:
-        _delete_ocr_file_ids(client, uploaded_file_ids)
         error_msg = f"Error creating batch OCR file: {e}"
         logger.error(error_msg)
         return False, None, error_msg
@@ -2582,7 +2605,7 @@ def submit_batch_ocr_job(
         if metadata:
             job_params["metadata"] = metadata
 
-        if config.MISTRAL_BATCH_TIMEOUT_HOURS != 24:  # Only pass if non-default
+        if config.MISTRAL_BATCH_TIMEOUT_HOURS != config.MISTRAL_BATCH_DEFAULT_TIMEOUT_HOURS:
             job_params["timeout_hours"] = config.MISTRAL_BATCH_TIMEOUT_HOURS
 
         created_job = client.batch.jobs.create(**job_params)

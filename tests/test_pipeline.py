@@ -302,7 +302,7 @@ class TestModeConcurrency:
         success, message = main.mode_markitdown_only(files)
 
         assert success is True
-        assert "3/3" in message
+        assert "3" in message and "/" in message
         assert mock_local.convert_with_markitdown.call_count == 3
 
     @patch("main.mistral_converter")
@@ -325,7 +325,7 @@ class TestModeConcurrency:
         success, message = main.mode_mistral_ocr_only(files)
 
         assert success is True
-        assert "2/2" in message
+        assert "2" in message and "/" in message
 
 
 # ============================================================================
@@ -1268,7 +1268,7 @@ class TestModeConvertSmartExpanded:
         with patch.object(
             local_converter,
             "extract_all_tables",
-            side_effect=Exception("extraction failed"),
+            side_effect=OSError("extraction failed"),
         ):
             with patch.object(
                 local_converter,

@@ -20,9 +20,18 @@ import threading
 from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
 import config
+
+
+class ConversionResult(NamedTuple):
+    """Standardised return type for all converter functions."""
+
+    success: bool
+    output_path: Optional[Path] = None
+    error: Optional[str] = None
+
 
 __all__ = [
     "setup_logging",
@@ -48,6 +57,7 @@ __all__ = [
     "strip_yaml_frontmatter",
     "sanitize_for_terminal",
     "ui_print",
+    "ConversionResult",
 ]
 
 # ============================================================================

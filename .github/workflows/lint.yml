@@ -36,3 +36,7 @@ jobs:
       run: |
         python -m isort --check-only .
 
+    - name: Run pyright
+      run: |
+        python -m pyright
+

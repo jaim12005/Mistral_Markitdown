@@ -12,6 +12,7 @@ Documentation references:
 """
 
 import logging
+from decimal import Decimal
 from typing import Any, Dict, List, Optional, Type
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -127,8 +128,10 @@ class InvoiceDetails(_BaseSchema):
     """Invoice details for extraction."""
 
     invoice_number: str = Field(..., description="Invoice number")
-    invoice_date: str = Field(..., description="Invoice date (ISO format)")
-    due_date: Optional[str] = Field(None, description="Payment due date")
+    invoice_date: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$", description="Invoice date (ISO 8601, YYYY-MM-DD)")
+    due_date: Optional[str] = Field(
+        None, pattern=r"^\d{4}-\d{2}-\d{2}$", description="Payment due date (ISO 8601, YYYY-MM-DD)"
+    )
     purchase_order: Optional[str] = Field(None, description="PO number if applicable")
 
 
@@ -136,18 +139,18 @@ class LineItem(_BaseSchema):
     """Line item for invoice extraction."""
 
     description: str = Field(..., description="Item description")
-    quantity: Optional[float] = Field(None, description="Quantity")
-    unit_price: Optional[float] = Field(None, description="Unit price")
-    amount: float = Field(..., description="Total amount for this line")
-    tax_rate: Optional[float] = Field(None, description="Tax rate if applicable")
+    quantity: Optional[Decimal] = Field(None, description="Quantity")
+    unit_price: Optional[Decimal] = Field(None, description="Unit price")
+    amount: Decimal = Field(..., description="Total amount for this line")
+    tax_rate: Optional[Decimal] = Field(None, description="Tax rate if applicable")
 
 
 class InvoiceTotals(_BaseSchema):
     """Invoice totals for extraction."""
 
-    subtotal: Optional[float] = Field(None, description="Subtotal before tax")
-    tax: Optional[float] = Field(None, description="Total tax amount")
-    total: float = Field(..., description="Total amount due")
+    subtotal: Optional[Decimal] = Field(None, description="Subtotal before tax")
+    tax: Optional[Decimal] = Field(None, description="Total tax amount")
+    total: Decimal = Field(..., description="Total amount due")
     currency: Optional[str] = Field(None, description="Currency code (USD, EUR, etc.)")
 
 
@@ -178,7 +181,9 @@ class GenericDocument(_BaseSchema):
     document_type: str = Field(..., description="Type or category of document")
     title: Optional[str] = Field(None, description="Document title")
     authors: Optional[List[str]] = Field(None, description="Document authors or creators")
-    date: Optional[str] = Field(None, description="Document date (ISO format)")
+    date: Optional[str] = Field(
+        None, pattern=r"^\d{4}-\d{2}-\d{2}$", description="Document date (ISO 8601, YYYY-MM-DD)"
+    )
     sections: Optional[List[DocumentSection]] = Field(None, description="Document sections and headings")
     summary: Optional[str] = Field(None, description="Brief document summary")
 
@@ -195,8 +200,10 @@ class CompanyInfo(_BaseSchema):
 class StatementPeriod(_BaseSchema):
     """Reporting period for financial statement extraction."""
 
-    start_date: Optional[str] = Field(None, description="Period start (ISO format)")
-    end_date: str = Field(..., description="Period end (ISO format)")
+    start_date: Optional[str] = Field(
+        None, pattern=r"^\d{4}-\d{2}-\d{2}$", description="Period start (ISO 8601, YYYY-MM-DD)"
+    )
+    end_date: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$", description="Period end (ISO 8601, YYYY-MM-DD)")
     fiscal_year: Optional[int] = Field(None, description="Fiscal year")
 
 
@@ -206,20 +213,20 @@ class AccountEntry(_BaseSchema):
     account_number: Optional[str] = Field(None, description="Account number")
     account_name: str = Field(..., description="Account name")
     category: Optional[str] = Field(None, description="Category: Assets, Liabilities, Revenue, etc.")
-    debit: Optional[float] = Field(None, description="Debit amount")
-    credit: Optional[float] = Field(None, description="Credit amount")
-    balance: Optional[float] = Field(None, description="Account balance")
+    debit: Optional[Decimal] = Field(None, description="Debit amount")
+    credit: Optional[Decimal] = Field(None, description="Credit amount")
+    balance: Optional[Decimal] = Field(None, description="Account balance")
 
 
 class StatementTotals(_BaseSchema):
     """Aggregate totals for financial statement extraction."""
 
-    total_assets: Optional[float] = Field(None, description="Total assets")
-    total_liabilities: Optional[float] = Field(None, description="Total liabilities")
-    total_equity: Optional[float] = Field(None, description="Total equity")
-    total_revenue: Optional[float] = Field(None, description="Total revenue")
-    total_expenses: Optional[float] = Field(None, description="Total expenses")
-    net_income: Optional[float] = Field(None, description="Net income")
+    total_assets: Optional[Decimal] = Field(None, description="Total assets")
+    total_liabilities: Optional[Decimal] = Field(None, description="Total liabilities")
+    total_equity: Optional[Decimal] = Field(None, description="Total equity")
+    total_revenue: Optional[Decimal] = Field(None, description="Total revenue")
+    total_expenses: Optional[Decimal] = Field(None, description="Total expenses")
+    net_income: Optional[Decimal] = Field(None, description="Net income")
 
 
 class FinancialStatementDocument(_BaseSchema):
@@ -249,10 +256,18 @@ class ContractParty(_BaseSchema):
 class ContractDates(_BaseSchema):
     """Key dates in a contract."""
 
-    effective_date: Optional[str] = Field(None, description="Date the contract takes effect (ISO format)")
-    expiration_date: Optional[str] = Field(None, description="Date the contract expires (ISO format)")
-    execution_date: Optional[str] = Field(None, description="Date the contract was signed (ISO format)")
-    renewal_date: Optional[str] = Field(None, description="Next renewal date if applicable (ISO format)")
+    effective_date: Optional[str] = Field(
+        None, pattern=r"^\d{4}-\d{2}-\d{2}$", description="Date the contract takes effect (ISO 8601, YYYY-MM-DD)"
+    )
+    expiration_date: Optional[str] = Field(
+        None, pattern=r"^\d{4}-\d{2}-\d{2}$", description="Date the contract expires (ISO 8601, YYYY-MM-DD)"
+    )
+    execution_date: Optional[str] = Field(
+        None, pattern=r"^\d{4}-\d{2}-\d{2}$", description="Date the contract was signed (ISO 8601, YYYY-MM-DD)"
+    )
+    renewal_date: Optional[str] = Field(
+        None, pattern=r"^\d{4}-\d{2}-\d{2}$", description="Next renewal date if applicable (ISO 8601, YYYY-MM-DD)"
+    )
 
 
 class ContractClause(_BaseSchema):
@@ -296,7 +311,7 @@ class FormSignature(_BaseSchema):
 
     signer_name: Optional[str] = Field(None, description="Name of the signer")
     title: Optional[str] = Field(None, description="Title or role of the signer")
-    date: Optional[str] = Field(None, description="Date signed (ISO format)")
+    date: Optional[str] = Field(None, pattern=r"^\d{4}-\d{2}-\d{2}$", description="Date signed (ISO 8601, YYYY-MM-DD)")
     is_signed: Optional[bool] = Field(None, description="Whether the field has been signed")
 
 

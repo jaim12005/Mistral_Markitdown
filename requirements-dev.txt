@@ -14,6 +14,7 @@ pytest-xdist~=3.8  # Parallel test execution
 flake8~=7.3
 black~=26.3
 isort~=8.0
+pyright~=1.1
 
 # Security Auditing
 pip-audit>=2.0.0

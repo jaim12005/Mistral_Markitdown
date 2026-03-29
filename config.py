@@ -236,7 +236,7 @@ MISTRAL_DOCUMENT_QNA_MODEL = os.getenv("MISTRAL_DOCUMENT_QNA_MODEL", "mistral-sm
 MISTRAL_INCLUDE_IMAGES = _safe_bool("MISTRAL_INCLUDE_IMAGES", True)
 SAVE_MISTRAL_JSON = _safe_bool("SAVE_MISTRAL_JSON", True)
 
-# Batch OCR configuration (50% cost reduction for bulk processing)
+# Batch OCR configuration (reduced cost for bulk processing)
 MISTRAL_BATCH_ENABLED = _safe_bool("MISTRAL_BATCH_ENABLED", True)
 MISTRAL_BATCH_MIN_FILES = _safe_int("MISTRAL_BATCH_MIN_FILES", 10, min_val=1)
 
@@ -258,6 +258,16 @@ OCR_MIN_AVG_LINE_LENGTH = _safe_int("OCR_MIN_AVG_LINE_LENGTH", 10)
 # Quality assessment controls
 ENABLE_OCR_QUALITY_ASSESSMENT = _safe_bool("ENABLE_OCR_QUALITY_ASSESSMENT", True)
 ENABLE_OCR_WEAK_PAGE_IMPROVEMENT = _safe_bool("ENABLE_OCR_WEAK_PAGE_IMPROVEMENT", True)
+
+# Quality scoring point deductions (max total deduction = 100).
+OCR_QUALITY_PENALTY_WEAK_PAGES_MAX = _safe_int("OCR_QUALITY_PENALTY_WEAK_PAGES_MAX", 50)
+OCR_QUALITY_PENALTY_HIGH_REPETITION = _safe_int("OCR_QUALITY_PENALTY_HIGH_REPETITION", 30)
+
+# Weak page improvement concurrency
+OCR_MAX_WEAK_PAGE_WORKERS = _safe_int("OCR_MAX_WEAK_PAGE_WORKERS", 3, min_val=1)
+
+# Signed URL refresh threshold (fraction of TTL at which to re-upload, 0.0-1.0)
+MISTRAL_SIGNED_URL_REFRESH_THRESHOLD = _safe_float("MISTRAL_SIGNED_URL_REFRESH_THRESHOLD", 0.9, min_val=0.1)
 
 MISTRAL_ENABLE_STRUCTURED_OUTPUT = _safe_bool("MISTRAL_ENABLE_STRUCTURED_OUTPUT", True)
 
@@ -395,9 +405,11 @@ MISTRAL_QNA_DOCUMENT_PAGE_LIMIT = _safe_int("MISTRAL_QNA_DOCUMENT_PAGE_LIMIT", 0
 MISTRAL_QNA_MAX_FILE_SIZE_MB = _safe_int("MISTRAL_QNA_MAX_FILE_SIZE_MB", 50, min_val=1)
 # When true, QnA document URLs must pass local DNS resolution (fail closed on lookup/timeout errors)
 MISTRAL_DOCUMENT_URL_STRICT_DNS = _safe_bool("MISTRAL_DOCUMENT_URL_STRICT_DNS", False)
+MISTRAL_DOCUMENT_URL_DNS_TIMEOUT_SECONDS = _safe_int("MISTRAL_DOCUMENT_URL_DNS_TIMEOUT_SECONDS", 5, min_val=1)
 
 # Batch processing advanced configuration
 MISTRAL_BATCH_TIMEOUT_HOURS = _safe_int("MISTRAL_BATCH_TIMEOUT_HOURS", 24, min_val=1)
+MISTRAL_BATCH_DEFAULT_TIMEOUT_HOURS = 24  # Default batch timeout used when comparing custom values
 
 # Fail batch file creation if any input upload fails (default: allow partial batches)
 MISTRAL_BATCH_STRICT = _safe_bool("MISTRAL_BATCH_STRICT", False)
