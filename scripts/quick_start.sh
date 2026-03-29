@@ -63,6 +63,12 @@ echo "This process is logged to logs/pip_install.log"
 
 pip install -r requirements.txt >> logs/pip_install.log 2>&1
 
+if [ -f "requirements-optional.txt" ]; then
+    echo "Installing optional dependencies (audio, YouTube, etc.)..."
+    pip install -r requirements-optional.txt >> logs/pip_install.log 2>&1 || \
+        echo "WARNING: Some optional dependencies failed to install. See logs/pip_install.log"
+fi
+
 echo ""
 echo "[5/5] Verifying installation..."
 pip check > logs/pip_check.log 2>&1 || echo "WARNING: Some package conflicts detected. See logs/pip_check.log"

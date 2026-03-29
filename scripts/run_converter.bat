@@ -70,11 +70,13 @@ echo This process is logged to logs\pip_install.log
 echo Installing core dependencies from requirements.txt...
 env\Scripts\python.exe -m pip install -r requirements.txt >> logs\pip_install.log 2>&1
 
-REM Optional: Install development dependencies (uncomment if needed)
-REM env\Scripts\python.exe -m pip install -r requirements-dev.txt >> logs\pip_install.log 2>&1
-
-REM Optional: Install optional features (uncomment if needed)
-REM env\Scripts\python.exe -m pip install -r requirements-optional.txt >> logs\pip_install.log 2>&1
+echo Installing optional dependencies (audio, YouTube, etc.)...
+if exist "requirements-optional.txt" (
+    env\Scripts\python.exe -m pip install -r requirements-optional.txt >> logs\pip_install.log 2>&1
+    if errorlevel 1 (
+        echo WARNING: Some optional dependencies failed to install. See logs\pip_install.log
+    )
+)
 
 echo.
 echo [5/5] Verifying installation...

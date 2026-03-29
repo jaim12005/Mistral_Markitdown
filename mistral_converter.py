@@ -316,7 +316,7 @@ def get_mistral_client() -> Optional[Mistral]:
             return None
 
         try:
-            client_kwargs = {"api_key": config.MISTRAL_API_KEY}
+            client_kwargs: Dict[str, Any] = {"api_key": config.MISTRAL_API_KEY}
 
             if config.MISTRAL_SERVER_URL:
                 client_kwargs["server_url"] = config.MISTRAL_SERVER_URL
@@ -465,7 +465,7 @@ def get_bbox_annotation_format() -> Optional[Dict[str, Any]]:
         try:
             fmt = response_format_from_pydantic_model(pydantic_model)
             logger.debug("Using SDK response_format_from_pydantic_model for bbox annotation")
-            return fmt
+            return dict(fmt)  # type: ignore[arg-type]
         except Exception as e:
             logger.debug("SDK helper failed for bbox annotation: %s, falling back...", e)
 
@@ -524,7 +524,7 @@ def get_document_annotation_format(doc_type: str = "auto") -> Optional[Dict[str,
                 "Using SDK response_format_from_pydantic_model for document annotation (type: %s)",
                 doc_type,
             )
-            return fmt
+            return dict(fmt)  # type: ignore[arg-type]
         except Exception as e:
             logger.debug("SDK helper failed for document annotation: %s, falling back...", e)
 
@@ -2133,7 +2133,7 @@ def _resolve_and_validate_dns(hostname: str) -> Tuple[bool, Optional[str]]:
                 infos = _future.result(timeout=config.MISTRAL_DOCUMENT_URL_DNS_TIMEOUT_SECONDS)
             except DnsTimeoutError:
                 raise socket.timeout("DNS resolution timed out")
-            resolved_ips = {info[4][0] for info in infos if info and info[4]}
+            resolved_ips = {str(info[4][0]) for info in infos if info and info[4]}
             for ip in resolved_ips:
                 ok, err = _validate_ip_str(ip, f"{hostname} -> {ip}")
                 if not ok:
@@ -2290,7 +2290,7 @@ def query_document(
         https://docs.mistral.ai/capabilities/document_ai/document_qna
     """
     ok, client, params, err = _prepare_qna_call(document_url, question, model)
-    if not ok:
+    if not ok or client is None or params is None:
         return False, None, err
 
     try:
@@ -2335,7 +2335,7 @@ def query_document_stream(
         Tuple of (success, event_stream_or_None, error_message)
     """
     ok, client, params, err = _prepare_qna_call(document_url, question, model)
-    if not ok:
+    if not ok or client is None or params is None:
         return False, None, err
 
     try:

@@ -587,7 +587,8 @@ def mode_document_qna(
         ok, msg = _ask_with_retry(question, qna_use_stream)
         if not ok:
             return False, msg
-        return True, f"Asked 1 question ({'URL' if url_mode else file_path.name})"
+        label = "URL" if url_mode else (file_path.name if file_path else "document")
+        return True, f"Asked 1 question ({label})"
 
     utils.ui_print("Type 'exit' or 'quit' to return to menu.\n")
 

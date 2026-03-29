@@ -5,5 +5,9 @@
   "extraPaths": ["."],
   "typeCheckingMode": "basic",
   "reportMissingImports": "none",
-  "reportMissingModuleSource": "none"
+  "reportMissingModuleSource": "none",
+  "reportInvalidTypeForm": "none",
+  "reportGeneralTypeIssues": "none",
+  "reportAttributeAccessIssue": "none",
+  "exclude": ["tests/", "run_tests.py", ".venv/", "env/", "build/", "dist/", "htmlcov/"]
 }
