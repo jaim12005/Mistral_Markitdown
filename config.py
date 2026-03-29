@@ -234,7 +234,7 @@ MISTRAL_DOCUMENT_QNA_MODEL = os.getenv("MISTRAL_DOCUMENT_QNA_MODEL", "mistral-sm
 
 # OCR options
 MISTRAL_INCLUDE_IMAGES = _safe_bool("MISTRAL_INCLUDE_IMAGES", True)
-SAVE_MISTRAL_JSON = _safe_bool("SAVE_MISTRAL_JSON", True)
+SAVE_MISTRAL_JSON = _safe_bool("SAVE_MISTRAL_JSON", False)
 
 # Batch OCR configuration (reduced cost for bulk processing)
 MISTRAL_BATCH_ENABLED = _safe_bool("MISTRAL_BATCH_ENABLED", True)
@@ -433,9 +433,9 @@ RETRY_CONNECTION_ERRORS = _safe_bool("RETRY_CONNECTION_ERRORS", True)
 # Output Configuration
 # ============================================================================
 
-GENERATE_TXT_OUTPUT = _safe_bool("GENERATE_TXT_OUTPUT", True)
+GENERATE_TXT_OUTPUT = _safe_bool("GENERATE_TXT_OUTPUT", False)
 INCLUDE_METADATA = _safe_bool("INCLUDE_METADATA", True)
-TABLE_OUTPUT_FORMATS = _safe_csv("TABLE_OUTPUT_FORMATS", "markdown,csv")
+TABLE_OUTPUT_FORMATS = _safe_csv("TABLE_OUTPUT_FORMATS", "")
 # Reserved for future batch job metadata files; no code path writes them yet (``.env`` compat only).
 ENABLE_BATCH_METADATA = _safe_bool("ENABLE_BATCH_METADATA", True)
 

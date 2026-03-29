@@ -490,6 +490,7 @@ class TestSaveTablesToFiles:
         monkeypatch.setattr(config, "OUTPUT_MD_DIR", tmp_path)
         monkeypatch.setattr(config, "INCLUDE_METADATA", False)
         monkeypatch.setattr(config, "INPUT_DIR", tmp_path)
+        monkeypatch.setattr(config, "TABLE_OUTPUT_FORMATS", ["markdown"])
 
         pdf_file = tmp_path / "report.pdf"
         pdf_file.touch()
